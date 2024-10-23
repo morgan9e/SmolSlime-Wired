@@ -6,51 +6,43 @@
     },
     "configurePresets": [
         {
-            "name": "build",
+            "name": "build_nrf52840dk_nrf52840",
             "displayName": "Build for nRF52840 DK NRF52840",
             "generator": "Ninja",
-            "binaryDir": "${sourceDir}/build",
+            "binaryDir": "${sourceDir}/build_nrf52840dk_nrf52840",
             "cacheVariables": {
                 "NCS_TOOLCHAIN_VERSION": "NONE",
-                "BOARD": "nrf52840dk_nrf52840",
-                "BOARD_ROOT": "${sourceDir}/;${sourceParentDir}/central;${sourceParentDir}/peripheral",
-                "CACHED_CONF_FILE": "${sourceDir}/prj.conf"
+                "BOARD": "nrf52840dk_nrf52840"
             }
         },
         {
-            "name": "build_1",
-            "displayName": "Build for supermini",
-            "generator": "Ninja",
-            "binaryDir": "${sourceDir}/build_1",
-            "cacheVariables": {
-                "NCS_TOOLCHAIN_VERSION": "NONE",
-                "BOARD": "supermini",
-                "BOARD_ROOT": "${sourceDir}/",
-                "CACHED_CONF_FILE": "${sourceDir}/prj.conf"
-            }
-        },
-        {
-            "name": "build_2",
-            "displayName": "Build for etee_dongle",
-            "generator": "Ninja",
-            "binaryDir": "${sourceDir}/build_2",
-            "cacheVariables": {
-                "NCS_TOOLCHAIN_VERSION": "NONE",
-                "BOARD": "etee_dongle",
-                "BOARD_ROOT": "${sourceDir}/",
-                "CACHED_CONF_FILE": "${sourceDir}/prj.conf"
-            }
-        },
-        {
-            "name": "build_3",
+            "name": "build_nrf52840dongle_nrf52840",
             "displayName": "Build for nRF52840 Dongle NRF52840",
             "generator": "Ninja",
-            "binaryDir": "${sourceDir}/build_3",
+            "binaryDir": "${sourceDir}/build_nrf52840dongle_nrf52840",
             "cacheVariables": {
                 "NCS_TOOLCHAIN_VERSION": "NONE",
-                "BOARD": "nrf52840dongle_nrf52840",
-                "BOARD_ROOT": "${sourceDir}/",
-                "CACHED_CONF_FILE": "${sourceDir}/prj.conf"
+                "BOARD": "nrf52840dongle_nrf52840"
+            }
+        },
+        {
+            "name": "build_supermini_uf2",
+            "displayName": "Build for supermini_uf2",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/build_supermini_uf2",
+            "cacheVariables": {
+                "NCS_TOOLCHAIN_VERSION": "NONE",
+                "BOARD": "supermini_uf2"
+            }
+        },
+        {
+            "name": "build_etee_dongle_uf2",
+            "displayName": "Build for etee_dongle_uf2",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/build_etee_dongle_uf2",
+            "cacheVariables": {
+                "NCS_TOOLCHAIN_VERSION": "NONE",
+                "BOARD": "etee_dongle_uf2"
             }
         }
     ]
