@@ -34,6 +34,7 @@ uint32_t* dbl_reset_mem = ((uint32_t*) DFU_DBL_RESET_MEM);
 #include <zephyr/fs/nvs.h>
 
 #include <zephyr/console/console.h>
+#include <ctype.h>
 
 static struct nvs_fs fs;
 
