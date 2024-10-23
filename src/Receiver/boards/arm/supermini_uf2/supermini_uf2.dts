@@ -5,8 +5,8 @@
 #include <nordic/nrf52840_qiaa.dtsi>
 
 / {
-	model = "etee_dongle";
-	compatible = "etee_dongle";
+	model = "supermini_uf2";
+	compatible = "supermini_uf2";
 
 	chosen {
 		zephyr,sram = &sram0;
@@ -16,9 +16,21 @@
 		zephyr,shell-uart = &cdc_acm_uart0;
 	};
 
+	// Uncomment below to Enable SW0
+	// buttons {
+	// 	compatible = "gpio-keys";
+	// 	button0: button_0 {
+	// 		gpios = <&gpio0 20 (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>;
+	// 		label = "Push button switch 0";
+	// 	};
+	// };
+
+	// aliases {
+	// 	sw0 = &button0;
+	// };
+
 	zephyr,user {
-		led-gpios = <&gpio0 7 (GPIO_ACTIVE_LOW | GPIO_OPEN_DRAIN)>;
-		// red 0.07, green 1.15, blue 1.09
+		led-gpios = <&gpio0 15 GPIO_OPEN_SOURCE>;
 	};
 };
 
@@ -52,10 +64,6 @@
 };
 
 &gpio0 {
-	status = "okay";
-};
-
-&gpio1 {
 	status = "okay";
 };
 

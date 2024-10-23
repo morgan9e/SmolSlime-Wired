@@ -1,10 +1,10 @@
 # Copyright (c) 2024 Nordic Semiconductor ASA
 # SPDX-License-Identifier: Apache-2.0
 
-if BOARD_SUPERMINI
+if BOARD_ETEE_DONGLE_UF2
 
 config BOARD
-	default "supermini"
+	default "etee_dongle_uf2"
 
 config BT_CTLR
    default BT
