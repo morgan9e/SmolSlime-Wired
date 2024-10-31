@@ -38,44 +38,16 @@ uint32_t* dbl_reset_mem = ((uint32_t*) DFU_DBL_RESET_MEM);
 
 static struct nvs_fs fs;
 
-#define NVS_PARTITION		storage_partition
-#define NVS_PARTITION_DEVICE	FIXED_PARTITION_DEVICE(NVS_PARTITION)
-#define NVS_PARTITION_OFFSET	FIXED_PARTITION_OFFSET(NVS_PARTITION)
-
-#define STORED_TRACKERS 1
-#define STORED_TRACKER_ADDR 2
-
-#define RBT_CNT_ID 2
-#define STORED_ADDR_0 3
-// 0-15 -> id 3-18
-// 0-255 -> id 3-258
-
-#include "retained.h"
-
 #define ZEPHYR_USER_NODE DT_PATH(zephyr_user)
 
 #define MAX_TRACKERS 256
 #define DETECTION_THRESHOLD 16
 
-#ifndef M_PI
-#define M_PI 3.141592653589793238462643383279502884f
-#endif
 
-// Saturate int to 16 bits
-// Optimized to a single ARM assembler instruction
-#define SATURATE_INT16(x) ((x) > 32767 ? 32767 : ((x) < -32768 ? -32768 : (x)))
 
-#define SATURATE_UINT11(x) ((x) > 2047 ? 2047 : ((x) < 0 ? 0 : (x)))
-#define SATURATE_UINT10(x) ((x) > 1023 ? 1023 : ((x) < 0 ? 0 : (x)))
+//todo
+#include "util.h"
 
-#define TO_FIXED_15(x) ((int16_t)SATURATE_INT16((x) * (1 << 15)))
-#define TO_FIXED_11(x) ((int16_t)((x) * (1 << 11)))
-#define TO_FIXED_10(x) ((int16_t)((x) * (1 << 10)))
-#define TO_FIXED_7(x) ((int16_t)SATURATE_INT16((x) * (1 << 7)))
-#define FIXED_15_TO_DOUBLE(x) (((double)(x)) / (1 << 15))
-#define FIXED_11_TO_DOUBLE(x) (((double)(x)) / (1 << 11))
-#define FIXED_10_TO_DOUBLE(x) (((double)(x)) / (1 << 10))
-#define FIXED_7_TO_DOUBLE(x) (((double)(x)) / (1 << 7))
 
 LOG_MODULE_REGISTER(main, LOG_LEVEL_INF);
 
@@ -85,19 +57,6 @@ uint64_t stored_tracker_addr[MAX_TRACKERS] = {0};
 uint8_t discovered_trackers[256] = {0};
 
 uint8_t pairing_buf[8] = {0};
-
-static struct esb_payload rx_payload;
-static struct esb_payload tx_payload = ESB_CREATE_PAYLOAD(0,
-	0, 0, 0, 0, 0, 0, 0, 0);
-static struct esb_payload tx_payload_pair = ESB_CREATE_PAYLOAD(0,
-	0, 0, 0, 0, 0, 0, 0, 0);
-static struct esb_payload tx_payload_timer = ESB_CREATE_PAYLOAD(0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
-static struct esb_payload tx_payload_sync = ESB_CREATE_PAYLOAD(0,
-	0, 0, 0, 0);
-
-const struct gpio_dt_spec led0 = GPIO_DT_SPEC_GET_OR(DT_ALIAS(led0), gpios, {0});
-const struct gpio_dt_spec led = GPIO_DT_SPEC_GET_OR(ZEPHYR_USER_NODE, led_gpios, led0);
 
 static struct k_work report_send;
 
@@ -130,197 +89,6 @@ void packet_device_addr(uint8_t *report, uint16_t id) // associate id and tracke
 	report[1] = id;
 	memcpy(&report[2], &stored_tracker_addr[id], 6);
 	memset(&report[8], 0, 8); // last 8 bytes unused for now
-}
-
-void event_handler(struct esb_evt const *event)
-{
-	switch (event->evt_id) {
-	case ESB_EVENT_TX_SUCCESS:
-		LOG_DBG("TX SUCCESS");
-		break;
-	case ESB_EVENT_TX_FAILED:
-		LOG_DBG("TX FAILED");
-		break;
-	case ESB_EVENT_RX_RECEIVED:
-	// make tx payload for ack here
-		if (!esb_read_rx_payload(&rx_payload)) {
-			switch (rx_payload.length)
-			{
-			case 8:
-				LOG_INF("RX Pairing Packet");
-				memcpy(pairing_buf, rx_payload.data, 8);
-				esb_write_payload(&tx_payload_pair); // Add to TX buffer
-				break;
-			case 16:
-				uint8_t imu_id = rx_payload.data[1];
-				if (discovered_trackers[imu_id] < DETECTION_THRESHOLD) { // garbage filtering of nonexistent tracker
-					discovered_trackers[imu_id]++;
-					return;
-				}
-				if (rx_payload.data[0] > 223) // reserved for receiver only
-					break;
-				memcpy(&report.data, &rx_payload.data, 16); // all data can be passed through
-				if (rx_payload.data[0] != 1) // packet 1 is full precision quat and accel, no room for rssi
-					report.data[15]=rx_payload.rssi;
-				// TODO: this sucks
-				for (int i = 0; i < report_count; i++) { // replace existing entry instead
-					if (reports[sizeof(report) * (report_sent + i) + 1] == report.data[1]) {
-						memcpy(&reports[sizeof(report) * (report_sent + i)], &report, sizeof(report));
-//						k_work_submit(&report_send);
-						break;
-					}
-				}
-				if (report_count > 100) // overflow
-					break;
-				memcpy(&reports[sizeof(report) * (report_sent + report_count)], &report, sizeof(report));
-				report_count++;
-//				k_work_submit(&report_send);
-				break;
-			default:
-				break;
-			}
-		} else {
-			LOG_ERR("Error while reading rx packet");
-		}
-		break;
-	}
-}
-
-int clocks_start(void)
-{
-	int err;
-	int res;
-	struct onoff_manager *clk_mgr;
-	struct onoff_client clk_cli;
-	int fetch_attempts = 0;
-
-	clk_mgr = z_nrf_clock_control_get_onoff(CLOCK_CONTROL_NRF_SUBSYS_HF);
-	if (!clk_mgr) {
-		LOG_ERR("Unable to get the Clock manager");
-		return -ENXIO;
-	}
-
-	sys_notify_init_spinwait(&clk_cli.notify);
-
-	err = onoff_request(clk_mgr, &clk_cli);
-	if (err < 0) {
-		LOG_ERR("Clock request failed: %d", err);
-		return err;
-	}
-
-	do {
-		err = sys_notify_fetch_result(&clk_cli.notify, &res);
-		if (!err && res) {
-			LOG_ERR("Clock could not be started: %d", res);
-			return res;
-		}
-		if (err && ++fetch_attempts > 10000) {
-			LOG_WRN("Unable to fetch Clock request result: %d", err);
-			return err;
-		}
-	} while (err);
-
-	LOG_DBG("HF clock started");
-	return 0;
-}
-
-// this was randomly generated
-uint8_t discovery_base_addr_0[4] = {0x62, 0x39, 0x8A, 0xF2};
-uint8_t discovery_base_addr_1[4] = {0x28, 0xFF, 0x50, 0xB8};
-uint8_t discovery_addr_prefix[8] = {0xFE, 0xFF, 0x29, 0x27, 0x09, 0x02, 0xB2, 0xD6};
-
-uint8_t base_addr_0[4] = {0,0,0,0};
-uint8_t base_addr_1[4] = {0,0,0,0};
-uint8_t addr_prefix[8] = {0,0,0,0,0,0,0,0};
-
-int esb_initialize_tx(void)
-{
-	int err;
-
-	struct esb_config config = ESB_DEFAULT_CONFIG;
-
-	// config.protocol = ESB_PROTOCOL_ESB_DPL;
-	// config.mode = ESB_MODE_PTX;
-	config.event_handler = event_handler;
-	// config.bitrate = ESB_BITRATE_2MBPS;
-	// config.crc = ESB_CRC_16BIT;
-	config.tx_output_power = 8;
-	// config.retransmit_delay = 600;
-	config.retransmit_count = 0;
-	config.tx_mode = ESB_TXMODE_MANUAL;
-	// config.payload_length = 32;
-	config.selective_auto_ack = true;
-
-	// Fast startup mode
-	NRF_RADIO->MODECNF0 |= RADIO_MODECNF0_RU_Fast << RADIO_MODECNF0_RU_Pos;
-	// nrf_radio_modecnf0_set(NRF_RADIO, true, 0);
-
-	err = esb_init(&config);
-	if (err) {
-		return err;
-	}
-
-	err = esb_set_base_address_0(base_addr_0);
-	if (err) {
-		return err;
-	}
-
-	err = esb_set_base_address_1(base_addr_1);
-	if (err) {
-		return err;
-	}
-
-	err = esb_set_prefixes(addr_prefix, ARRAY_SIZE(addr_prefix));
-	if (err) {
-		return err;
-	}
-
-	return 0;
-}
-
-int esb_initialize(void)
-{
-	int err;
-
-	struct esb_config config = ESB_DEFAULT_CONFIG;
-
-	// config.protocol = ESB_PROTOCOL_ESB_DPL;
-	config.mode = ESB_MODE_PRX;
-	config.event_handler = event_handler;
-	// config.bitrate = ESB_BITRATE_2MBPS;
-	// config.crc = ESB_CRC_16BIT;
-	config.tx_output_power = 8;
-	// config.retransmit_delay = 600;
-	// config.retransmit_count = 3;
-	// config.tx_mode = ESB_TXMODE_AUTO;
-	// config.payload_length = 32;
-	config.selective_auto_ack = true;
-
-	// Fast startup mode
-	NRF_RADIO->MODECNF0 |= RADIO_MODECNF0_RU_Fast << RADIO_MODECNF0_RU_Pos;
-	// nrf_radio_modecnf0_set(NRF_RADIO, true, 0);
-
-	err = esb_init(&config);
-	if (err) {
-		return err;
-	}
-
-	err = esb_set_base_address_0(base_addr_0);
-	if (err) {
-		return err;
-	}
-
-	err = esb_set_base_address_1(base_addr_1);
-	if (err) {
-		return err;
-	}
-
-	err = esb_set_prefixes(addr_prefix, ARRAY_SIZE(addr_prefix));
-	if (err) {
-		return err;
-	}
-
-	return 0;
 }
 
 static bool configured;
@@ -472,93 +240,6 @@ static int composite_pre_init()
 
 SYS_INIT(composite_pre_init, APPLICATION, CONFIG_KERNEL_INIT_PRIORITY_DEVICE);
 
-uint16_t led_clock = 0;
-
-static void timer_handler(nrf_timer_event_t event_type, void *p_context) {
-	if (event_type == NRF_TIMER_EVENT_COMPARE0) {
-		//esb_write_payload(&tx_payload_sync);
-		esb_start_tx();
-	} else if (event_type == NRF_TIMER_EVENT_COMPARE1) {
-		esb_stop_rx();
-		esb_disable();
-		esb_initialize_tx();
-		esb_write_payload(&tx_payload_sync);
-	} else if (event_type == NRF_TIMER_EVENT_COMPARE2) {
-		esb_disable();
-		esb_initialize();
-		esb_start_rx();
-		led_clock++;
-		led_clock%=17*600/3;
-		tx_payload_sync.data[0]=(led_clock >> 8) & 255;
-		tx_payload_sync.data[1]=led_clock & 255;
-	}
-}
-
-void timer_init(void) {
-    //nrfx_err_t err;
-	nrfx_timer_config_t timer_cfg = NRFX_TIMER_DEFAULT_CONFIG(1000000);
-	//timer_cfg.frequency = NRF_TIMER_FREQ_1MHz;
-    //timer_cfg.mode = NRF_TIMER_MODE_TIMER;
-    //timer_cfg.bit_width = NRF_TIMER_BIT_WIDTH_16;
-    //timer_cfg.interrupt_priority = NRFX_TIMER_DEFAULT_CONFIG_IRQ_PRIORITY;
-    //timer_cfg.p_context = NULL;
-	nrfx_timer_init(&m_timer, &timer_cfg, timer_handler);
-    uint32_t ticks = nrfx_timer_ms_to_ticks(&m_timer, 3);
-    nrfx_timer_extended_compare(&m_timer, NRF_TIMER_CC_CHANNEL0, ticks, NRF_TIMER_SHORT_COMPARE0_CLEAR_MASK, true); // timeslot to send sync
-    nrfx_timer_compare(&m_timer, NRF_TIMER_CC_CHANNEL1, ticks * 20 / 21, true); // switch to tx
-    nrfx_timer_compare(&m_timer, NRF_TIMER_CC_CHANNEL2, ticks * 1 / 21, true); // switch to rx
-    nrfx_timer_enable(&m_timer);
-	IRQ_DIRECT_CONNECT(TIMER1_IRQn, 0, nrfx_timer_1_irq_handler, 0);
-	irq_enable(TIMER1_IRQn);
-}
-
-#if DT_NODE_HAS_PROP(DT_ALIAS(sw0), gpios) // Alternate button if available to use as "reset key"
-const struct gpio_dt_spec button0 = GPIO_DT_SPEC_GET(DT_ALIAS(sw0), gpios);
-static struct gpio_callback button_cb_data;
-int64_t press_time;
-void button_pressed(const struct device *dev, struct gpio_callback *cb, uint32_t pins)
-{
-	if (gpio_pin_get_dt(&button0))
-	{
-		press_time = k_uptime_get();
-	}
-	else
-	{
-		if (press_time != 0 && k_uptime_get() - press_time > 50) // Debounce
-			sys_reboot(SYS_REBOOT_COLD); // treat like pin reset but without pin reset reason
-		press_time = 0;
-	}
-}
-
-bool button_init;
-void sys_button_init(void)
-{
-#if DT_NODE_HAS_PROP(DT_ALIAS(sw0), gpios) // Alternate button if available to use as "reset key"
-	if (!button_init)
-	{
-		gpio_pin_configure_dt(&button0, GPIO_INPUT);
-		gpio_pin_interrupt_configure_dt(&button0, GPIO_INT_EDGE_BOTH);
-		gpio_init_callback(&button_cb_data, button_pressed, BIT(button0.pin));
-		gpio_add_callback(button0.port, &button_cb_data);
-		button_init = true;
-	}
-#endif
-}
-
-void button_thread(void)
-{
-	sys_button_init();
-	while (1)
-	{
-		k_msleep(10);
-		if (press_time != 0 && k_uptime_get() - press_time > 50 && gpio_pin_get_dt(&button0)) // Button is being pressed
-			sys_reboot(SYS_REBOOT_COLD);
-	}
-}
-
-K_THREAD_DEFINE(button_thread_id, 256, button_thread, NULL, NULL, NULL, 6, 0, 0);
-#endif
-
 void usb_init_thread(void)
 {
 	k_msleep(1000);
@@ -570,66 +251,6 @@ void usb_init_thread(void)
 }
 
 K_THREAD_DEFINE(usb_init_thread_id, 256, usb_init_thread, NULL, NULL, NULL, 6, 0, 0);
-
-void console_thread(void)
-{
-//	console_init();
-	console_getline_init();
-	printk("*** " CONFIG_USB_DEVICE_MANUFACTURER " " CONFIG_USB_DEVICE_PRODUCT " ***\n");
-	printk("reboot                       Soft reset the device\n");
-	printk("pair                         Enter pairing mode\n");
-	printk("clear                        Clear stored devices\n");
-	printk("dfu                          Enter DFU bootloader\n");
-
-	uint8_t command_reboot[] = "reboot";
-	uint8_t command_pair[] = "pair";
-	uint8_t command_clear[] = "clear";
-	uint8_t command_dfu[] = "dfu";
-
-	uint8_t reboot_counter = 0;
-
-	while (1) {
-		uint8_t *line = console_getline();
-		for (uint8_t *p = line; *p; ++p) {
-			*p = tolower(*p);
-		}
-
-		if (memcmp(line, command_reboot, sizeof(command_reboot)) == 0) {
-			sys_reboot(SYS_REBOOT_COLD);
-		}
-		else if (memcmp(line, command_pair, sizeof(command_pair)) == 0) {
-			reboot_counter = 1;
-			nvs_write(&fs, RBT_CNT_ID, &reboot_counter, sizeof(reboot_counter));
-			sys_reboot(SYS_REBOOT_COLD);
-		}
-		else if (memcmp(line, command_clear, sizeof(command_clear)) == 0) {
-			reboot_counter = 2;
-			nvs_write(&fs, RBT_CNT_ID, &reboot_counter, sizeof(reboot_counter));
-			sys_reboot(SYS_REBOOT_COLD);
-		}
-		else if (memcmp(line, command_dfu, sizeof(command_dfu)) == 0) {
-			NRF_POWER->GPREGRET = 0x57;
-			sys_reboot(SYS_REBOOT_COLD);
-		}
-		else {
-			printk("Unknown command\n");
-		}
-	}
-}
-
-K_THREAD_DEFINE(console_thread_id, 512, console_thread, NULL, NULL, NULL, 6, 0, 0);
-
-static int nvs_init(void)
-{
-	struct flash_pages_info info;
-	fs.flash_device = NVS_PARTITION_DEVICE;
-	fs.offset = NVS_PARTITION_OFFSET; // Start NVS FS here
-	flash_get_page_info_by_offs(fs.flash_device, fs.offset, &info);
-	fs.sector_size = info.size; // Sector size equal to page size
-	fs.sector_count = 4U; // 4 sectors
-	nvs_mount(&fs);
-	return 0;
-}
 
 SYS_INIT(nvs_init, APPLICATION, CONFIG_APPLICATION_INIT_PRIORITY);
 
