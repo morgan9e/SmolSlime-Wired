@@ -2,6 +2,7 @@
 #define SLIMENRF_SYSTEM
 
 #include "system/led.h"
+#include "system/status.h"
 
 #define STORED_TRACKERS 1
 #define STORED_TRACKER_ADDR 2

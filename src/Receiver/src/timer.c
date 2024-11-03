@@ -7,21 +7,19 @@ uint16_t led_clock = 0;
 
 void timer_handler(nrf_timer_event_t event_type, void *p_context) {
 	if (event_type == NRF_TIMER_EVENT_COMPARE0) {
-		//esb_write_payload(&tx_payload_sync);
+		//esb_write_sync(led_clock);
 		esb_start_tx();
 	} else if (event_type == NRF_TIMER_EVENT_COMPARE1) {
 		esb_stop_rx();
 		esb_disable();
-		esb_initialize_tx();
-		esb_write_payload(&tx_payload_sync);
+		esb_initialize(true);
+		esb_write_sync(led_clock);
 	} else if (event_type == NRF_TIMER_EVENT_COMPARE2) {
 		esb_disable();
-		esb_initialize();
+		esb_initialize(false);
 		esb_start_rx();
 		led_clock++;
 		led_clock%=17*600/3;
-		tx_payload_sync.data[0]=(led_clock >> 8) & 255;
-		tx_payload_sync.data[1]=led_clock & 255;
 	}
 }
 

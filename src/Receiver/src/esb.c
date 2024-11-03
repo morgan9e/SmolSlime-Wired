@@ -1,5 +1,6 @@
 #include "globals.h"
 #include "system.h"
+#include "hid.h"
 
 #include <zephyr/drivers/clock_control/nrf_clock_control.h>
 #include <zephyr/sys/crc.h>
@@ -22,7 +23,8 @@ static struct esb_payload tx_payload_timer = ESB_CREATE_PAYLOAD(0,
 static struct esb_payload tx_payload_sync = ESB_CREATE_PAYLOAD(0,
 														  0, 0, 0, 0);
 
-static uint8_t paired_addr[8] = {0};
+uint8_t pairing_buf[8] = {0};
+static uint8_t discovered_trackers[256] = {0};
 
 LOG_MODULE_REGISTER(esb_event, LOG_LEVEL_INF);
 
@@ -59,22 +61,7 @@ void event_handler(struct esb_evt const *event)
 				}
 				if (rx_payload.data[0] > 223) // reserved for receiver only
 					break;
-				memcpy(&report.data, &rx_payload.data, 16); // all data can be passed through
-				if (rx_payload.data[0] != 1) // packet 1 is full precision quat and accel, no room for rssi
-					report.data[15]=rx_payload.rssi;
-				// TODO: this sucks
-				for (int i = 0; i < report_count; i++) // replace existing entry instead
-				{
-					if (reports[sizeof(report) * (report_sent + i) + 1] == report.data[1])
-					{
-						memcpy(&reports[sizeof(report) * (report_sent + i)], &report, sizeof(report));
-						break;
-					}
-				}
-				if (report_count > 100) // overflow
-					break;
-				memcpy(&reports[sizeof(report) * (report_sent + report_count)], &report, sizeof(report));
-				report_count++;
+				hid_write_packet_n(rx_payload.data, rx_payload.rssi); // write to hid endpoint
 				break;
 			default:
 				break;
@@ -244,6 +231,7 @@ void esb_pair(void)
 	uint64_t *addr = (uint64_t *)NRF_FICR->DEVICEADDR; // Use device address as unique identifier (although it is not actually guaranteed, see datasheet)
 	memcpy(&tx_payload_pair.data[2], addr, 6);
 	LOG_INF("Device address: %012llX", *addr & 0xFFFFFFFFFFFF);
+	set_led(SYS_LED_PATTERN_SHORT, SYS_LED_PRIORITY_CONNECTION);
 	while (true) // Run indefinitely (User must reset/unplug dongle)
 	{
 		uint64_t found_addr = (*(uint64_t *)pairing_buf >> 16) & 0xFFFFFFFFFFFF;
@@ -263,9 +251,10 @@ void esb_pair(void)
 		{
 			LOG_INF("Added device on id %d with address %012llX", stored_trackers, found_addr);
 			stored_tracker_addr[stored_trackers] = found_addr;
-			sys_write(STORED_ADDR_0+stored_trackers, &stored_tracker_addr[stored_trackers], sizeof(stored_tracker_addr[0]));
+			sys_write(STORED_ADDR_0+stored_trackers, NULL, &stored_tracker_addr[stored_trackers], sizeof(stored_tracker_addr[0]));
 			stored_trackers++;
-			sys_write(STORED_TRACKERS, &stored_trackers, sizeof(stored_trackers));
+			sys_write(STORED_TRACKERS, NULL, &stored_trackers, sizeof(stored_trackers));
+			set_led(SYS_LED_PATTERN_ONESHOT_PROGRESS, SYS_LED_PRIORITY_HIGHEST);
 		}
 		if (checksum == pairing_buf[0] && send_tracker_id < MAX_TRACKERS) // Make sure the dongle is not full
 			tx_payload_pair.data[0] = pairing_buf[0]; // Use checksum sent from device to make sure packet is for that device
@@ -276,6 +265,17 @@ void esb_pair(void)
 		//esb_flush_tx();
 		//esb_write_payload(&tx_payload_pair); // Add to TX buffer
 	}
+}
+
+// TODO:
+void esb_write_sync(uint16_t led_clock)
+{
+	if (!esb_initialized || !esb_paired)
+		return;
+	tx_payload_sync.noack = false;
+	tx_payload_sync.data[0] = (led_clock >> 8) & 255;
+	tx_payload_sync.data[1] = led_clock & 255;
+	esb_write_payload(&tx_payload_sync);
 }
 
 // TODO:

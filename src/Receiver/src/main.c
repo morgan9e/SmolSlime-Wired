@@ -29,6 +29,7 @@ int main(void)
 	NRF_POWER->RESETREAS = NRF_POWER->RESETREAS; // Clear RESETREAS
 
 	set_led(SYS_LED_PATTERN_ON, SYS_LED_PRIORITY_BOOT); // Boot LED
+	set_led(SYS_LED_PATTERN_ACTIVE_PERSIST, SYS_LED_PRIORITY_SYSTEM);
 
 #if DFU_EXISTS && !(IGNORE_RESET && BUTTON_EXISTS) // Using Adafruit bootloader
 	(*dbl_reset_mem) = DFU_DBL_RESET_APP; // Skip DFU
