@@ -2,7 +2,6 @@
 #define SLIMENRF_SYSTEM
 
 #include "system/led.h"
-#include "system/status.h"
 
 #define STORED_TRACKERS 1
 #define STORED_TRACKER_ADDR 2
@@ -16,6 +15,7 @@ uint8_t reboot_counter_read(void);
 void reboot_counter_write(uint8_t reboot_counter);
 
 void sys_write(uint16_t id, void *ptr, const void *data, size_t len);
+void sys_read(uint16_t id, void *data, size_t len);
 
 bool button_read(void);
 

@@ -1,6 +1,5 @@
 #include "globals.h"
 #include "esb.h"
-#include "connection.h"
 
 LOG_MODULE_REGISTER(timer, 4);
 

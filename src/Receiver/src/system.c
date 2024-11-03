@@ -1,6 +1,4 @@
 #include "globals.h"
-#include "sensor.h"
-#include "connection.h"
 
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/drivers/pwm.h>
@@ -30,7 +28,7 @@ K_THREAD_DEFINE(button_thread_id, 256, button_thread, NULL, NULL, NULL, 6, 0, 0)
 
 static bool nvs_init = false;
 
-static inline void sys_nvs_init(void)
+static int sys_nvs_init(void)
 {
 	if (nvs_init)
 		return;
@@ -42,53 +40,35 @@ static inline void sys_nvs_init(void)
 	fs.sector_count = 4U; // 4 sectors
 	nvs_mount(&fs);
 	nvs_init = true;
-}
-
-static int sys_retained_init(void)
-{
-	bool ram_retention = retained_validate(); // Check ram retention
-	// All contents of NVS was stored in RAM to not need initializing NVS often
-	if (!ram_retention)
-	{ 
-		LOG_INF("Invalidated RAM");
-		sys_nvs_init();
-		// read from nvs to retained
-		nvs_read(&fs, PAIRED_ID, &retained.paired_addr, sizeof(retained.paired_addr));
-		nvs_read(&fs, MAIN_ACCEL_BIAS_ID, &retained.accelBias, sizeof(retained.accelBias));
-		nvs_read(&fs, MAIN_GYRO_BIAS_ID, &retained.gyroBias, sizeof(retained.gyroBias));
-		nvs_read(&fs, MAIN_MAG_BIAS_ID, &retained.magBAinv, sizeof(retained.magBAinv));
-		retained_update();
-		ram_retention = true;
-	}
-	else
-	{
-		LOG_INF("Validated RAM");
-	}
 	return 0;
 }
 
-SYS_INIT(sys_retained_init, APPLICATION, CONFIG_APPLICATION_INIT_PRIORITY);
+SYS_INIT(sys_nvs_init, APPLICATION, CONFIG_APPLICATION_INIT_PRIORITY);
 
-// read from retained
 uint8_t reboot_counter_read(void)
 {
-	return retained.reboot_counter;
+	uint8_t reboot_counter
+	nvs_read(&fs, RBT_CNT_ID, &reboot_counter, sizeof(reboot_counter));
+	return reboot_counter;
 }
 
-// write to retained
 void reboot_counter_write(uint8_t reboot_counter)
 {
-	retained.reboot_counter = reboot_counter;
-	retained_update();
+	nvs_write(&fs, RBT_CNT_ID, &reboot_counter, sizeof(reboot_counter));
 }
 
-// write to retained and nvs
+// retained not implemented
 void sys_write(uint16_t id, void *retained_ptr, const void *data, size_t len)
 {
 	sys_nvs_init();
-	memcpy(retained_ptr, data, len);
 	nvs_write(&fs, id, data, len);
-	retained_update();
+}
+
+// reading from nvs
+void sys_read(uint16_t id, void *data, size_t len)
+{
+	sys_nvs_init();
+	nvs_read(&fs, id, data, len);
 }
 
 #if BUTTON_EXISTS // Alternate button if available to use as "reset key"

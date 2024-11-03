@@ -17,8 +17,7 @@ static void usb_init_thread(void);
 K_THREAD_DEFINE(usb_init_thread_id, 256, usb_init_thread, NULL, NULL, NULL, 6, 0, 500); // Wait before enabling USB
 
 static void console_thread(void);
-static struct k_thread console_thread_id;
-static K_THREAD_STACK_DEFINE(console_thread_id_stack, 512);
+K_THREAD_DEFINE(console_thread_id, 512, console_thread, NULL, NULL, NULL, 6, 0, 0);
 
 #define DFU_EXISTS CONFIG_BUILD_OUTPUT_UF2
 
