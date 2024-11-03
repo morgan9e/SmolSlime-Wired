@@ -1,9 +1,12 @@
 #include "globals.h"
 #include "esb.h"
 
-LOG_MODULE_REGISTER(timer, 4);
+#include <nrfx_timer.h>
 
+const nrfx_timer_t m_timer = NRFX_TIMER_INSTANCE(1);
 uint16_t led_clock = 0;
+
+LOG_MODULE_REGISTER(timer, 4);
 
 void timer_handler(nrf_timer_event_t event_type, void *p_context) {
 	if (event_type == NRF_TIMER_EVENT_COMPARE0) {

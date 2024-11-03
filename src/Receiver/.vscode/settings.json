@@ -4,6 +4,8 @@
     "files.associations": {
         "nrf_clock_control.h": "c",
         "gpio.h": "c",
-        "globals.h": "c"
+        "globals.h": "c",
+        "esb.h": "c",
+        "nrfx_timer.h": "c"
     }
 }

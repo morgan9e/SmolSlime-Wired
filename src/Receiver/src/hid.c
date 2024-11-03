@@ -4,10 +4,6 @@
 #include <zephyr/usb/usb_device.h>
 #include <zephyr/usb/class/usb_hid.h>
 
-uint8_t reports[256*sizeof(report)];
-uint8_t report_count = 0;
-uint8_t report_sent = 0;
-
 static struct k_work report_send;
 
 static struct tracker_report {
@@ -15,6 +11,10 @@ static struct tracker_report {
 } __packed report = {
 	.data = {0}
 };;
+
+uint8_t reports[256*sizeof(report)];
+uint8_t report_count = 0;
+uint8_t report_sent = 0;
 
 static bool configured;
 static const struct device *hdev;

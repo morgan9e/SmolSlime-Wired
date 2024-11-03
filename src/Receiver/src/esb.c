@@ -7,12 +7,6 @@
 
 #include "esb.h"
 
-uint8_t last_reset = 0;
-const nrfx_timer_t m_timer = NRFX_TIMER_INSTANCE(1);
-bool esb_state = false;
-bool timer_state = false;
-bool send_data = false;
-
 static struct esb_payload rx_payload;
 static struct esb_payload tx_payload = ESB_CREATE_PAYLOAD(0,
 														  0, 0, 0, 0, 0, 0, 0, 0);

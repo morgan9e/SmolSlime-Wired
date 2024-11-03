@@ -31,7 +31,7 @@ static bool nvs_init = false;
 static int sys_nvs_init(void)
 {
 	if (nvs_init)
-		return;
+		return 0;
 	struct flash_pages_info info;
 	fs.flash_device = NVS_PARTITION_DEVICE;
 	fs.offset = NVS_PARTITION_OFFSET; // Start NVS FS here
@@ -47,7 +47,7 @@ SYS_INIT(sys_nvs_init, APPLICATION, CONFIG_APPLICATION_INIT_PRIORITY);
 
 uint8_t reboot_counter_read(void)
 {
-	uint8_t reboot_counter
+	uint8_t reboot_counter;
 	nvs_read(&fs, RBT_CNT_ID, &reboot_counter, sizeof(reboot_counter));
 	return reboot_counter;
 }
