@@ -12,7 +12,7 @@
 LOG_MODULE_REGISTER(console, LOG_LEVEL_INF);
 
 static void console_thread(void);
-K_THREAD_DEFINE(console_thread_id, 512, console_thread, NULL, NULL, NULL, 6, 0, 0);
+K_THREAD_DEFINE(console_thread_id, 1024, console_thread, NULL, NULL, NULL, 6, 0, 0);
 
 #define DFU_EXISTS CONFIG_BUILD_OUTPUT_UF2
 
