@@ -258,6 +258,7 @@ void esb_pair(void)
 		//esb_flush_rx();
 		//esb_flush_tx();
 		//esb_write_payload(&tx_payload_pair); // Add to TX buffer
+		k_msleep(10);
 	}
 }
 
