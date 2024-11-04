@@ -61,6 +61,7 @@ int main(void)
 	{
 	case 1:
 		LOG_INF("Pairing requested");
+		sys_read(STORED_TRACKERS, &stored_trackers, sizeof(stored_trackers));
 		esb_pair(); // this will not return
 		break;
 	case 2:
