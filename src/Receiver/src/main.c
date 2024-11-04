@@ -3,6 +3,7 @@
 //#include "timer.h"
 #include "esb.h"
 
+#include <zephyr/kernel.h>
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/sys/reboot.h>
 

@@ -23,6 +23,8 @@ static ATOMIC_DEFINE(hid_ep_in_busy, 1);
 #define HID_EP_BUSY_FLAG	0
 #define REPORT_PERIOD		K_MSEC(1) // streaming reports
 
+LOG_MODULE_REGISTER(hid_event, LOG_LEVEL_INF);
+
 static void report_event_handler(struct k_timer *dummy);
 static K_TIMER_DEFINE(event_timer, report_event_handler, NULL);
 
@@ -40,6 +42,14 @@ static const uint8_t hid_report_desc[] = {
 uint16_t sent_device_addr = 0;
 bool usb_enabled = false;
 int64_t last_registration_sent = 0;
+
+static void packet_device_addr(uint8_t *report, uint16_t id) // associate id and tracker address
+{
+	report[0] = 255; // receiver packet 0
+	report[1] = id;
+	memcpy(&report[2], &stored_tracker_addr[id], 6);
+	memset(&report[8], 0, 8); // last 8 bytes unused for now
+}
 
 static void send_report(struct k_work *work)
 {
