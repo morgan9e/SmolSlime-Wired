@@ -8,6 +8,7 @@
         "esb.h": "c",
         "nrfx_timer.h": "c",
         "system.h": "c",
-        "led.h": "c"
+        "led.h": "c",
+        "status.h": "c"
     }
 }
