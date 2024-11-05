@@ -9,6 +9,8 @@
         "nrfx_timer.h": "c",
         "system.h": "c",
         "led.h": "c",
-        "status.h": "c"
+        "status.h": "c",
+        "reboot.h": "c",
+        "kernel.h": "c"
     }
 }

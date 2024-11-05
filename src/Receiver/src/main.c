@@ -20,11 +20,6 @@ int main(void)
 {
 	set_led(SYS_LED_PATTERN_ACTIVE_PERSIST, SYS_LED_PRIORITY_SYSTEM);
 
-#if DFU_EXISTS // Using Adafruit bootloader
-	(*dbl_reset_mem) = DFU_DBL_RESET_APP; // Skip DFU
-	ram_range_retain(dbl_reset_mem, sizeof(dbl_reset_mem), true);
-#endif
-
 	uint8_t reboot_counter = reboot_counter_read();
 
 	uint8_t reset_mode = reboot_counter - 100;

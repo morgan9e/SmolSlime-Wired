@@ -1,6 +1,8 @@
 #ifndef SLIMENRF_GLOBALS
 #define SLIMENRF_GLOBALS
 
+#include "retained.h"
+
 #include <zephyr/logging/log.h>
 
 #define ZEPHYR_USER_NODE DT_PATH(zephyr_user)
