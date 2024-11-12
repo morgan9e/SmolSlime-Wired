@@ -72,7 +72,7 @@ static void send_report(struct k_work *work)
 //		ret = hid_int_ep_write(hdev, &reports, sizeof(report) * report_count, &wrote);
 		ret = hid_int_ep_write(hdev, &reports[sizeof(report) * report_sent], sizeof(report) * 4, &wrote);
 		if (report_count > 4) {
-			LOG_INF("left %u reports on the table", report_count - 4);
+			LOG_INF("Dropped %u report%s", report_count - 4, report_count - 4 > 1 ? "s" : "");
 		}
 		report_sent += report_count;
 		report_sent += 3; // this is a hack to make sure the ep isnt reading the same bits as trackers write to
