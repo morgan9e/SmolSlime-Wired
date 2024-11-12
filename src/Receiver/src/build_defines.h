@@ -1,15 +1,8 @@
 #include "app_version.h"
 
-#define STRINGIFY(x) #x
-#define TOSTRING(x) STRINGIFY(x)
-
-#define FW_NAME "SlimeVR-Tracker-nRF-Receiver"
-
 #define FW_VERSION_MAJOR APP_VERSION_MAJOR
 #define FW_VERSION_MINOR APP_VERSION_MINOR
 #define FW_VERSION_PATCH APP_PATCHLEVEL
-
-#define FW_STRING FW_NAME " " APP_VERSION_EXTENDED_STRING " (" TOSTRING(APP_BUILD_VERSION) ")"
 
 // https://stackoverflow.com/questions/11697820/how-to-use-date-and-time-predefined-macros-in-as-two-integers-then-stri
 #define COMPUTE_BUILD_YEAR \

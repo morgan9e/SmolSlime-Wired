@@ -9,6 +9,7 @@
 #include <zephyr/sys/reboot.h>
 
 #include <ctype.h>
+#include "app_version.h"
 
 LOG_MODULE_REGISTER(console, LOG_LEVEL_INF);
 
@@ -16,6 +17,9 @@ static void console_thread(void);
 K_THREAD_DEFINE(console_thread_id, 1024, console_thread, NULL, NULL, NULL, 6, 0, 0);
 
 #define DFU_EXISTS CONFIG_BUILD_OUTPUT_UF2
+
+#define TOSTRING(x) STRINGIFY(x)
+#define FW_STRING FW_NAME " " APP_VERSION_EXTENDED_STRING " (" TOSTRING(APP_BUILD_VERSION) ")"
 
 static void skip_dfu(void)
 {

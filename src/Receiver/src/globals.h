@@ -1,11 +1,11 @@
 #ifndef SLIMENRF_GLOBALS
 #define SLIMENRF_GLOBALS
 
-#include "retained.h"
-
 #include <zephyr/logging/log.h>
 
-#define ZEPHYR_USER_NODE DT_PATH(zephyr_user)
+#include "retained.h"
+
+#define FW_NAME "SlimeVR-Tracker-nRF-Receiver"
 
 #define MAX_TRACKERS 256
 #define DETECTION_THRESHOLD 16
