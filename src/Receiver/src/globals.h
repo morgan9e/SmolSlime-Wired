@@ -5,8 +5,6 @@
 
 #include "retained.h"
 
-#define FW_NAME "SlimeVR-Tracker-nRF-Receiver"
-
 #define MAX_TRACKERS 256
 #define DETECTION_THRESHOLD 16
 

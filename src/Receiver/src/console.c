@@ -1,5 +1,6 @@
 #include "globals.h"
 #include "system.h"
+#include "build_defines.h"
 
 #define USB DT_NODELABEL(usbd)
 #if DT_NODE_HAS_STATUS(USB, okay)
@@ -8,7 +9,6 @@
 #include <zephyr/sys/reboot.h>
 
 #include <ctype.h>
-#include "app_version.h"
 
 LOG_MODULE_REGISTER(console, LOG_LEVEL_INF);
 
@@ -16,9 +16,6 @@ static void console_thread(void);
 K_THREAD_DEFINE(console_thread_id, 1024, console_thread, NULL, NULL, NULL, 6, 0, 0);
 
 #define DFU_EXISTS CONFIG_BUILD_OUTPUT_UF2
-
-#define TOSTRING(x) STRINGIFY(x)
-#define FW_STRING FW_NAME " " APP_VERSION_EXTENDED_STRING " (" TOSTRING(APP_BUILD_VERSION) ")"
 
 static void skip_dfu(void)
 {
@@ -32,7 +29,7 @@ static void console_thread(void)
 {
 	console_getline_init();
 	printk("*** " CONFIG_USB_DEVICE_MANUFACTURER " " CONFIG_USB_DEVICE_PRODUCT " ***\n");
-	printk(FW_STRING "\n");
+	printk(FW_STRING);
 	printk("reboot                       Soft reset the device\n");
 	printk("pair                         Enter pairing mode\n");
 	printk("clear                        Clear stored devices\n");
