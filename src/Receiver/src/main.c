@@ -21,6 +21,8 @@ int main(void)
 	if (reboot_counter != 100)
 		reboot_counter_write(100);
 
+	clocks_start();
+
 	switch (reset_mode)
 	{
 	case 1:
@@ -51,8 +53,6 @@ int main(void)
 	}
 
 //	k_msleep(1); // TODO: fixes some weird issue with the device bootlooping, what is the cause
-
-	clocks_start();
 
 	esb_receive();
 
