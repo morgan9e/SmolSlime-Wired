@@ -30,15 +30,41 @@ static void skip_dfu(void)
 #endif
 }
 
+static void print_info(void)
+{
+	printk(CONFIG_USB_DEVICE_MANUFACTURER " " CONFIG_USB_DEVICE_PRODUCT "\n");
+	printk(FW_STRING);
+
+	printk("Board configuration: ");
+	printk(CONFIG_BOARD);
+	printk("\n");
+	printk("SOC: ");
+	printk(CONFIG_SOC);
+	printk("\n");
+
+	printk("Device address: %012llX\n", *(uint64_t *)NRF_FICR->DEVICEADDR & 0xFFFFFFFFFFFF);
+}
+
+static void print_list(void)
+{
+	printk("Stored devices:\n");
+	for (uint8_t i = 0; i < stored_trackers; i++)
+		printk("%012llX\n", stored_tracker_addr[i]);
+}
+
 static void console_thread(void)
 {
 	console_getline_init();
 	printk("*** " CONFIG_USB_DEVICE_MANUFACTURER " " CONFIG_USB_DEVICE_PRODUCT " ***\n");
 	printk(FW_STRING);
+	printk("info                         Get device information\n");
+	printk("list                         Get paired devices\n");
 	printk("reboot                       Soft reset the device\n");
 	printk("pair                         Enter pairing mode\n");
 	printk("clear                        Clear stored devices\n");
 
+	uint8_t command_info[] = "info";
+	uint8_t command_list[] = "list";
 	uint8_t command_reboot[] = "reboot";
 	uint8_t command_pair[] = "pair";
 	uint8_t command_clear[] = "clear";
@@ -55,7 +81,15 @@ static void console_thread(void)
 			*p = tolower(*p);
 		}
 
-		if (memcmp(line, command_reboot, sizeof(command_reboot)) == 0)
+		if (memcmp(line, command_info, sizeof(command_info)) == 0)
+		{
+			print_info();
+		}
+		else if (memcmp(line, command_list, sizeof(command_list)) == 0)
+		{
+			print_list();
+		}
+		else if (memcmp(line, command_reboot, sizeof(command_reboot)) == 0)
 		{
 			skip_dfu();
 			sys_reboot(SYS_REBOOT_COLD);
