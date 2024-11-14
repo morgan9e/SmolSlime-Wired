@@ -35,12 +35,8 @@ static void print_info(void)
 	printk(CONFIG_USB_DEVICE_MANUFACTURER " " CONFIG_USB_DEVICE_PRODUCT "\n");
 	printk(FW_STRING);
 
-	printk("Board configuration: ");
-	printk(CONFIG_BOARD);
-	printk("\n");
-	printk("SOC: ");
-	printk(CONFIG_SOC);
-	printk("\n");
+	printk("Board configuration: " CONFIG_BOARD "\n");
+	printk("SOC: " CONFIG_SOC "\n");
 
 	printk("Device address: %012llX\n", *(uint64_t *)NRF_FICR->DEVICEADDR & 0xFFFFFFFFFFFF);
 }
