@@ -7,6 +7,7 @@
 
 #include <zephyr/console/console.h>
 #include <zephyr/sys/reboot.h>
+#include <zephyr/logging/log_ctrl.h>
 
 #include <ctype.h>
 
@@ -51,6 +52,9 @@ static void print_list(void)
 static void console_thread(void)
 {
 	console_getline_init();
+	while (log_data_pending())
+		k_usleep(1);
+	k_msleep(100);
 	printk("*** " CONFIG_USB_DEVICE_MANUFACTURER " " CONFIG_USB_DEVICE_PRODUCT " ***\n");
 	printk(FW_STRING);
 	printk("info                         Get device information\n");
