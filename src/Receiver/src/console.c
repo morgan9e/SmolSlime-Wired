@@ -17,8 +17,6 @@
 
 uint32_t* dbl_reset_mem = ((uint32_t*) DFU_DBL_RESET_MEM);
 
-const struct device *gpio_dev = DEVICE_DT_GET(DT_NODELABEL(gpio0));
-
 LOG_MODULE_REGISTER(console, LOG_LEVEL_INF);
 
 static void console_thread(void);
@@ -27,6 +25,10 @@ K_THREAD_DEFINE(console_thread_id, 1024, console_thread, NULL, NULL, NULL, 6, 0,
 #define DFU_EXISTS CONFIG_BUILD_OUTPUT_UF2 || CONFIG_BOARD_HAS_NRF5_BOOTLOADER
 #define ADAFRUIT_BOOTLOADER CONFIG_BUILD_OUTPUT_UF2
 #define NRF5_BOOTLOADER CONFIG_BOARD_HAS_NRF5_BOOTLOADER
+
+#if NRF5_BOOTLOADER
+static const struct device *gpio_dev = DEVICE_DT_GET(DT_NODELABEL(gpio0));
+#endif
 
 static void skip_dfu(void)
 {
