@@ -44,6 +44,16 @@
                 "NCS_TOOLCHAIN_VERSION": "NONE",
                 "BOARD": "etee_dongle_uf2"
             }
+        },
+        {
+            "name": "build_xiao_uf2",
+            "displayName": "Build for xiao_uf2",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/build_xiao_uf2",
+            "cacheVariables": {
+                "NCS_TOOLCHAIN_VERSION": "NONE",
+                "BOARD": "xiao_ble"
+            }
         }
     ]
 }
