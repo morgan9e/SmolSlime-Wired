@@ -33,6 +33,11 @@
         full-ohms = <(1000000+510000)>;
         power-gpios = <&gpio0 14 (GPIO_OPEN_DRAIN|GPIO_ACTIVE_LOW)>;
 	};
+
+	zephyr,user {
+		led-gpios = <&gpio0 17 (GPIO_OPEN_DRAIN|GPIO_ACTIVE_LOW)>;
+	};
+
 };
 
 &i2c1 {
