@@ -3,6 +3,7 @@
 
 identifier: supermini_uf2
 name: supermini_uf2
+vendor: nordic
 type: mcu
 arch: arm
 ram: 256

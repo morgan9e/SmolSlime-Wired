@@ -1,6 +1,4 @@
 {
-    "nrf-connect.toolchain.path": "${nrf-connect.toolchain:2.6.2}",
-    "nrf-connect.topdir": "${nrf-connect.sdk:2.6.2}",
     "files.associations": {
         "nrf_clock_control.h": "c",
         "gpio.h": "c",
@@ -13,4 +11,6 @@
         "reboot.h": "c",
         "kernel.h": "c"
     }
+    "nrf-connect.toolchain.path": "${nrf-connect.toolchain:2.9.0}",
+    "nrf-connect.topdir": "${nrf-connect.sdk:2.9.0}"
 }
