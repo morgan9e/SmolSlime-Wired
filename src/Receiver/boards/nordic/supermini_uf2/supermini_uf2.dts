@@ -40,19 +40,6 @@
 		};
 	};
 
-	// Uncomment below to Enable SW0
-	// buttons {
-	// 	compatible = "gpio-keys";
-	// 	button0: button_0 {
-	// 		gpios = <&gpio0 20 (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>;
-	// 		label = "Push button switch 0";
-	// 	};
-	// };
-
-	// aliases {
-	// 	sw0 = &button0;
-	// };
-
 	zephyr,user {
 		led-gpios = <&gpio0 15 GPIO_OPEN_SOURCE>;
 	};
@@ -85,6 +72,10 @@
 			reg = <0xfa000 0x6000>;
 		};
 	};
+};
+
+&reg1 {
+	regulator-initial-mode = <NRF5X_REG_MODE_DCDC>;
 };
 
 &gpio0 {
