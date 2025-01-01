@@ -77,6 +77,24 @@ static void print_info(void)
 	printk("\nDevice address: %012llX\n", *(uint64_t *)NRF_FICR->DEVICEADDR & 0xFFFFFFFFFFFF);
 }
 
+static void print_uptime(void)
+{
+	int64_t uptime = k_ticks_to_us_floor64(k_uptime_ticks());
+
+	uint32_t days = uptime / 86400000000;
+	uptime %= 86400000000;
+	uint8_t hours = uptime / 3600000000;
+	uptime %= 3600000000;
+	uint8_t minutes = uptime / 60000000;
+	uptime %= 60000000;
+	uint8_t seconds = uptime / 1000000;
+	uptime %= 1000000;
+	uint16_t milliseconds = uptime / 1000;
+	uint16_t microseconds = uptime %= 1000;
+
+	printk("Uptime: %u.%02u:%02u:%02u.%03u,%03u\n", days, hours, minutes, seconds, milliseconds, microseconds);
+}
+
 static void print_list(void)
 {
 	printk("Stored devices:\n");
@@ -93,12 +111,14 @@ static void console_thread(void)
 	printk("*** " CONFIG_USB_DEVICE_MANUFACTURER " " CONFIG_USB_DEVICE_PRODUCT " ***\n");
 	printk(FW_STRING);
 	printk("info                         Get device information\n");
+	printk("uptime                       Get device uptime\n");
 	printk("list                         Get paired devices\n");
 	printk("reboot                       Soft reset the device\n");
 	printk("pair                         Enter pairing mode\n");
 	printk("clear                        Clear stored devices\n");
 
 	uint8_t command_info[] = "info";
+	uint8_t command_uptime[] = "uptime";
 	uint8_t command_list[] = "list";
 	uint8_t command_reboot[] = "reboot";
 	uint8_t command_pair[] = "pair";
@@ -123,6 +143,10 @@ static void console_thread(void)
 		if (memcmp(line, command_info, sizeof(command_info)) == 0)
 		{
 			print_info();
+		}
+		else if (memcmp(line, command_uptime, sizeof(command_uptime)) == 0)
+		{
+			print_uptime();
 		}
 		else if (memcmp(line, command_list, sizeof(command_list)) == 0)
 		{
