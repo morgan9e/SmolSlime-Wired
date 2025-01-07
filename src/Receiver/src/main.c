@@ -28,6 +28,8 @@ int main(void)
 	case 1:
 		LOG_INF("Pairing requested");
 		sys_read(STORED_TRACKERS, &stored_trackers, sizeof(stored_trackers));
+		for (int i = 0; i < stored_trackers; i++)
+			sys_read(STORED_ADDR_0+i, &stored_tracker_addr[i], sizeof(stored_tracker_addr[0]));
 		esb_pair(); // this will not return
 		break;
 	case 2:
