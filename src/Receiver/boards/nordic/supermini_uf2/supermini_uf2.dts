@@ -40,6 +40,10 @@
 		};
 	};
 
+	aliases {
+		pwm-led0 = &pwm_led0;
+	};
+
 	zephyr,user {
 		led-gpios = <&gpio0 15 GPIO_OPEN_SOURCE>;
 	};
