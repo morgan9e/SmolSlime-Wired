@@ -8,4 +8,20 @@ source "Kconfig.zephyr"
 
 menu "SlimeNRF"
 
+choice
+	prompt "Status LED color mapping"
+    default LED_TRI_COLOR
+
+config LED_RGB_COLOR
+    bool "Use RGB color mapping"
+    help
+        Use RGB or RG color mapping for LED status if available.
+
+config LED_TRI_COLOR
+    bool "Use default color mapping"
+    help
+        Use the default color mapping for LED status.
+
+endchoice
+
 endmenu
