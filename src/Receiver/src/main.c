@@ -1,7 +1,7 @@
 #include "globals.h"
-#include "system.h"
+#include "system/system.h"
 //#include "timer.h"
-#include "esb.h"
+#include "connection/esb.h"
 
 #include <zephyr/kernel.h>
 #include <zephyr/drivers/gpio.h>

@@ -1,5 +1,5 @@
 #include "globals.h"
-#include "system.h"
+#include "system/system.h"
 #include "build_defines.h"
 
 #define USB DT_NODELABEL(usbd)

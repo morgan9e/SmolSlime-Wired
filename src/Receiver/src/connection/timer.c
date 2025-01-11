@@ -1,4 +1,4 @@
-#include "globals.h"
+#include "../globals.h"
 #include "esb.h"
 
 #include <nrfx_timer.h>
