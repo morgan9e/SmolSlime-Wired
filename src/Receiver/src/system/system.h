@@ -1,8 +1,8 @@
 #ifndef SLIMENRF_SYSTEM
 #define SLIMENRF_SYSTEM
 
-#include "system/led.h"
-#include "system/status.h"
+#include "led.h"
+#include "status.h"
 
 #define STORED_TRACKERS 1
 #define STORED_TRACKER_ADDR 2
