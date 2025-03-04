@@ -539,26 +539,26 @@ void main_imu_thread(void)
 #endif
 			LOG_DBG("IMU packet count: %u", packets);
 
-			// Read accelerometer
-			float raw_a[3];
-			sensor_imu->accel_read(&sensor_imu_dev, raw_a);
-#if CONFIG_SENSOR_USE_6_SIDE_CALIBRATION
-			apply_BAinv(raw_a, sensor_calibration_get_accBAinv());
-			float ax = raw_a[0];
-			float ay = raw_a[1];
-			float az = raw_a[2];
-#else
-			float *accelBias = sensor_calibration_get_accelBias();
-			float ax = raw_a[0] - accelBias[0];
-			float ay = raw_a[1] - accelBias[1];
-			float az = raw_a[2] - accelBias[2];
-#endif
-			float a[] = {SENSOR_ACCELEROMETER_AXES_ALIGNMENT};
-
 			// Read magnetometer and process magneto
 			float mx = 0, my = 0, mz = 0;
 			if (mag_available && mag_enabled && sensor_mode == SENSOR_SENSOR_MODE_LOW_NOISE)
 			{
+				// Read accelerometer first, for calibration // TODO: really?
+				float raw_a[3];
+				sensor_imu->accel_read(&sensor_imu_dev, raw_a);
+#if CONFIG_SENSOR_USE_6_SIDE_CALIBRATION
+				apply_BAinv(raw_a, sensor_calibration_get_accBAinv());
+				float ax = raw_a[0];
+				float ay = raw_a[1];
+				float az = raw_a[2];
+#else
+				float *accelBias = sensor_calibration_get_accelBias();
+				float ax = raw_a[0] - accelBias[0];
+				float ay = raw_a[1] - accelBias[1];
+				float az = raw_a[2] - accelBias[2];
+#endif
+				float a[] = {SENSOR_ACCELEROMETER_AXES_ALIGNMENT};
+
 				float m[3];
 				sensor_mag->mag_read(&sensor_mag_dev, m);
 //				float *magBias = sensor_calibration_get_magBias();
@@ -644,6 +644,7 @@ void main_imu_thread(void)
 					float ay = raw_a[1];
 					float az = raw_a[2];
 #else
+					float *accelBias = sensor_calibration_get_accelBias();
 					float ax = raw_a[0] - accelBias[0];
 					float ay = raw_a[1] - accelBias[1];
 					float az = raw_a[2] - accelBias[2];
@@ -666,15 +667,11 @@ void main_imu_thread(void)
 			k_free(rawData);
 
 			// Copy average acceleration for this frame
+			float a[3] = {0};
 			if (a_count > 0)
 			{
 				for (int i = 0; i < 3; i++)
 					a[i] = a_sum[i] / a_count;
-			}
-			else
-			{
-				for (int i = 0; i < 3; i++)
-					a[i] = 0;
 			}
 
 			// Check packet processing
