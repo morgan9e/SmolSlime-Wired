@@ -34,6 +34,10 @@ static K_THREAD_STACK_DEFINE(console_thread_id_stack, 512);
 static const struct device *gpio_dev = DEVICE_DT_GET(DT_NODELABEL(gpio0));
 #endif
 
+#if DT_NODE_EXISTS(DT_NODELABEL(mag))
+#define SENSOR_MAG_EXISTS true
+#endif
+
 static const char *meows[] = {
 	"Meow",
 	"Meow meow",
@@ -205,6 +209,12 @@ static void console_thread(void)
 	uint8_t command_6_side[] = "6-side";
 #endif
 
+#if SENSOR_MAG_EXISTS
+	printk("mag                          Clear magnetometer calibration\n");
+
+	uint8_t command_mag[] = "mag";
+#endif
+
 	printk("pair                         Clear pairing data\n");
 
 	uint8_t command_pair[] = "pair";
@@ -250,6 +260,12 @@ static void console_thread(void)
 		{
 			sensor_request_calibration_6_side();
 			sys_request_system_reboot();
+		}
+#endif
+#if SENSOR_MAG_EXISTS
+		else if (memcmp(line, command_mag, sizeof(command_mag)) == 0)
+		{
+			sensor_calibration_clear_mag();
 		}
 #endif
 		else if (memcmp(line, command_pair, sizeof(command_pair)) == 0) 
