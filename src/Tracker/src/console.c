@@ -118,10 +118,14 @@ static void print_info(void)
 	printk("Target: " CONFIG_BOARD_TARGET "\n");
 
 	printk("\nIMU address: 0x%02X, register: 0x%02X\n", retained.imu_addr, retained.imu_reg);
+#if SENSOR_MAG_EXISTS
 	printk("Magnetometer address: 0x%02X, register: 0x%02X\n", retained.mag_addr, retained.mag_reg);
+#endif
 
 	printk("\nIMU: %s\n", sensor_get_sensor_imu_name());
+#if SENSOR_MAG_EXISTS
 	printk("Magnetometer: %s\n", sensor_get_sensor_mag_name());
+#endif
 
 #if CONFIG_SENSOR_USE_6_SIDE_CALIBRATION
 	printk("\nAccelerometer matrix:\n");
@@ -131,10 +135,12 @@ static void print_info(void)
 	printk("\nAccelerometer bias: %.5f %.5f %.5f\n", (double)retained.accelBias[0], (double)retained.accelBias[1], (double)retained.accelBias[2]);
 #endif
 	printk("Gyroscope bias: %.5f %.5f %.5f\n", (double)retained.gyroBias[0], (double)retained.gyroBias[1], (double)retained.gyroBias[2]);
-	printk("Magnetometer bridge offset: %.5f %.5f %.5f\n", (double)retained.magBias[0], (double)retained.magBias[1], (double)retained.magBias[2]);
+#if SENSOR_MAG_EXISTS
+//	printk("Magnetometer bridge offset: %.5f %.5f %.5f\n", (double)retained.magBias[0], (double)retained.magBias[1], (double)retained.magBias[2]);
 	printk("Magnetometer matrix:\n");
 	for (int i = 0; i < 3; i++)
 		printk("%.5f %.5f %.5f %.5f\n", (double)retained.magBAinv[0][i], (double)retained.magBAinv[1][i], (double)retained.magBAinv[2][i], (double)retained.magBAinv[3][i]);
+#endif
 
 	printk("\nFusion: %s\n", sensor_get_sensor_fusion_name());
 
