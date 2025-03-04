@@ -704,12 +704,15 @@ void main_imu_thread(void)
 
 			// Get linear acceleration
 			float lin_a[3] = {0};
-			float vec_gravity[3] = {0};
-			vec_gravity[0] = 2.0f * (q[1] * q[3] - q[0] * q[2]);
-			vec_gravity[1] = 2.0f * (q[2] * q[3] + q[0] * q[1]);
-			vec_gravity[2] = 2.0f * (q[0] * q[0] - 0.5f + q[3] * q[3]);
-			for (int i = 0; i < 3; i++)
-				lin_a[i] = (a[i] - vec_gravity[i]) * CONST_EARTH_GRAVITY; // vector to m/s^2
+			if (v_diff_mag(a, lin_a) != 0) // lin_a as zero vector
+			{
+				float vec_gravity[3] = {0};
+				vec_gravity[0] = 2.0f * (q[1] * q[3] - q[0] * q[2]);
+				vec_gravity[1] = 2.0f * (q[2] * q[3] + q[0] * q[1]);
+				vec_gravity[2] = 2.0f * (q[0] * q[0] - 0.5f + q[3] * q[3]);
+				for (int i = 0; i < 3; i++)
+					lin_a[i] = (a[i] - vec_gravity[i]) * CONST_EARTH_GRAVITY; // vector to m/s^2
+			}
 
 			// Check the IMU gyroscope
 			if (sensor_fusion->get_gyro_sanity() == 0 ? q_epsilon(q, last_q, 0.005) : q_epsilon(q, last_q, 0.05)) // Probably okay to use the constantly updating last_q
