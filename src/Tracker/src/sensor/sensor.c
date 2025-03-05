@@ -661,7 +661,8 @@ void main_imu_thread(void)
 
 				processed_packets++;
 			}
-			sensor_fusion->update_mag(m, sensor_update_time_ms / 1000.0); // TODO: use actual time?
+			if (mag_available && mag_enabled)
+				sensor_fusion->update_mag(m, sensor_update_time_ms / 1000.0); // TODO: use actual time?
 
 			// Free the FIFO buffer
 			k_free(rawData);
