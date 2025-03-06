@@ -676,7 +676,7 @@ void main_imu_thread(void)
 			}
 
 			// Check packet processing
-			if (processed_packets == 0)
+			if (packets != 0 && processed_packets == 0)
 			{
 				LOG_WRN("No packets processed");
 				if (++packet_errors == 10)
@@ -691,7 +691,7 @@ void main_imu_thread(void)
 			{
 				LOG_WRN("Only %u/%u packets processed", processed_packets, packets);
 			}
-			else
+			else if (packets > 0)
 			{
 				packet_errors = 0;
 			}
