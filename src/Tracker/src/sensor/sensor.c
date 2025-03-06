@@ -668,7 +668,7 @@ void main_imu_thread(void)
 			k_free(rawData);
 
 			// Copy average acceleration for this frame
-			float a[3] = {0};
+			static float a[3] = {0}; // keep persistent
 			if (a_count > 0)
 			{
 				for (int i = 0; i < 3; i++)
