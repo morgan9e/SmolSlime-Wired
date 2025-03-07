@@ -166,6 +166,16 @@ void vqf_get_quat(float *q)
 	getQuat9D(&state, q);
 }
 
+bool vqf_get_rest_detected(void)
+{
+	return getRestDetected(&state);
+}
+
+void vqf_get_relative_rest_deviations(float *out)
+{
+	getRelativeRestDeviations(&params, &state, out);
+}
+
 const sensor_fusion_t sensor_fusion_vqf = {
 	*vqf_init,
 	*vqf_load,
