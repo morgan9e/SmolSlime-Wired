@@ -51,8 +51,8 @@ static void set_params()
 	params.biasSigmaRest = 0.01f; // changed, unknown reason
 	params.restMinT = 1.5f;
 	params.restFilterTau = 0.5f;
-	params.restThGyr = 0.25f; // based on gyro noise (0.2°/s)
-	params.restThAcc = 0.01f; // based on accel noise (0.005g)
+	params.restThGyr = 0.5f; // based on gyro noise
+	params.restThAcc = 0.1f; // based on accel noise
 	params.magCurrentTau = 0.05f;
 	params.magRefTau = 20.0f;
 	params.magNormTh = 0.1f;
