@@ -689,7 +689,7 @@ void main_imu_thread(void)
 			}
 			else if (processed_packets < packets)
 			{
-				LOG_WRN("Only %u/%u packets processed", processed_packets, packets);
+				LOG_DBG("Only %u/%u packets processed", processed_packets, packets);
 			}
 			else if (packets > 0)
 			{
