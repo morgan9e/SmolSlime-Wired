@@ -27,6 +27,7 @@
 #include <math.h>
 
 #include "magneto/magneto1_4.h"
+#include "imu/BMI270.h"
 
 #include "calibration.h"
 
@@ -136,6 +137,21 @@ void sensor_calibrate_imu(const sensor_imu_t *sensor_imu, const struct i2c_dt_sp
 
 	set_led(SYS_LED_PATTERN_ON, SYS_LED_PRIORITY_SENSOR);
 	k_msleep(500); // Delay before beginning acquisition
+
+	if (sensor_imu == &sensor_imu_bmi270) // bmi270 specific
+	{
+		LOG_INF("Running IMU specific calibration");
+		int err = bmi_crt(dev_i2c, sensor_data); // will automatically reinitialize
+		if (err)
+		{
+			LOG_WRN("IMU specific calibration was not completed properly");
+			set_led(SYS_LED_PATTERN_OFF, SYS_LED_PRIORITY_SENSOR);
+			return; // Calibration failed
+		}
+		else
+			sys_write(MAIN_SENSOR_DATA_ID, &retained->sensor_data, sensor_data, sizeof(sensor_data));
+		k_msleep(500); // Delay before beginning acquisition
+	}
 
 	LOG_INF("Reading data");
 	sensor_calibration_clear();

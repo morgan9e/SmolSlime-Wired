@@ -14,8 +14,10 @@
 
 #define BMI270_FEAT_PAGE 0x2F
 // page 0
+#define BMI270_GYR_GAIN_STATUS 0x38
 #define BMI270_GYR_CAS 0x3C
 // page 1
+#define BMI270_G_TRIG_1 0x32
 #define BMI270_ANYMO_1 0x3C
 #define BMI270_ANYMO_2 0x3E
 
@@ -34,6 +36,10 @@
 #define BMI270_INIT_ADDR_0 0x5B
 #define BMI270_INIT_ADDR_1 0x5C
 #define BMI270_INIT_DATA 0x5E
+
+#define BMI270_GYR_CRT_CONF 0x69
+#define BMI270_OFFSET_6  0x77
+#define BMI270_GYR_USR_GAIN 0x78
 
 #define BMI270_PWR_CONF  0x7C
 #define BMI270_PWR_CTRL  0x7D
@@ -79,6 +85,9 @@ void bmi_gyro_read(const struct i2c_dt_spec *dev_i2c, float g[3]);
 float bmi_temp_read(const struct i2c_dt_spec *dev_i2c);
 
 uint8_t bmi_setup_WOM(const struct i2c_dt_spec *dev_i2c);
+
+int bmi_crt(const struct i2c_dt_spec *dev_i2c, uint8_t *data);
+void bmi_gain_apply(const struct i2c_dt_spec *dev_i2c, uint8_t *data);
 
 extern const sensor_imu_t sensor_imu_bmi270;
 

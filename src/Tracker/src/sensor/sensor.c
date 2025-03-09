@@ -454,6 +454,11 @@ int main_imu_init(void)
 		sensor_calibrate_imu(sensor_imu, &sensor_imu_dev);
 	else
 		sensor_calibration_validate();
+	if (sensor_imu == &sensor_imu_bmi270) // bmi270 specific
+	{
+		LOG_INF("Applying gyroscope gain");
+		bmi_gain_apply(&sensor_imu_dev, sensor_calibration_get_sensor_data());
+	}
 
 #if CONFIG_SENSOR_USE_6_SIDE_CALIBRATION 
 	// Calibrate 6-side

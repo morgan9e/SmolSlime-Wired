@@ -414,6 +414,83 @@ static int factor_zx_read(const struct i2c_dt_spec *dev_i2c)
 	return factor_zx;
 }
 
+// from https://github.com/SlimeVR/SlimeVR-Tracker-ESP/blob/main/src/sensors/softfusion/drivers/bmi270.h
+int bmi_crt(const struct i2c_dt_spec *dev_i2c, uint8_t *data)
+{
+	uint8_t status;
+	uint8_t acc_odr = last_accel_odr; // store last odr
+	uint8_t gyr_odr = last_gyro_odr; // store last odr
+	uint8_t config[2] = {0};
+	uint16_t *ptr = (uint16_t *)config; // bmi is little endian
+	*ptr = 0x0100; // CRT will be executed
+	int err = i2c_reg_write_byte_dt(dev_i2c, BMI270_CMD, 0xB6); // softreset
+	k_msleep(2);
+	err |= i2c_reg_write_byte_dt(dev_i2c, BMI270_PWR_CONF, 0x00); // disable adv_power_save
+	k_usleep(450);
+	if (asic_init(dev_i2c))
+		return -1;
+
+	err |= i2c_reg_write_byte_dt(dev_i2c, BMI270_OFFSET_6, 0x80); // gyr_gain_en
+	err |= i2c_reg_write_byte_dt(dev_i2c, BMI270_PWR_CTRL, 0x04); // enable accel
+	k_msleep(2);
+	err |= i2c_reg_write_byte_dt(dev_i2c, BMI270_GYR_CRT_CONF, 0x04); // set CRT running
+	err |= i2c_reg_write_byte_dt(dev_i2c, BMI270_FEAT_PAGE, 0x01); // go to page 1
+	err |= i2c_burst_write_dt(dev_i2c, BMI270_G_TRIG_1, config, sizeof(config)); // Start write buffer
+	err |= i2c_reg_write_byte_dt(dev_i2c, BMI270_CMD, 0x02); // g_trigger
+	do
+	{
+		k_msleep(200);
+		err |= i2c_reg_read_byte_dt(dev_i2c, BMI270_GYR_CRT_CONF, &status);
+	}
+	while (status == 0x04);
+
+	err |= i2c_reg_write_byte_dt(dev_i2c, BMI270_FEAT_PAGE, 0x00); // go to page 0
+	err |= i2c_reg_read_byte_dt(dev_i2c, BMI270_GYR_GAIN_STATUS, &status);
+	if (status)
+	{
+		LOG_INF("Execution status: 0x%02X", status);
+		if (status == 0x03)
+			LOG_INF("Motion detected during CRT");
+		data[0] = 0; // invalid
+	}
+	else
+	{
+		err |= i2c_burst_read_dt(dev_i2c, BMI270_GYR_USR_GAIN, data + 1, 3);
+		LOG_INF("Gain: 0x%02X, 0x%02X, 0x%02X", data[1], data[2], data[3]);
+		data[0] = 1; // flag for valid gain
+	}
+
+	// CRT seems to leave some state behind which isn't persisted after
+	// restart. If we continue without restarting, the gyroscope will behave
+	// differently on this run compared to subsequent restarts.
+	err |= i2c_reg_write_byte_dt(dev_i2c, BMI270_CMD, 0xB6); // softreset
+	k_msleep(2);
+	bmi_init(dev_i2c, 0, 0, 0, 0, 0);
+	if (acc_odr != 0)
+		err |= i2c_reg_write_byte_dt(dev_i2c, BMI270_ACC_CONF, 0xA0 | acc_odr);
+	if (gyr_odr != 0)
+		err |= i2c_reg_write_byte_dt(dev_i2c, BMI270_GYR_CONF, 0xE0 | gyr_odr); // set performance opt. noise performance
+	err |= i2c_reg_write_byte_dt(dev_i2c, BMI270_PWR_CTRL, 0x08 | (acc_odr != 0 ? 0x04 : 0) | (gyr_odr != 0 ? 0x02 : 0)); // enable temp, set accel and gyro power
+	last_accel_odr = acc_odr;
+	last_gyro_odr = gyr_odr;
+
+	if (err)
+		LOG_ERR("I2C error");
+
+	if (data[0] == 0)
+		return 1;
+	return 0;
+}
+
+void bmi_gain_apply(const struct i2c_dt_spec *dev_i2c, uint8_t *data)
+{
+	if (data[0] == 1) // flag for valid gain
+	{
+		int err = i2c_reg_write_byte_dt(dev_i2c, BMI270_OFFSET_6, 0x80); // gyr_gain_en
+		err |= i2c_burst_write_dt(dev_i2c, BMI270_GYR_USR_GAIN, data + 1, 3);
+	}
+}
+
 const sensor_imu_t sensor_imu_bmi270 = {
 	*bmi_init,
 	*bmi_shutdown,
