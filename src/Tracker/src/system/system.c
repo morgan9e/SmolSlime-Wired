@@ -159,6 +159,7 @@ static int sys_retained_init(void)
 		sys_nvs_init();
 		// read from nvs to retained
 		nvs_read(&fs, PAIRED_ID, &retained->paired_addr, sizeof(retained->paired_addr));
+		nvs_read(&fs, MAIN_SENSOR_DATA_ID, &retained->sensor_data, sizeof(retained->sensor_data));
 		nvs_read(&fs, MAIN_ACCEL_BIAS_ID, &retained->accelBias, sizeof(retained->accelBias));
 		nvs_read(&fs, MAIN_GYRO_BIAS_ID, &retained->gyroBias, sizeof(retained->gyroBias));
 		nvs_read(&fs, MAIN_MAG_BIAS_ID, &retained->magBAinv, sizeof(retained->magBAinv));

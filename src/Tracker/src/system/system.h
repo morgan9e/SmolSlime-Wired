@@ -7,6 +7,7 @@
 
 #define RBT_CNT_ID 1
 #define PAIRED_ID 2
+#define MAIN_SENSOR_DATA_ID 8
 #define MAIN_ACCEL_BIAS_ID 3
 #define MAIN_GYRO_BIAS_ID 4
 #define MAIN_MAG_BIAS_ID 5

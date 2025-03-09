@@ -30,6 +30,8 @@
 
 #include "calibration.h"
 
+static uint8_t sensor_data[128]; // any use sensor data
+
 static float accelBias[3] = {0}, gyroBias[3] = {0}, magBias[3] = {0}; // offset biases
 
 static float magBAinv[4][3];
@@ -44,6 +46,11 @@ static double norm_sum;
 static double sample_count;
 
 LOG_MODULE_REGISTER(calibration, LOG_LEVEL_INF);
+
+uint8_t *sensor_calibration_get_sensor_data()
+{
+	return sensor_data;
+}
 
 float *sensor_calibration_get_accelBias()
 {
@@ -104,6 +111,7 @@ bool wait_for_motion(const sensor_imu_t *sensor_imu, const struct i2c_dt_spec *d
 
 void sensor_calibration_read(void)
 {
+	memcpy(sensor_data, retained->sensor_data, sizeof(sensor_data));
 	memcpy(accelBias, retained->accelBias, sizeof(accelBias));
 	memcpy(gyroBias, retained->gyroBias, sizeof(gyroBias));
 	memcpy(magBias, retained->magBias, sizeof(magBias));

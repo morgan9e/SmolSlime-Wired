@@ -27,6 +27,7 @@
 
 #include <zephyr/drivers/i2c.h>
 
+uint8_t *sensor_calibration_get_sensor_data();
 float *sensor_calibration_get_accelBias();
 float (*sensor_calibration_get_accBAinv())[3];
 float *sensor_calibration_get_gyroBias();
