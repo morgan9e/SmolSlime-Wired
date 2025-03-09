@@ -19,38 +19,16 @@ static float factor_zx;
 
 LOG_MODULE_REGISTER(BMI270, LOG_LEVEL_DBG);
 
+static int asic_init(const struct i2c_dt_spec *dev_i2c);
 static int upload_config_file(const struct i2c_dt_spec *dev_i2c);
 static int factor_zx_read(const struct i2c_dt_spec *dev_i2c);
 
 int bmi_init(const struct i2c_dt_spec *dev_i2c, float clock_rate, float accel_time, float gyro_time, float *accel_actual_time, float *gyro_actual_time)
 {
-	uint8_t status;
 	int err = i2c_reg_write_byte_dt(dev_i2c, BMI270_PWR_CONF, 0x00); // disable adv_power_save
 	k_usleep(450);
-	err |= i2c_reg_read_byte_dt(dev_i2c, BMI270_INTERNAL_STATUS, &status);
-	if ((status & 0x7) != 0x1) // ASIC is not initialized
-	{
-		// LOG_DBG("ASIC not initialized, uploading config file");
-		err |= i2c_reg_write_byte_dt(dev_i2c, BMI270_CMD, 0xB6); // softreset
-		k_msleep(2);
-		err |= i2c_reg_write_byte_dt(dev_i2c, BMI270_PWR_CONF, 0x00); // disable adv_power_save
-		k_usleep(450);
-		err |= upload_config_file(dev_i2c);
-		int retry_count = 0;
-		while ((status & 0x7) != 0x1)
-		{
-			if (retry_count > 100)
-			{
-				LOG_ERR("Failed to initialize ASIC");
-				return -1;
-			};
-			k_msleep(1);
-			err |= i2c_reg_read_byte_dt(dev_i2c, BMI270_INTERNAL_STATUS, &status);
-			// LOG_DBG("Status: 0x%02X", status);
-			retry_count++;
-		}
-		// LOG_DBG("ASIC initialized");
-	}
+	if (asic_init(dev_i2c))
+		return -1;
 	factor_zx = factor_zx_read(dev_i2c);
 	last_accel_odr = 0xff; // reset last odr
 	last_gyro_odr = 0xff; // reset last odr
@@ -367,6 +345,38 @@ uint8_t bmi_setup_WOM(const struct i2c_dt_spec *dev_i2c) // TODO: seems too sens
 		LOG_ERR("I2C error");
 	// LOG_DBG("WOM setup complete");
 	return NRF_GPIO_PIN_PULLUP << 4 | NRF_GPIO_PIN_SENSE_LOW; // active low
+}
+
+static int asic_init(const struct i2c_dt_spec *dev_i2c)
+{
+	uint8_t status;
+	int err = i2c_reg_read_byte_dt(dev_i2c, BMI270_INTERNAL_STATUS, &status);
+	if ((status & 0x7) != 0x1) // ASIC is not initialized
+	{
+		LOG_DBG("ASIC not initialized, uploading config file");
+		err |= i2c_reg_write_byte_dt(dev_i2c, BMI270_CMD, 0xB6); // softreset
+		k_msleep(2);
+		err |= i2c_reg_write_byte_dt(dev_i2c, BMI270_PWR_CONF, 0x00); // disable adv_power_save
+		k_usleep(450);
+		err |= upload_config_file(dev_i2c);
+		int retry_count = 0;
+		while ((status & 0x7) != 0x1)
+		{
+			if (retry_count > 100)
+			{
+				LOG_ERR("Failed to initialize ASIC");
+				return -1;
+			};
+			k_msleep(1);
+			err |= i2c_reg_read_byte_dt(dev_i2c, BMI270_INTERNAL_STATUS, &status);
+			// LOG_DBG("Status: 0x%02X", status);
+			retry_count++;
+		}
+		LOG_DBG("ASIC initialized");
+	}
+	if (err)
+		LOG_ERR("I2C error");
+	return 0;
 }
 
 // write_config_file function from https://github.com/zephyrproject-rtos/zephyr/blob/main/drivers/sensor/bosch/bmi270/bmi270.c
