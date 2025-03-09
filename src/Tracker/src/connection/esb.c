@@ -301,7 +301,7 @@ void esb_pair(void)
 {
 	// Read paired address from retained
 	// TODO: should pairing data stay within esb?
-	memcpy(paired_addr, retained.paired_addr, sizeof(paired_addr));
+	memcpy(paired_addr, retained->paired_addr, sizeof(paired_addr));
 
 	if (!paired_addr[0]) // zero, no receiver paired
 	{
@@ -334,12 +334,12 @@ void esb_pair(void)
 		}
 		set_led(SYS_LED_PATTERN_ONESHOT_COMPLETE, SYS_LED_PRIORITY_CONNECTION);
 		LOG_INF("Paired");
-		sys_write(PAIRED_ID, retained.paired_addr, paired_addr, sizeof(paired_addr)); // Write new address and tracker id
+		sys_write(PAIRED_ID, retained->paired_addr, paired_addr, sizeof(paired_addr)); // Write new address and tracker id
 		esb_disable();
 		k_msleep(1600); // wait for led pattern
 	}
 	LOG_INF("Tracker ID: %u", paired_addr[1]);
-	LOG_INF("Receiver address: %012llX", (*(uint64_t *)&retained.paired_addr[0] >> 16) & 0xFFFFFFFFFFFF);
+	LOG_INF("Receiver address: %012llX", (*(uint64_t *)&retained->paired_addr[0] >> 16) & 0xFFFFFFFFFFFF);
 
 	connection_set_id(paired_addr[1]);
 
@@ -352,7 +352,7 @@ void esb_reset_pair(void)
 	esb_deinitialize(); // make sure esb is off
 	esb_paired = false;
 	uint8_t empty_addr[8] = {0};
-	sys_write(PAIRED_ID, &retained.paired_addr, empty_addr, sizeof(paired_addr)); // write zeroes
+	sys_write(PAIRED_ID, &retained->paired_addr, empty_addr, sizeof(paired_addr)); // write zeroes
 	LOG_INF("Pairing data reset");
 }
 

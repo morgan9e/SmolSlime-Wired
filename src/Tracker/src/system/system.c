@@ -158,11 +158,11 @@ static int sys_retained_init(void)
 		LOG_WRN("Invalidated RAM");
 		sys_nvs_init();
 		// read from nvs to retained
-		nvs_read(&fs, PAIRED_ID, &retained.paired_addr, sizeof(retained.paired_addr));
-		nvs_read(&fs, MAIN_ACCEL_BIAS_ID, &retained.accelBias, sizeof(retained.accelBias));
-		nvs_read(&fs, MAIN_GYRO_BIAS_ID, &retained.gyroBias, sizeof(retained.gyroBias));
-		nvs_read(&fs, MAIN_MAG_BIAS_ID, &retained.magBAinv, sizeof(retained.magBAinv));
-		nvs_read(&fs, MAIN_ACC_6_BIAS_ID, &retained.accBAinv, sizeof(retained.accBAinv));
+		nvs_read(&fs, PAIRED_ID, &retained->paired_addr, sizeof(retained->paired_addr));
+		nvs_read(&fs, MAIN_ACCEL_BIAS_ID, &retained->accelBias, sizeof(retained->accelBias));
+		nvs_read(&fs, MAIN_GYRO_BIAS_ID, &retained->gyroBias, sizeof(retained->gyroBias));
+		nvs_read(&fs, MAIN_MAG_BIAS_ID, &retained->magBAinv, sizeof(retained->magBAinv));
+		nvs_read(&fs, MAIN_ACC_6_BIAS_ID, &retained->accBAinv, sizeof(retained->accBAinv));
 		retained_update();
 		ram_retention = true;
 	}
@@ -182,20 +182,20 @@ uint8_t reboot_counter_read(void)
 	if (!ram_retention_valid) // system cannot trust retained state, read from nvs
 	{
 		sys_nvs_init();
-		nvs_read(&fs, RBT_CNT_ID, &retained.reboot_counter, sizeof(retained.reboot_counter));
+		nvs_read(&fs, RBT_CNT_ID, &retained->reboot_counter, sizeof(retained->reboot_counter));
 		retained_update();
 	}
-	return retained.reboot_counter;
+	return retained->reboot_counter;
 }
 
 // write to retained
 void reboot_counter_write(uint8_t reboot_counter)
 {
-	retained.reboot_counter = reboot_counter;
+	retained->reboot_counter = reboot_counter;
 	if (!ram_retention_valid) // system cannot trust retained state, write to nvs
 	{
 		sys_nvs_init();
-		nvs_write(&fs, RBT_CNT_ID, &retained.reboot_counter, sizeof(retained.reboot_counter));
+		nvs_write(&fs, RBT_CNT_ID, &retained->reboot_counter, sizeof(retained->reboot_counter));
 	}
 	retained_update();
 }

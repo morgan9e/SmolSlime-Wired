@@ -104,11 +104,11 @@ bool wait_for_motion(const sensor_imu_t *sensor_imu, const struct i2c_dt_spec *d
 
 void sensor_calibration_read(void)
 {
-	memcpy(accelBias, retained.accelBias, sizeof(accelBias));
-	memcpy(gyroBias, retained.gyroBias, sizeof(gyroBias));
-	memcpy(magBias, retained.magBias, sizeof(magBias));
-	memcpy(magBAinv, retained.magBAinv, sizeof(magBAinv));
-	memcpy(accBAinv, retained.accBAinv, sizeof(accBAinv));
+	memcpy(accelBias, retained->accelBias, sizeof(accelBias));
+	memcpy(gyroBias, retained->gyroBias, sizeof(gyroBias));
+	memcpy(magBias, retained->magBias, sizeof(magBias));
+	memcpy(magBAinv, retained->magBAinv, sizeof(magBAinv));
+	memcpy(accBAinv, retained->accBAinv, sizeof(accBAinv));
 }
 
 void sensor_calibrate_imu(const sensor_imu_t *sensor_imu, const struct i2c_dt_spec *dev_i2c)
@@ -138,8 +138,8 @@ void sensor_calibrate_imu(const sensor_imu_t *sensor_imu, const struct i2c_dt_sp
 	}
 	else
 	{
-		sys_write(MAIN_ACCEL_BIAS_ID, &retained.accelBias, accelBias, sizeof(accelBias));
-		sys_write(MAIN_GYRO_BIAS_ID, &retained.gyroBias, gyroBias, sizeof(gyroBias));
+		sys_write(MAIN_ACCEL_BIAS_ID, &retained->accelBias, accelBias, sizeof(accelBias));
+		sys_write(MAIN_GYRO_BIAS_ID, &retained->gyroBias, gyroBias, sizeof(gyroBias));
 #if !CONFIG_SENSOR_USE_6_SIDE_CALIBRATION
 		LOG_INF("Accelerometer bias: %.5f %.5f %.5f", (double)accelBias[0], (double)accelBias[1], (double)accelBias[2]);
 #endif
@@ -174,7 +174,7 @@ void sensor_calibrate_6_side(const sensor_imu_t *sensor_imu, const struct i2c_dt
 
 	sensor_calibration_clear_6_side();
 	sensor_6_sideBias(sensor_imu, dev_i2c);
-	sys_write(MAIN_ACC_6_BIAS_ID, &retained.accBAinv, accBAinv, sizeof(accBAinv));
+	sys_write(MAIN_ACC_6_BIAS_ID, &retained->accBAinv, accBAinv, sizeof(accBAinv));
 	LOG_INF("Accelerometer matrix:");
 	for (int i = 0; i < 3; i++)
 		LOG_INF("%.5f %.5f %.5f %.5f", (double)accBAinv[0][i], (double)accBAinv[1][i], (double)accBAinv[2][i], (double)accBAinv[3][i]);
@@ -244,7 +244,7 @@ void sensor_calibrate_mag(void)
 	memset(ata, 0, sizeof(ata));
 	norm_sum = 0.0;
 	sample_count = 0.0;
-	sys_write(MAIN_MAG_BIAS_ID, &retained.magBAinv, magBAinv, sizeof(magBAinv));
+	sys_write(MAIN_MAG_BIAS_ID, &retained->magBAinv, magBAinv, sizeof(magBAinv));
 	LOG_INF("Magnetometer matrix:");
 	for (int i = 0; i < 3; i++)
 		LOG_INF("%.5f %.5f %.5f %.5f", (double)magBAinv[0][i], (double)magBAinv[1][i],(double)magBAinv[2][i], (double)magBAinv[3][i]);
@@ -317,8 +317,8 @@ void sensor_calibration_clear(void)
 {
 	memset(accelBias, 0, sizeof(accelBias));
 	memset(gyroBias, 0, sizeof(gyroBias));
-	sys_write(MAIN_ACCEL_BIAS_ID, &retained.accelBias, accelBias, sizeof(accelBias));
-	sys_write(MAIN_GYRO_BIAS_ID, &retained.gyroBias, gyroBias, sizeof(gyroBias));
+	sys_write(MAIN_ACCEL_BIAS_ID, &retained->accelBias, accelBias, sizeof(accelBias));
+	sys_write(MAIN_GYRO_BIAS_ID, &retained->gyroBias, gyroBias, sizeof(gyroBias));
 
 	sensor_fusion_invalidate();
 }
@@ -329,20 +329,20 @@ void sensor_calibration_clear_6_side(void)
 	memset(accBAinv, 0, sizeof(accBAinv));
 	for (int i = 0; i < 3; i++) // set identity matrix
 		accBAinv[i + 1][i] = 1;
-	sys_write(MAIN_ACC_6_BIAS_ID, &retained.accBAinv, accBAinv, sizeof(accBAinv));
+	sys_write(MAIN_ACC_6_BIAS_ID, &retained->accBAinv, accBAinv, sizeof(accBAinv));
 }
 #endif
 
 void sensor_calibration_clear_mag(void)
 {
 	memset(magBAinv, 0, sizeof(magBAinv)); // zeroed matrix will disable magnetometer in fusion
-	sys_write(MAIN_MAG_BIAS_ID, &retained.magBAinv, magBAinv, sizeof(magBAinv));
+	sys_write(MAIN_MAG_BIAS_ID, &retained->magBAinv, magBAinv, sizeof(magBAinv));
 }
 
 void sensor_request_calibration(void)
 {
 	accelBias[0] = NAN;
-	sys_write(MAIN_ACCEL_BIAS_ID, &retained.accelBias, accelBias, sizeof(accelBias));
+	sys_write(MAIN_ACCEL_BIAS_ID, &retained->accelBias, accelBias, sizeof(accelBias));
 
 	sensor_fusion_invalidate();
 }
@@ -351,7 +351,7 @@ void sensor_request_calibration(void)
 void sensor_request_calibration_6_side(void)
 {
 	accBAinv[0][0] = NAN;
-	sys_write(MAIN_ACC_6_BIAS_ID, &retained.accBAinv, accBAinv, sizeof(accBAinv));
+	sys_write(MAIN_ACC_6_BIAS_ID, &retained->accBAinv, accBAinv, sizeof(accBAinv));
 }
 #endif
 

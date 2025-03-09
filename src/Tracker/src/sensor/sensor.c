@@ -278,15 +278,15 @@ int sensor_init(void)
 
 void sensor_scan_read(void) // TODO: move some of this to sys?
 {
-	if (retained.imu_addr != 0)
+	if (retained->imu_addr != 0)
 	{
-		sensor_imu_dev.addr = retained.imu_addr;
-		sensor_imu_dev_reg = retained.imu_reg;
+		sensor_imu_dev.addr = retained->imu_addr;
+		sensor_imu_dev_reg = retained->imu_reg;
 	}
-	if (retained.mag_addr != 0)
+	if (retained->mag_addr != 0)
 	{
-		sensor_mag_dev.addr = retained.mag_addr;
-		sensor_mag_dev_reg = retained.mag_reg;
+		sensor_mag_dev.addr = retained->mag_addr;
+		sensor_mag_dev_reg = retained->mag_reg;
 	}
 	LOG_INF("IMU address: 0x%02X, register: 0x%02X", sensor_imu_dev.addr, sensor_imu_dev_reg);
 	LOG_INF("Magnetometer address: 0x%02X, register: 0x%02X", sensor_mag_dev.addr, sensor_mag_dev_reg);
@@ -294,19 +294,19 @@ void sensor_scan_read(void) // TODO: move some of this to sys?
 
 void sensor_scan_write(void) // TODO: move some of this to sys?
 {
-	retained.imu_addr = sensor_imu_dev.addr;
-	retained.mag_addr = sensor_mag_dev.addr;
-	retained.imu_reg = sensor_imu_dev_reg;
-	retained.mag_reg = sensor_mag_dev_reg;
+	retained->imu_addr = sensor_imu_dev.addr;
+	retained->mag_addr = sensor_mag_dev.addr;
+	retained->imu_reg = sensor_imu_dev_reg;
+	retained->mag_reg = sensor_mag_dev_reg;
 	retained_update();
 }
 
 void sensor_scan_clear(void) // TODO: move some of this to sys?
 {
-	retained.imu_addr = 0x00;
-	retained.mag_addr = 0x00;
-	retained.imu_reg = 0xFF;
-	retained.mag_reg = 0xFF;
+	retained->imu_addr = 0x00;
+	retained->mag_addr = 0x00;
+	retained->imu_reg = 0xFF;
+	retained->mag_reg = 0xFF;
 	retained_update();
 }
 
@@ -317,19 +317,19 @@ void sensor_retained_read(void) // TODO: move some of this to sys?
 #if CONFIG_SENSOR_USE_6_SIDE_CALIBRATION
 	LOG_INF("Accelerometer matrix:");
 	for (int i = 0; i < 3; i++)
-		LOG_INF("%.5f %.5f %.5f %.5f", (double)retained.accBAinv[0][i], (double)retained.accBAinv[1][i], (double)retained.accBAinv[2][i], (double)retained.accBAinv[3][i]);
+		LOG_INF("%.5f %.5f %.5f %.5f", (double)retained->accBAinv[0][i], (double)retained->accBAinv[1][i], (double)retained->accBAinv[2][i], (double)retained->accBAinv[3][i]);
 #else
-	LOG_INF("Accelerometer bias: %.5f %.5f %.5f", (double)retained.accelBias[0], (double)retained.accelBias[1], (double)retained.accelBias[2]);
+	LOG_INF("Accelerometer bias: %.5f %.5f %.5f", (double)retained->accelBias[0], (double)retained->accelBias[1], (double)retained->accelBias[2]);
 #endif
-	LOG_INF("Gyroscope bias: %.5f %.5f %.5f", (double)retained.gyroBias[0], (double)retained.gyroBias[1], (double)retained.gyroBias[2]);
+	LOG_INF("Gyroscope bias: %.5f %.5f %.5f", (double)retained->gyroBias[0], (double)retained->gyroBias[1], (double)retained->gyroBias[2]);
 	if (mag_available && mag_enabled)
 	{
-//		LOG_INF("Magnetometer bridge offset: %.5f %.5f %.5f", (double)retained.magBias[0], (double)retained.magBias[1], (double)retained.magBias[2]);
+//		LOG_INF("Magnetometer bridge offset: %.5f %.5f %.5f", (double)retained->magBias[0], (double)retained->magBias[1], (double)retained->magBias[2]);
 		LOG_INF("Magnetometer matrix:");
 		for (int i = 0; i < 3; i++)
-			LOG_INF("%.5f %.5f %.5f %.5f", (double)retained.magBAinv[0][i], (double)retained.magBAinv[1][i], (double)retained.magBAinv[2][i], (double)retained.magBAinv[3][i]);
+			LOG_INF("%.5f %.5f %.5f %.5f", (double)retained->magBAinv[0][i], (double)retained->magBAinv[1][i], (double)retained->magBAinv[2][i], (double)retained->magBAinv[3][i]);
 	}
-	if (retained.fusion_id)
+	if (retained->fusion_id)
 		LOG_INF("Fusion data recovered");
 }
 
@@ -337,9 +337,9 @@ void sensor_retained_write(void) // TODO: move to sys?
 {
 	if (!sensor_fusion_init)
 		return;
-	memcpy(retained.magBias, sensor_calibration_get_magBias(), sizeof(retained.magBias));
-	sensor_fusion->save(retained.fusion_data);
-	retained.fusion_id = fusion_id;
+	memcpy(retained->magBias, sensor_calibration_get_magBias(), sizeof(retained->magBias));
+	sensor_fusion->save(retained->fusion_data);
+	retained->fusion_id = fusion_id;
 	retained_update();
 }
 
@@ -373,7 +373,7 @@ void sensor_fusion_invalidate(void)
 	}
 	else
 	{ // TODO: always clearing the fusion?
-		retained.fusion_id = 0; // Invalidate retained fusion data
+		retained->fusion_id = 0; // Invalidate retained fusion data
 		retained_update();
 	}
 }
@@ -438,10 +438,10 @@ int main_imu_init(void)
 
 	// Setup fusion
 	sensor_retained_read();
-	if (retained.fusion_id == fusion_id) // Check if the retained fusion data is valid and matches the selected fusion
+	if (retained->fusion_id == fusion_id) // Check if the retained fusion data is valid and matches the selected fusion
 	{ // Load state if the data is valid (fusion was initialized before)
-		sensor_fusion->load(retained.fusion_data);
-		retained.fusion_id = 0; // Invalidate retained fusion data
+		sensor_fusion->load(retained->fusion_data);
+		retained->fusion_id = 0; // Invalidate retained fusion data
 		retained_update();
 	}
 	else

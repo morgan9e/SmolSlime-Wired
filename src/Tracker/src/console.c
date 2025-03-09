@@ -138,9 +138,9 @@ static void print_info(void)
 	printk("SOC: " CONFIG_SOC "\n");
 	printk("Target: " CONFIG_BOARD_TARGET "\n");
 
-	printk("\nIMU address: 0x%02X, register: 0x%02X\n", retained.imu_addr, retained.imu_reg);
+	printk("\nIMU address: 0x%02X, register: 0x%02X\n", retained->imu_addr, retained->imu_reg);
 #if SENSOR_MAG_EXISTS
-	printk("Magnetometer address: 0x%02X, register: 0x%02X\n", retained.mag_addr, retained.mag_reg);
+	printk("Magnetometer address: 0x%02X, register: 0x%02X\n", retained->mag_addr, retained->mag_reg);
 #endif
 
 	printk("\nIMU: %s\n", sensor_get_sensor_imu_name());
@@ -151,23 +151,23 @@ static void print_info(void)
 #if CONFIG_SENSOR_USE_6_SIDE_CALIBRATION
 	printk("\nAccelerometer matrix:\n");
 	for (int i = 0; i < 3; i++)
-		printk("%.5f %.5f %.5f %.5f\n", (double)retained.accBAinv[0][i], (double)retained.accBAinv[1][i], (double)retained.accBAinv[2][i], (double)retained.accBAinv[3][i]);
+		printk("%.5f %.5f %.5f %.5f\n", (double)retained->accBAinv[0][i], (double)retained->accBAinv[1][i], (double)retained->accBAinv[2][i], (double)retained->accBAinv[3][i]);
 #else
-	printk("\nAccelerometer bias: %.5f %.5f %.5f\n", (double)retained.accelBias[0], (double)retained.accelBias[1], (double)retained.accelBias[2]);
+	printk("\nAccelerometer bias: %.5f %.5f %.5f\n", (double)retained->accelBias[0], (double)retained->accelBias[1], (double)retained->accelBias[2]);
 #endif
-	printk("Gyroscope bias: %.5f %.5f %.5f\n", (double)retained.gyroBias[0], (double)retained.gyroBias[1], (double)retained.gyroBias[2]);
+	printk("Gyroscope bias: %.5f %.5f %.5f\n", (double)retained->gyroBias[0], (double)retained->gyroBias[1], (double)retained->gyroBias[2]);
 #if SENSOR_MAG_EXISTS
-//	printk("Magnetometer bridge offset: %.5f %.5f %.5f\n", (double)retained.magBias[0], (double)retained.magBias[1], (double)retained.magBias[2]);
+//	printk("Magnetometer bridge offset: %.5f %.5f %.5f\n", (double)retained->magBias[0], (double)retained->magBias[1], (double)retained->magBias[2]);
 	printk("Magnetometer matrix:\n");
 	for (int i = 0; i < 3; i++)
-		printk("%.5f %.5f %.5f %.5f\n", (double)retained.magBAinv[0][i], (double)retained.magBAinv[1][i], (double)retained.magBAinv[2][i], (double)retained.magBAinv[3][i]);
+		printk("%.5f %.5f %.5f %.5f\n", (double)retained->magBAinv[0][i], (double)retained->magBAinv[1][i], (double)retained->magBAinv[2][i], (double)retained->magBAinv[3][i]);
 #endif
 
 	printk("\nFusion: %s\n", sensor_get_sensor_fusion_name());
 
-	printk("\nTracker ID: %u\n", retained.paired_addr[1]);
+	printk("\nTracker ID: %u\n", retained->paired_addr[1]);
 	printk("Device address: %012llX\n", *(uint64_t *)NRF_FICR->DEVICEADDR & 0xFFFFFFFFFFFF);
-	printk("Receiver address: %012llX\n", (*(uint64_t *)&retained.paired_addr[0] >> 16) & 0xFFFFFFFFFFFF);
+	printk("Receiver address: %012llX\n", (*(uint64_t *)&retained->paired_addr[0] >> 16) & 0xFFFFFFFFFFFF);
 }
 
 static void print_uptime(const uint64_t ticks, const char *name)
@@ -276,7 +276,7 @@ static void console_thread(void)
 		{
 			uint64_t uptime = k_uptime_ticks();
 			print_uptime(uptime, "Uptime");
-			print_uptime(uptime - retained.uptime_latest + retained.uptime_sum, "Accumulated");
+			print_uptime(uptime - retained->uptime_latest + retained->uptime_sum, "Accumulated");
 		}
 		else if (memcmp(line, command_reboot, sizeof(command_reboot)) == 0)
 		{
