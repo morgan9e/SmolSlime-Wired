@@ -33,13 +33,23 @@
 
 #include "sensor.h"
 
+#if DT_NODE_EXISTS(DT_NODELABEL(imu_spi))
+#define SENSOR_IMU_SPI_EXISTS true
+#define SENSOR_IMU_SPI_NODE DT_NODELABEL(imu_spi)
+#define SPI_OP SPI_MODE_CPOL | SPI_MODE_CPHA | SPI_WORD_SET(8)
+static struct spi_dt_spec sensor_imu_spi_dev = SPI_DT_SPEC_GET(SENSOR_IMU_SPI_NODE, SPI_OP, 0);
+#else
+static struct spi_dt_spec sensor_imu_spi_dev = {0};
+#endif
 #if DT_NODE_EXISTS(DT_NODELABEL(imu))
 #define SENSOR_IMU_EXISTS true
 #define SENSOR_IMU_NODE DT_NODELABEL(imu)
 static struct i2c_dt_spec sensor_imu_dev = I2C_DT_SPEC_GET(SENSOR_IMU_NODE);
 #else
-#error "IMU node does not exist"
 static struct i2c_dt_spec sensor_imu_dev = {0};
+#endif
+#if !SENSOR_IMU_SPI_EXISTS && !SENSOR_IMU_EXISTS
+#error "IMU node does not exist"
 #endif
 static uint8_t sensor_imu_dev_reg = 0xFF;
 
