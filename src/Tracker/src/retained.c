@@ -15,6 +15,8 @@
 #include <zephyr/sys/byteorder.h>
 #include <zephyr/sys/crc.h>
 
+#include "build_defines.h"
+
 #if DT_NODE_HAS_STATUS_OKAY(DT_ALIAS(retainedmemdevice))
 #define MEMORY_REGION DT_PARENT(DT_ALIAS(retainedmemdevice))
 #else
@@ -38,13 +40,13 @@ bool retained_validate(void)
 				  RETAINED_CHECKED_SIZE);
 	bool valid = (crc == residue);
 
-	/* If the CRC isn't valid, reset the retained data. */
-	if (!valid) {
+	/* If the CRC isn't valid or the build timestamp is different
+	 * from the current build timestamp, reset the retained data.
+	 */
+	if (!valid || retained->build_timestamp != BUILD_TIMESTAMP) {
 		memset(retained, 0, sizeof(struct retained_data));
+		retained->build_timestamp = BUILD_TIMESTAMP;
 	}
-
-	/* Reset to accrue runtime from this session. */
-	retained->uptime_latest = 0;
 
 	/* Reset to accrue runtime from this session. */
 	retained->uptime_latest = 0;
