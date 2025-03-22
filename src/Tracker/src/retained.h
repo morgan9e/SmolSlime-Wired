@@ -13,6 +13,11 @@
 
 /* Example of validatable retained data. */
 struct retained_data {
+	/* The build version of the firmware that last updated the
+	 * retained data.
+	 */
+	uint32_t build_timestamp;
+
 	/* The uptime from the current session the last time the
 	 * retained data was updated.
 	 */
