@@ -1,7 +1,6 @@
 #include <math.h>
 
 #include <zephyr/logging/log.h>
-#include <zephyr/drivers/i2c.h>
 
 #include "LIS2MDL.h"
 #include "LIS3MDL.h" // Common functions

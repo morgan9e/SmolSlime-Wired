@@ -34,7 +34,6 @@ POSSIBILITY OF SUCH DAMAGE.
 #include <math.h>
 
 #include <zephyr/logging/log.h>
-#include <zephyr/drivers/i2c.h>
 
 #include "BMM350.h"
 

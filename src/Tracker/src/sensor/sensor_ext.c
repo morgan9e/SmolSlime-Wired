@@ -21,7 +21,6 @@
 	THE SOFTWARE.
 */
 #include <zephyr/logging/log.h>
-#include <zephyr/drivers/i2c.h>
 
 #include "sensor_none.h"
 #include "sensor_ext.h"

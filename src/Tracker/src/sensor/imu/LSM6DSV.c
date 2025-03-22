@@ -1,7 +1,6 @@
 #include <math.h>
 
 #include <zephyr/logging/log.h>
-#include <zephyr/drivers/i2c.h>
 #include <hal/nrf_gpio.h>
 
 #include "LSM6DSV.h"
