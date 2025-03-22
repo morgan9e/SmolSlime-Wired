@@ -52,8 +52,7 @@ enum sensor_interface_spec sensor_interface_dev_spec[SENSOR_INTERFACE_DEV_COUNT]
 uint8_t rx_tmp[2] = {0};
 struct spi_buf tx_buf = {.len = 1};
 const struct spi_buf_set tx = {.buffers = &tx_buf, .count = 1};
-struct spi_buf rx_tmp_buf = {.buf = rx_tmp, .len = 1};
-struct spi_buf rx_bufs[2] = {rx_tmp_buf, NULL};
+struct spi_buf rx_bufs[2];
 const struct spi_buf_set rx = {.buffers = rx_bufs, .count = 2};
 
 // TODO: also keep reference to sensor device drivers (such as for ext mag)
@@ -106,6 +105,8 @@ static inline int ssi_read(enum sensor_interface_dev dev, uint8_t *buf, uint32_t
     case SENSOR_INTERFACE_SPEC_SPI:
         // TODO: set length of rx_bufs[0] according to device? check bmi datasheet if needed
         // this may be zero!
+        rx_bufs[0].buf = rx_tmp;
+        rx_bufs[0].len = 1;
         rx_bufs[1].buf = buf;
         rx_bufs[1].len = num_bytes;
         return spi_transceive_dt(sensor_interface_dev_spi[dev], NULL, &rx);
@@ -124,6 +125,8 @@ static inline int ssi_write_read(enum sensor_interface_dev dev, const void *writ
     {
     case SENSOR_INTERFACE_SPEC_SPI:
         // TODO: set length of rx_bufs[0] according to device + tx_buf len
+        rx_bufs[0].buf = rx_tmp;
+        rx_bufs[0].len = 1;
         tx_buf.buf = write_buf;
         tx_buf.len = num_write;
         rx_bufs[1].buf = read_buf;

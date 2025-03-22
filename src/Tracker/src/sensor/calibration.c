@@ -87,12 +87,12 @@ bool wait_for_motion(const sensor_imu_t *sensor_imu, const struct i2c_dt_spec *d
 {
 	uint8_t counts = 0;
 	float a[3], last_a[3];
-	sensor_imu->accel_read(dev_i2c, last_a);
+	sensor_imu->accel_read(last_a);
 	for (int i = 0; i < samples + counts; i++)
 	{
 		LOG_INF("Accelerometer: %.5f %.5f %.5f", (double)a[0], (double)a[1], (double)a[2]);
 		k_msleep(500);
-		sensor_imu->accel_read(dev_i2c, a);
+		sensor_imu->accel_read(a);
 		if (v_epsilon(a, last_a, 0.1) != motion)
 		{
 			LOG_INF("No motion detected");
@@ -141,7 +141,7 @@ void sensor_calibrate_imu(const sensor_imu_t *sensor_imu, const struct i2c_dt_sp
 	if (sensor_imu == &sensor_imu_bmi270) // bmi270 specific
 	{
 		LOG_INF("Running IMU specific calibration");
-		int err = bmi_crt(dev_i2c, sensor_data); // will automatically reinitialize
+		int err = bmi_crt(sensor_data); // will automatically reinitialize
 		if (err)
 		{
 			LOG_WRN("IMU specific calibration was not completed properly");
@@ -383,10 +383,10 @@ void sensor_request_calibration_6_side(void)
 int sensor_offsetBias(const sensor_imu_t *sensor_imu, const struct i2c_dt_spec *dev_i2c, float *dest1, float *dest2)
 {
 	float rawData[3], last_a[3];
-	sensor_imu->accel_read(dev_i2c, last_a);
+	sensor_imu->accel_read(last_a);
 	for (int i = 0; i < 500; i++)
 	{
-		sensor_imu->accel_read(dev_i2c, rawData);
+		sensor_imu->accel_read(rawData);
 		if (!v_epsilon(rawData, last_a, 0.1))
 			return -1;
 #if !CONFIG_SENSOR_USE_6_SIDE_CALIBRATION
@@ -394,7 +394,7 @@ int sensor_offsetBias(const sensor_imu_t *sensor_imu, const struct i2c_dt_spec *
 		dest1[1] += rawData[1];
 		dest1[2] += rawData[2];
 #endif
-		sensor_imu->gyro_read(dev_i2c, rawData);
+		sensor_imu->gyro_read(rawData);
 		dest2[0] += rawData[0];
 		dest2[1] += rawData[1];
 		dest2[2] += rawData[2];
@@ -467,7 +467,7 @@ void sensor_6_sideBias(const sensor_imu_t *sensor_imu, const struct i2c_dt_spec 
 		printk("Waiting for a resting state...\n");
 		while (1)
 		{
-			sensor_imu->accel_read(dev_i2c, &rawData[0]);
+			sensor_imu->accel_read(&rawData[0]);
 			int rest = isAccRest(rawData, pre_acc, THRESHOLD_ACC, &resttime, 100);
 			pre_acc[0] = rawData[0];
 			pre_acc[1] = rawData[1];
@@ -497,7 +497,7 @@ void sensor_6_sideBias(const sensor_imu_t *sensor_imu, const struct i2c_dt_spec 
 
 				for (int i = 0; i < 100; i++)
 				{
-					sensor_imu->accel_read(dev_i2c, &rawData[0]);
+					sensor_imu->accel_read(&rawData[0]);
 					magneto_sample(rawData[0], rawData[1], rawData[2], ata, &norm_sum, &sample_count);
 					if (i % 10 == 0)
 						printk("#");
@@ -516,7 +516,7 @@ void sensor_6_sideBias(const sensor_imu_t *sensor_imu, const struct i2c_dt_spec 
 		while (1)
 		{
 			k_msleep(100);
-			sensor_imu->accel_read(dev_i2c, &rawData[0]);
+			sensor_imu->accel_read(&rawData[0]);
 			int rest = isAccRest(rawData,pre_acc,THRESHOLD_ACC,&resttime, 100);
 			pre_acc[0] = rawData[0];
 			pre_acc[1] = rawData[1];
