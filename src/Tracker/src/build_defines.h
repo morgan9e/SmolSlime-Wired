@@ -208,7 +208,7 @@ static uint8_t get_server_constant_mag_id(int id)
 	if (id < 0)
 		return SVR_MAG_STATUS_NOT_SUPPORTED;
 	else
-		return MAG_ENABLED ? SVR_MAG_STATUS_ENABLED : SVR_MAG_STATUS_DISABLED; // TODO: toggle from server
+		return CONFIG_SENSOR_USE_MAG ? SVR_MAG_STATUS_ENABLED : SVR_MAG_STATUS_DISABLED; // TODO: toggle from server
 //	switch (id)
 //	{
 //	case MAG_HMC5883L:

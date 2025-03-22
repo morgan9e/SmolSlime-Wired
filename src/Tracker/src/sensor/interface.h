@@ -28,191 +28,38 @@
 
 enum sensor_interface_dev
 {
-    SENSOR_INTERFACE_DEV_IMU,
-    SENSOR_INTERFACE_DEV_MAG
+	SENSOR_INTERFACE_DEV_IMU,
+	SENSOR_INTERFACE_DEV_MAG
 };
 #define SENSOR_INTERFACE_DEV_COUNT 2
 
 enum sensor_interface_spec
 {
-    SENSOR_INTERFACE_SPEC_SPI,
-    SENSOR_INTERFACE_SPEC_I2C,
-    SENSOR_INTERFACE_SPEC_EXT
+	SENSOR_INTERFACE_SPEC_SPI,
+	SENSOR_INTERFACE_SPEC_I2C,
+	SENSOR_INTERFACE_SPEC_EXT
 };
 
-// TODO: move all sensor devices here?
+void sensor_interface_register_sensor_imu_spi(struct spi_dt_spec *dev);
+void sensor_interface_register_sensor_imu_i2c(struct i2c_dt_spec *dev);
 
-struct spi_dt_spec *sensor_interface_dev_spi[SENSOR_INTERFACE_DEV_COUNT];
-struct i2c_dt_spec *sensor_interface_dev_i2c[SENSOR_INTERFACE_DEV_COUNT];
-enum sensor_interface_spec sensor_interface_dev_spec[SENSOR_INTERFACE_DEV_COUNT];
+void sensor_interface_register_sensor_mag_spi(struct spi_dt_spec *dev);
+void sensor_interface_register_sensor_mag_i2c(struct i2c_dt_spec *dev);
+void sensor_interface_register_sensor_mag_ext(struct i2c_dt_spec *dev);
 
-// TODO: only one active spi transaction at a time
-// TODO: spi burst read multiple buffers
+void sensor_interface_spi_configure(enum sensor_interface_dev dev, uint32_t frequency, uint8_t mode, uint32_t dummy_reads);
 
-uint8_t rx_tmp[2] = {0};
-struct spi_buf tx_buf = {.len = 1};
-const struct spi_buf_set tx = {.buffers = &tx_buf, .count = 1};
-struct spi_buf rx_bufs[2];
-const struct spi_buf_set rx = {.buffers = rx_bufs, .count = 2};
+int ssi_write(enum sensor_interface_dev dev, const uint8_t *buf, uint32_t num_bytes);
+int ssi_read(enum sensor_interface_dev dev, uint8_t *buf, uint32_t num_bytes);
+int ssi_write_read(enum sensor_interface_dev dev, const void *write_buf, size_t num_write, void *read_buf, size_t num_read);
 
-// TODO: also keep reference to sensor device drivers (such as for ext mag)
+int ssi_burst_read(enum sensor_interface_dev dev, uint8_t start_addr, uint8_t *buf, uint32_t num_bytes);
+int ssi_burst_write(enum sensor_interface_dev dev, uint8_t start_addr, const uint8_t *buf, uint32_t num_bytes);
+int ssi_reg_read_byte(enum sensor_interface_dev dev, uint8_t reg_addr, uint8_t *value);
+int ssi_reg_write_byte(enum sensor_interface_dev dev, uint8_t reg_addr, uint8_t value);
+int ssi_reg_update_byte(enum sensor_interface_dev dev, uint8_t reg_addr, uint8_t mask, uint8_t value);
 
-void sensor_interface_register_sensor_imu_spi(struct spi_dt_spec *dev)
-{
-    sensor_interface_dev_spi[SENSOR_INTERFACE_DEV_IMU] = dev;
-    sensor_interface_dev_spec[SENSOR_INTERFACE_DEV_IMU] = SENSOR_INTERFACE_SPEC_SPI;
-}
-void sensor_interface_register_sensor_imu_i2c(struct i2c_dt_spec *dev)
-{
-    sensor_interface_dev_i2c[SENSOR_INTERFACE_DEV_IMU] = dev;
-    sensor_interface_dev_spec[SENSOR_INTERFACE_DEV_IMU] = SENSOR_INTERFACE_SPEC_I2C;
-}
-
-// void sensor_interface_register_sensor_mag_spi(struct spi_dt_spec *dev);
-void sensor_interface_register_sensor_mag_i2c(struct i2c_dt_spec *dev)
-{
-    sensor_interface_dev_i2c[SENSOR_INTERFACE_DEV_MAG] = dev;
-    sensor_interface_dev_spec[SENSOR_INTERFACE_DEV_MAG] = SENSOR_INTERFACE_SPEC_I2C;
-}
-void sensor_interface_register_sensor_mag_ext(struct i2c_dt_spec *dev) // only using mag i2c dev if needed
-{
-    // TODO: redirect to imu, need driver implementation
-}
-
-// TODO: spi config by device
-//todo fix padding
-
-static inline int ssi_write(enum sensor_interface_dev dev, const uint8_t *buf, uint32_t num_bytes)
-{
-    switch (sensor_interface_dev_spec[dev])
-    {
-    case SENSOR_INTERFACE_SPEC_SPI:
-        tx_buf.buf = buf;
-        tx_buf.len = num_bytes;
-        return spi_transceive_dt(sensor_interface_dev_spi[dev], &tx, NULL);
-        break;
-    case SENSOR_INTERFACE_SPEC_I2C:
-        return i2c_write_dt(sensor_interface_dev_i2c[dev], buf, num_bytes);
-        break;
-    default:
-        break;
-    }
-}
-static inline int ssi_read(enum sensor_interface_dev dev, uint8_t *buf, uint32_t num_bytes)
-{
-    switch (sensor_interface_dev_spec[dev])
-    {
-    case SENSOR_INTERFACE_SPEC_SPI:
-        // TODO: set length of rx_bufs[0] according to device? check bmi datasheet if needed
-        // this may be zero!
-        rx_bufs[0].buf = rx_tmp;
-        rx_bufs[0].len = 1;
-        rx_bufs[1].buf = buf;
-        rx_bufs[1].len = num_bytes;
-        return spi_transceive_dt(sensor_interface_dev_spi[dev], NULL, &rx);
-        break;
-    case SENSOR_INTERFACE_SPEC_I2C:
-        return i2c_read_dt(sensor_interface_dev_i2c[dev], buf, num_bytes);
-        break;
-    default:
-        break;
-    }
-}
-static inline int ssi_write_read(enum sensor_interface_dev dev, const void *write_buf, size_t num_write, void *read_buf, size_t num_read)
-{
-    // TODO: is separate read/write better for spi?
-    switch (sensor_interface_dev_spec[dev])
-    {
-    case SENSOR_INTERFACE_SPEC_SPI:
-        // TODO: set length of rx_bufs[0] according to device + tx_buf len
-        rx_bufs[0].buf = rx_tmp;
-        rx_bufs[0].len = 1;
-        tx_buf.buf = write_buf;
-        tx_buf.len = num_write;
-        rx_bufs[1].buf = read_buf;
-        rx_bufs[1].len = num_read;
-        return spi_transceive_dt(sensor_interface_dev_spi[dev], &tx, &rx);
-        break;
-    case SENSOR_INTERFACE_SPEC_I2C:
-        return i2c_write_read_dt(sensor_interface_dev_i2c[dev], write_buf, num_write, read_buf, num_read);
-        break;
-    default:
-        break;
-    }
-}
-
-static inline int ssi_burst_read(enum sensor_interface_dev dev, uint8_t start_addr, uint8_t *buf, uint32_t num_bytes)
-{
-    if (sensor_interface_dev_spec[dev] == SENSOR_INTERFACE_SPEC_SPI)
-        start_addr |= 0x80; // set read bit
-    ssi_write_read(dev, &start_addr, 1, buf, num_bytes);
-}
-// static inline int ssi_burst_write(enum sensor_interface_dev dev, uint8_t start_addr, const uint8_t *buf, uint32_t num_bytes);
-static inline int ssi_reg_read_byte(enum sensor_interface_dev dev, uint8_t reg_addr, uint8_t *value)
-{
-    if (sensor_interface_dev_spec[dev] == SENSOR_INTERFACE_SPEC_SPI)
-        reg_addr |= 0x80; // set read bit
-    return ssi_write_read(dev, &reg_addr, 1, value, 1);
-}
-static inline int ssi_reg_write_byte(enum sensor_interface_dev dev, uint8_t reg_addr, uint8_t value)
-{
-    uint8_t buf[2] = {reg_addr, value};
-    return ssi_write(dev, buf, 2);
-}
-static inline int ssi_reg_update_byte(enum sensor_interface_dev dev, uint8_t reg_addr, uint8_t mask, uint8_t value)
-{
-    uint8_t old_value, new_value;
-    if (sensor_interface_dev_spec[dev] == SENSOR_INTERFACE_SPEC_SPI)
-        reg_addr |= 0x80; // set read bit
-	int err = ssi_reg_read_byte(dev, reg_addr, &old_value);
-    if (err)
-        return err;
-	new_value = (old_value & ~mask) | (value & mask);
-	if (new_value == old_value) {
-		return 0;
-	}
-    if (sensor_interface_dev_spec[dev] == SENSOR_INTERFACE_SPEC_SPI)
-        reg_addr &= 0x7f; // clear read bit
-    return ssi_reg_write_byte(dev, reg_addr, new_value);
-}
-
-static inline int ssi_reg_read_interval(enum sensor_interface_dev dev, uint8_t start_addr, uint8_t *buf, uint32_t num_bytes, uint32_t interval)
-{
-    // TODO: better way to handle with spi?
-    if (sensor_interface_dev_spec[dev] == SENSOR_INTERFACE_SPEC_SPI)
-        start_addr |= 0x80; // set read bit
-    int err = ssi_write(dev, &start_addr, 1); // Start read buffer
-//    if (err)
-//        return err;
-    while (num_bytes > 0)
-    {
-        err |= ssi_read(dev, buf, interval);
-//        if (err)
-//            return err;
-        buf += interval;
-        num_bytes -= interval;
-        if (interval > num_bytes)
-            interval = num_bytes;
-    }
-    return err;
-}
-static inline int ssi_burst_read_interval(enum sensor_interface_dev dev, uint8_t start_addr, uint8_t *buf, uint32_t num_bytes, uint32_t interval)
-{
-    // TODO: better way to handle with spi?
-    int err = 0;
-    if (sensor_interface_dev_spec[dev] == SENSOR_INTERFACE_SPEC_SPI)
-        start_addr |= 0x80; // set read bit
-    while (num_bytes > 0)
-    {
-        err |= ssi_burst_read(dev, start_addr, buf, interval);
-//        if (err)
-//            return err;
-        buf += interval;
-        num_bytes -= interval;
-        if (interval > num_bytes)
-            interval = num_bytes;
-    }
-    return err;
-}
+int ssi_reg_read_interval(enum sensor_interface_dev dev, uint8_t start_addr, uint8_t *buf, uint32_t num_bytes, uint32_t interval);
+int ssi_burst_read_interval(enum sensor_interface_dev dev, uint8_t start_addr, uint8_t *buf, uint32_t num_bytes, uint32_t interval);
 
 #endif
