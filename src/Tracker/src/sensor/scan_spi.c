@@ -53,8 +53,9 @@ int sensor_scan_spi(struct spi_dt_spec *bus, uint8_t *spi_dev_reg, int dev_addr_
 			if (*spi_dev_reg == 0xFF || *spi_dev_reg == reg)
 			{
 				uint8_t id;
-				LOG_DBG("Scanning register: 0x%02X", reg);
                 tx_buf.buf = &reg;
+				reg |= 0x80; // set read bit
+				LOG_DBG("Scanning register: 0x%02X", reg);
                 int err = spi_transceive_dt(bus, &tx, &rx);
 				id = buf[1] ? buf[1] : buf[2]; // ID may be in first byte, or skip one byte (such as BMI270)
 				LOG_DBG("Read value: 0x%02X, 0x%02X, 0x%02X (0x%02X)", buf[0], buf[1], buf[2], id);

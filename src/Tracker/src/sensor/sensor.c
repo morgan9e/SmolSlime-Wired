@@ -144,7 +144,11 @@ int sensor_init(void)
 	sensor_sensor_scanning = true;
 
 	sensor_scan_read();
-
+k_msleep(3000);
+#if SENSOR_IMU_SPI_EXISTS
+	LOG_INF("Scanning bus for IMU (SPI)");
+	int imu_id2 = sensor_scan_imu_spi(&sensor_imu_spi_dev, &sensor_imu_dev_reg);
+#endif
 #if SENSOR_IMU_EXISTS
 	LOG_INF("Scanning bus for IMU");
 	int imu_id = sensor_scan_imu(&sensor_imu_dev, &sensor_imu_dev_reg);
