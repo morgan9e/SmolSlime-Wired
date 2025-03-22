@@ -134,7 +134,7 @@ static inline int ssi_write_read(enum sensor_interface_dev dev, const void *writ
         return spi_transceive_dt(sensor_interface_dev_spi[dev], &tx, &rx);
         break;
     case SENSOR_INTERFACE_SPEC_I2C:
-        return i2c_write_read(sensor_interface_dev_i2c[dev], write_buf, num_write, read_buf, num_read);
+        return i2c_write_read_dt(sensor_interface_dev_i2c[dev], write_buf, num_write, read_buf, num_read);
         break;
     default:
         break;
@@ -143,11 +143,15 @@ static inline int ssi_write_read(enum sensor_interface_dev dev, const void *writ
 
 static inline int ssi_burst_read(enum sensor_interface_dev dev, uint8_t start_addr, uint8_t *buf, uint32_t num_bytes)
 {
+    if (sensor_interface_dev_spec[dev] == SENSOR_INTERFACE_SPEC_SPI)
+        start_addr |= 0x80; // set read bit
     ssi_write_read(dev, &start_addr, 1, buf, num_bytes);
 }
 // static inline int ssi_burst_write(enum sensor_interface_dev dev, uint8_t start_addr, const uint8_t *buf, uint32_t num_bytes);
 static inline int ssi_reg_read_byte(enum sensor_interface_dev dev, uint8_t reg_addr, uint8_t *value)
 {
+    if (sensor_interface_dev_spec[dev] == SENSOR_INTERFACE_SPEC_SPI)
+        reg_addr |= 0x80; // set read bit
     return ssi_write_read(dev, &reg_addr, 1, value, 1);
 }
 static inline int ssi_reg_write_byte(enum sensor_interface_dev dev, uint8_t reg_addr, uint8_t value)
@@ -158,6 +162,8 @@ static inline int ssi_reg_write_byte(enum sensor_interface_dev dev, uint8_t reg_
 static inline int ssi_reg_update_byte(enum sensor_interface_dev dev, uint8_t reg_addr, uint8_t mask, uint8_t value)
 {
     uint8_t old_value, new_value;
+    if (sensor_interface_dev_spec[dev] == SENSOR_INTERFACE_SPEC_SPI)
+        reg_addr |= 0x80; // set read bit
 	int err = ssi_reg_read_byte(dev, reg_addr, &old_value);
     if (err)
         return err;
@@ -165,12 +171,16 @@ static inline int ssi_reg_update_byte(enum sensor_interface_dev dev, uint8_t reg
 	if (new_value == old_value) {
 		return 0;
 	}
+    if (sensor_interface_dev_spec[dev] == SENSOR_INTERFACE_SPEC_SPI)
+        reg_addr &= 0x7f; // clear read bit
     return ssi_reg_write_byte(dev, reg_addr, new_value);
 }
 
 static inline int ssi_reg_read_interval(enum sensor_interface_dev dev, uint8_t start_addr, uint8_t *buf, uint32_t num_bytes, uint32_t interval)
 {
     // TODO: better way to handle with spi?
+    if (sensor_interface_dev_spec[dev] == SENSOR_INTERFACE_SPEC_SPI)
+        start_addr |= 0x80; // set read bit
     int err = ssi_write(dev, &start_addr, 1); // Start read buffer
 //    if (err)
 //        return err;
@@ -190,6 +200,8 @@ static inline int ssi_burst_read_interval(enum sensor_interface_dev dev, uint8_t
 {
     // TODO: better way to handle with spi?
     int err = 0;
+    if (sensor_interface_dev_spec[dev] == SENSOR_INTERFACE_SPEC_SPI)
+        start_addr |= 0x80; // set read bit
     while (num_bytes > 0)
     {
         err |= ssi_burst_read(dev, start_addr, buf, interval);
