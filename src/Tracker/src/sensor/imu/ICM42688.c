@@ -302,15 +302,7 @@ uint16_t icm_fifo_read(uint8_t *data, uint16_t len)
 			packets = limit;
 			count = packets * PACKET_SIZE;
 		}
-		uint16_t offset = 0;
-		uint8_t addr = ICM42688_FIFO_DATA;
-		err |= ssi_write(SENSOR_INTERFACE_DEV_IMU, &addr, 1); // Start read buffer
-		while (count > 0)
-		{
-			err |= ssi_read(SENSOR_INTERFACE_DEV_IMU, &data[offset], count > 240 ? 240 : count); // Read less than 255 at a time (for nRF52832)
-			offset += 240;
-			count = count > 240 ? count - 240 : 0;
-		}
+		err |= ssi_burst_read_interval(SENSOR_INTERFACE_DEV_IMU, ICM42688_FIFO_DATA, data, count, 240); // Read FIFO data, less than 255 at a time (for nRF52832)
 		if (err)
 			LOG_ERR("Communication error");
 		data += packets * PACKET_SIZE;

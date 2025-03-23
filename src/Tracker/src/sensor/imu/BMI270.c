@@ -221,13 +221,7 @@ uint16_t bmi_fifo_read(uint8_t *data, uint16_t len)
 			packets = limit;
 			count = packets * PACKET_SIZE;
 		}
-		uint16_t offset = 0;
-		while (count > 0)
-		{
-			err |= ssi_burst_read(SENSOR_INTERFACE_DEV_IMU, BMI270_FIFO_DATA, &data[offset], count > 252 ? 252 : count); // Read less than 255 at a time (for nRF52832)
-			offset += 252;
-			count = count > 252 ? count - 252 : 0;
-		}
+		err |= ssi_burst_read_interval(SENSOR_INTERFACE_DEV_IMU, BMI270_FIFO_DATA, data, count, 252); // Read FIFO data, less than 255 at a time (for nRF52832)
 		if (err)
 			LOG_ERR("Communication error");
 		data += packets * PACKET_SIZE;
