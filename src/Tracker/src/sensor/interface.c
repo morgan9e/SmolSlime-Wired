@@ -1,5 +1,10 @@
 #include "interface.h"
 
+#include <zephyr/logging/log.h>
+
+//LOG_MODULE_REGISTER(sensor_interface, LOG_LEVEL_DBG);
+//#define __log_level LOG_LEVEL_DBG
+
 // TODO: move all sensor devices here?
 
 struct spi_dt_spec *sensor_interface_dev_spi[SENSOR_INTERFACE_DEV_COUNT];
@@ -67,7 +72,16 @@ int ssi_write(enum sensor_interface_dev dev, const uint8_t *buf, uint32_t num_by
 		tx_bufs[0].buf = (void *)buf;
 		tx_bufs[0].len = num_bytes;
 		tx.count = 1;
+#if Z_LOG_CONST_LEVEL_CHECK(LOG_LEVEL_DBG)
+		LOG_DBG("ssi_write: dev=%d, num_bytes=%zu", dev, num_bytes);
+		LOG_HEXDUMP_DBG(buf, num_bytes, "ssi_write: buf");
+		int err = spi_transceive_dt(sensor_interface_dev_spi[dev], &tx, NULL);
+		LOG_DBG("ssi_write: err=%d", err);
+		k_msleep(500);
+		return err;
+#else
 		return spi_transceive_dt(sensor_interface_dev_spi[dev], &tx, NULL);
+#endif
 	case SENSOR_INTERFACE_SPEC_I2C:
 		return i2c_write_dt(sensor_interface_dev_i2c[dev], buf, num_bytes);
 	default:
@@ -86,7 +100,17 @@ int ssi_read(enum sensor_interface_dev dev, uint8_t *buf, uint32_t num_bytes)
 		rx_bufs[1].buf = buf;
 		rx_bufs[1].len = num_bytes;
 		rx.count = 2;
+#if Z_LOG_CONST_LEVEL_CHECK(LOG_LEVEL_DBG)
+		LOG_DBG("ssi_read: dev=%d, num_bytes=%zu", dev, num_bytes);
+		int err = spi_transceive_dt(sensor_interface_dev_spi[dev], NULL, &rx);
+		LOG_HEXDUMP_DBG(rx_tmp, sensor_interface_dev_spi_dummy_reads[dev], "ssi_read: rx_tmp");
+		LOG_HEXDUMP_DBG(buf, num_bytes, "ssi_read: buf");
+		LOG_DBG("ssi_read: err=%d", err);
+		k_msleep(500);
+		return err;
+#else
 		return spi_transceive_dt(sensor_interface_dev_spi[dev], NULL, &rx);
+#endif
 	case SENSOR_INTERFACE_SPEC_I2C:
 		return i2c_read_dt(sensor_interface_dev_i2c[dev], buf, num_bytes);
 	default:
@@ -108,7 +132,18 @@ int ssi_write_read(enum sensor_interface_dev dev, const void *write_buf, size_t 
 		rx_bufs[1].buf = read_buf;
 		rx_bufs[1].len = num_read;
 		rx.count = 2;
+#if Z_LOG_CONST_LEVEL_CHECK(LOG_LEVEL_DBG)
+		LOG_DBG("ssi_write_read: dev=%d, num_write=%zu, num_read=%zu", dev, num_write, num_read);
+		LOG_HEXDUMP_DBG(write_buf, num_write, "ssi_write_read: write_buf");
+		int err = spi_transceive_dt(sensor_interface_dev_spi[dev], &tx, &rx);
+		LOG_HEXDUMP_DBG(rx_tmp, num_write + sensor_interface_dev_spi_dummy_reads[dev], "ssi_write_read: rx_tmp");
+		LOG_HEXDUMP_DBG(read_buf, num_read, "ssi_write_read: read_buf");
+		LOG_DBG("ssi_write_read: err=%d", err);
+		k_msleep(500);
+		return err;
+#else
 		return spi_transceive_dt(sensor_interface_dev_spi[dev], &tx, &rx);
+#endif
 	case SENSOR_INTERFACE_SPEC_I2C:
 		return i2c_write_read_dt(sensor_interface_dev_i2c[dev], write_buf, num_write, read_buf, num_read);
 	default:
@@ -133,7 +168,17 @@ int ssi_burst_write(enum sensor_interface_dev dev, uint8_t start_addr, const uin
 		tx_bufs[1].buf = (void *)buf;
 		tx_bufs[1].len = num_bytes;
 		tx.count = 2;
+#if Z_LOG_CONST_LEVEL_CHECK(LOG_LEVEL_DBG)
+		LOG_DBG("ssi_burst_write: dev=%d, start_addr=0x%02X, num_bytes=%d", dev, start_addr, num_bytes);
+		LOG_HEXDUMP_DBG(&start_addr, 1, "ssi_burst_write: start_addr");
+		LOG_HEXDUMP_DBG(buf, num_bytes, "ssi_burst_write: buf");
+		int err = spi_transceive_dt(sensor_interface_dev_spi[dev], &tx, NULL);
+		LOG_DBG("ssi_burst_write: err=%d", err);
+		k_msleep(500);
+		return err;
+#else
 		return spi_transceive_dt(sensor_interface_dev_spi[dev], &tx, NULL);
+#endif
 	case SENSOR_INTERFACE_SPEC_I2C:
 		return i2c_burst_write_dt(sensor_interface_dev_i2c[dev], start_addr, buf, num_bytes);
 	default:
@@ -174,6 +219,7 @@ int ssi_reg_update_byte(enum sensor_interface_dev dev, uint8_t reg_addr, uint8_t
 int ssi_reg_read_interval(enum sensor_interface_dev dev, uint8_t start_addr, uint8_t *buf, uint32_t num_bytes, uint32_t interval)
 {
 	// TODO: better way to handle with spi?
+	// TODO: not working
 	if (sensor_interface_dev_spec[dev] == SENSOR_INTERFACE_SPEC_SPI)
 		start_addr |= 0x80; // set read bit
 	int err = ssi_write(dev, &start_addr, 1); // Start read buffer
