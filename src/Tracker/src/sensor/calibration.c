@@ -88,11 +88,12 @@ bool wait_for_motion(const sensor_imu_t *sensor_imu, const struct i2c_dt_spec *d
 	uint8_t counts = 0;
 	float a[3], last_a[3];
 	sensor_imu->accel_read(last_a);
+	LOG_INF("Accelerometer: %.5f %.5f %.5f", (double)last_a[0], (double)last_a[1], (double)last_a[2]);
 	for (int i = 0; i < samples + counts; i++)
 	{
-		LOG_INF("Accelerometer: %.5f %.5f %.5f", (double)a[0], (double)a[1], (double)a[2]);
 		k_msleep(500);
 		sensor_imu->accel_read(a);
+		LOG_INF("Accelerometer: %.5f %.5f %.5f", (double)a[0], (double)a[1], (double)a[2]);
 		if (v_epsilon(a, last_a, 0.1) != motion)
 		{
 			LOG_INF("No motion detected");
