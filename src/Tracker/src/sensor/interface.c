@@ -225,6 +225,9 @@ int ssi_reg_update_byte(enum sensor_interface_dev dev, uint8_t reg_addr, uint8_t
 
 int ssi_reg_read_interval(enum sensor_interface_dev dev, uint8_t start_addr, uint8_t *buf, uint32_t num_bytes, uint32_t interval)
 {
+#if DEBUG
+	uint32_t start = k_cycle_get_32();
+#endif
 	// TODO: better way to handle with spi?
 	// TODO: not working
 	if (sensor_interface_dev_spec[dev] == SENSOR_INTERFACE_SPEC_SPI)
@@ -234,32 +237,49 @@ int ssi_reg_read_interval(enum sensor_interface_dev dev, uint8_t start_addr, uin
 //		return err;
 	while (num_bytes > 0)
 	{
+#if DEBUG
+		LOG_DBG("ssi_reg_read_interval: num_bytes=%u", num_bytes);
+#endif
+		if (interval > num_bytes)
+			interval = num_bytes;
 		err |= ssi_read(dev, buf, interval);
 //		if (err)
 //			return err;
 		buf += interval;
 		num_bytes -= interval;
-		if (interval > num_bytes)
-			interval = num_bytes;
 	}
+#if DEBUG
+	uint32_t end = k_cycle_get_32();
+	LOG_DBG("ssi_reg_read_interval: us=%u", k_cyc_to_us_near32(end - start));
+#endif
 	return err;
 }
 
 int ssi_burst_read_interval(enum sensor_interface_dev dev, uint8_t start_addr, uint8_t *buf, uint32_t num_bytes, uint32_t interval)
 {
+#if DEBUG
+	uint32_t start = k_cycle_get_32();
+#endif
 	// TODO: better way to handle with spi?
 	int err = 0;
 	if (sensor_interface_dev_spec[dev] == SENSOR_INTERFACE_SPEC_SPI)
 		start_addr |= 0x80; // set read bit
 	while (num_bytes > 0)
 	{
+#if DEBUG
+		LOG_DBG("ssi_burst_read_interval: num_bytes=%u", num_bytes);
+#endif
+		if (interval > num_bytes)
+			interval = num_bytes;
 		err |= ssi_burst_read(dev, start_addr, buf, interval);
 //		if (err)
 //			return err;
 		buf += interval;
 		num_bytes -= interval;
-		if (interval > num_bytes)
-			interval = num_bytes;
 	}
+#if DEBUG
+	uint32_t end = k_cycle_get_32();
+	LOG_DBG("ssi_burst_read_interval: us=%u", k_cyc_to_us_near32(end - start));
+#endif
 	return err;
 }
