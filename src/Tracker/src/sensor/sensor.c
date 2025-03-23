@@ -145,15 +145,23 @@ int sensor_init(void)
 
 	sensor_scan_read();
 k_msleep(3000);
+	int imu_id = -1;
 #if SENSOR_IMU_SPI_EXISTS
 	// for SPI scan, set frequency of 1MHz, it will be set later by the driver initialization
 	sensor_imu_spi_dev.config.frequency = 1000000;
 	LOG_INF("Scanning bus for IMU (SPI)");
-	int imu_id2 = sensor_scan_imu_spi(&sensor_imu_spi_dev, &sensor_imu_dev_reg);
+	imu_id = sensor_scan_imu_spi(&sensor_imu_spi_dev, &sensor_imu_dev_reg);
+	if (imu_id >= 0)
+		sensor_interface_register_sensor_imu_spi(&sensor_imu_spi_dev);
 #endif
 #if SENSOR_IMU_EXISTS
-	LOG_INF("Scanning bus for IMU");
-	int imu_id = sensor_scan_imu(&sensor_imu_dev, &sensor_imu_dev_reg);
+	if (imu_id < 0)
+	{
+		LOG_INF("Scanning bus for IMU");
+		int imu_id = sensor_scan_imu(&sensor_imu_dev, &sensor_imu_dev_reg);
+		if (imu_id >= 0)
+			sensor_interface_register_sensor_imu_i2c(&sensor_imu_dev);
+	}
 #else
 	LOG_ERR("IMU node does not exist");
 	int imu_id = -1;
@@ -282,7 +290,6 @@ k_msleep(3000);
 	}
 
 	sensor_scan_write();
-	sensor_interface_register_sensor_imu_i2c(&sensor_imu_dev); // TODO:
 	sensor_interface_register_sensor_mag_i2c(&sensor_mag_dev); // TODO:
 	connection_update_sensor_ids(imu_id, mag_id);
 	sensor_imu_id = imu_id;
