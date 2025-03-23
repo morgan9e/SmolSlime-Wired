@@ -47,7 +47,7 @@ void sensor_interface_register_sensor_mag_spi(struct spi_dt_spec *dev);
 void sensor_interface_register_sensor_mag_i2c(struct i2c_dt_spec *dev);
 void sensor_interface_register_sensor_mag_ext(struct i2c_dt_spec *dev);
 
-void sensor_interface_spi_configure(enum sensor_interface_dev dev, uint32_t frequency, uint8_t mode, uint32_t dummy_reads);
+void sensor_interface_spi_configure(enum sensor_interface_dev dev, uint32_t frequency, uint32_t dummy_reads);
 
 int ssi_write(enum sensor_interface_dev dev, const uint8_t *buf, uint32_t num_bytes);
 int ssi_read(enum sensor_interface_dev dev, uint8_t *buf, uint32_t num_bytes);
