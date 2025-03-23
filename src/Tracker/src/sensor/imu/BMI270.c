@@ -420,6 +420,10 @@ int bmi_crt(uint8_t *data)
 	*ptr = 0x0100; // CRT will be executed
 	int err = ssi_reg_write_byte(SENSOR_INTERFACE_DEV_IMU, BMI270_CMD, 0xB6); // softreset
 	k_msleep(2);
+	// in case of SPI, where CS pin must trigger rising edge for BMI to enable interface
+	uint8_t tmp;
+	err |= ssi_reg_read_byte(SENSOR_INTERFACE_DEV_IMU, 0x00, &tmp);
+	k_usleep(200);
 	err |= ssi_reg_write_byte(SENSOR_INTERFACE_DEV_IMU, BMI270_PWR_CONF, 0x00); // disable adv_power_save
 	k_usleep(450);
 	if (asic_init())
@@ -460,6 +464,10 @@ int bmi_crt(uint8_t *data)
 	// differently on this run compared to subsequent restarts.
 	err |= ssi_reg_write_byte(SENSOR_INTERFACE_DEV_IMU, BMI270_CMD, 0xB6); // softreset
 	k_msleep(2);
+	// in case of SPI, where CS pin must trigger rising edge for BMI to enable interface
+	uint8_t tmp;
+	err |= ssi_reg_read_byte(SENSOR_INTERFACE_DEV_IMU, 0x00, &tmp);
+	k_usleep(200);
 	bmi_init(0, 0, 0, 0, 0);
 	if (acc_odr != 0)
 		err |= ssi_reg_write_byte(SENSOR_INTERFACE_DEV_IMU, BMI270_ACC_CONF, 0xA0 | acc_odr);
