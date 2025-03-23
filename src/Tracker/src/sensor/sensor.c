@@ -157,13 +157,12 @@ int sensor_init(void)
 	if (imu_id < 0)
 	{
 		LOG_INF("Scanning I2C bus for IMU");
-		int imu_id = sensor_scan_imu(&sensor_imu_dev, &sensor_imu_dev_reg);
+		imu_id = sensor_scan_imu(&sensor_imu_dev, &sensor_imu_dev_reg);
 		if (imu_id >= 0)
 			sensor_interface_register_sensor_imu_i2c(&sensor_imu_dev);
 	}
 #else
 	LOG_ERR("IMU node does not exist");
-	int imu_id = -1;
 #endif
 	if (imu_id >= (int)ARRAY_SIZE(dev_imu_names))
 		LOG_WRN("Found unknown device");
