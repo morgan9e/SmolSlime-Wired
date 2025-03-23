@@ -144,7 +144,6 @@ int sensor_init(void)
 	sensor_sensor_scanning = true;
 
 	sensor_scan_read();
-k_msleep(3000);
 	int imu_id = -1;
 #if SENSOR_IMU_SPI_EXISTS
 	// for SPI scan, set frequency of 10MHz, it will be set later by the driver initialization if needed
