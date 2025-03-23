@@ -147,9 +147,9 @@ int sensor_init(void)
 k_msleep(3000);
 	int imu_id = -1;
 #if SENSOR_IMU_SPI_EXISTS
-	// for SPI scan, set frequency of 1MHz, it will be set later by the driver initialization
-	sensor_imu_spi_dev.config.frequency = 1000000;
-	LOG_INF("Scanning bus for IMU (SPI)");
+	// for SPI scan, set frequency of 10MHz, it will be set later by the driver initialization if needed
+	sensor_imu_spi_dev.config.frequency = MHZ(10);
+	LOG_INF("Scanning SPI bus for IMU");
 	imu_id = sensor_scan_imu_spi(&sensor_imu_spi_dev, &sensor_imu_dev_reg);
 	if (imu_id >= 0)
 		sensor_interface_register_sensor_imu_spi(&sensor_imu_spi_dev);
@@ -157,7 +157,7 @@ k_msleep(3000);
 #if SENSOR_IMU_EXISTS
 	if (imu_id < 0)
 	{
-		LOG_INF("Scanning bus for IMU");
+		LOG_INF("Scanning I2C bus for IMU");
 		int imu_id = sensor_scan_imu(&sensor_imu_dev, &sensor_imu_dev_reg);
 		if (imu_id >= 0)
 			sensor_interface_register_sensor_imu_i2c(&sensor_imu_dev);
@@ -444,7 +444,7 @@ int main_imu_init(void)
 	float gyro_initial_time = 1.0 / CONFIG_SENSOR_GYRO_ODR; // configure with ~1000Hz ODR
 	float mag_initial_time = sensor_update_time_ms / 1000.0; // configure with ~200Hz ODR
 	err = sensor_imu->init(clock_actual_rate, accel_initial_time, gyro_initial_time, &accel_actual_time, &gyro_actual_time);
-	LOG_INF("SPI frequency: %.2fMHz", (double)sensor_imu_spi_dev.config.frequency / 1000000.0);
+	LOG_INF("Requested SPI frequency: %.2fMHz", (double)sensor_imu_spi_dev.config.frequency / 1000000.0);
 	LOG_INF("Accelerometer initial rate: %.2fHz", 1.0 / (double)accel_actual_time);
 	LOG_INF("Gyrometer initial rate: %.2fHz", 1.0 / (double)gyro_actual_time);
 	if (err < 0)

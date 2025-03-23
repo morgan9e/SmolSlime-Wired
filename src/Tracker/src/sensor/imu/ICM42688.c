@@ -37,6 +37,8 @@ LOG_MODULE_REGISTER(ICM42688, LOG_LEVEL_DBG);
 
 int icm_init(float clock_rate, float accel_time, float gyro_time, float *accel_actual_time, float *gyro_actual_time)
 {
+	// setup interface for SPI
+	sensor_interface_spi_configure(SENSOR_INTERFACE_DEV_IMU, MHZ(24), 0);
 	int err = 0;
 //	ssi_reg_write_byte(SENSOR_INTERFACE_DEV_IMU, ICM42688_INT_SOURCE0, 0x00); // disable default interrupt (RESET_DONE)
 	if (clock_rate > 0)

@@ -24,6 +24,8 @@ static int factor_zx_read(void);
 
 int bmi_init(float clock_rate, float accel_time, float gyro_time, float *accel_actual_time, float *gyro_actual_time)
 {
+	// setup interface for SPI
+	sensor_interface_spi_configure(SENSOR_INTERFACE_DEV_IMU, MHZ(10), 1);
 	int err = ssi_reg_write_byte(SENSOR_INTERFACE_DEV_IMU, BMI270_PWR_CONF, 0x00); // disable adv_power_save
 	k_usleep(450);
 	if (asic_init())

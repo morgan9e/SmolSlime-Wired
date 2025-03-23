@@ -29,9 +29,10 @@ LOG_MODULE_REGISTER(ICM45686, LOG_LEVEL_DBG);
 
 int icm45_init(float clock_rate, float accel_time, float gyro_time, float *accel_actual_time, float *gyro_actual_time)
 {
+	// setup interface for SPI
+	sensor_interface_spi_configure(SENSOR_INTERFACE_DEV_IMU, MHZ(24), 0);
 	// special handling of unknown fifo corruption
 	fifo_primed = false;
-
 	int err = 0;
 	if (clock_rate > 0)
 	{
