@@ -475,7 +475,7 @@ int main_imu_init(void)
 
 	// Calibrate IMU
 	if (isnan(sensor_calibration_get_accelBias()[0]))
-		sensor_calibrate_imu(sensor_imu, &sensor_imu_dev);
+		sensor_calibrate_imu(sensor_imu);
 	else
 		sensor_calibration_validate();
 	if (sensor_imu == &sensor_imu_bmi270) // bmi270 specific
@@ -487,7 +487,7 @@ int main_imu_init(void)
 #if CONFIG_SENSOR_USE_6_SIDE_CALIBRATION 
 	// Calibrate 6-side
 	if (isnan(sensor_calibration_get_accBAinv()[0][0]))
-		sensor_calibrate_6_side(sensor_imu, &sensor_imu_dev);
+		sensor_calibrate_6_side(sensor_imu);
 	else
 		sensor_calibration_validate_6_side();
 #endif

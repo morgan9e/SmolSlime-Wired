@@ -83,7 +83,7 @@ int sensor_calibration_get_mag_progress()
     return mag_progress;
 }
 
-bool wait_for_motion(const sensor_imu_t *sensor_imu, const struct i2c_dt_spec *dev_i2c, bool motion, int samples)
+bool wait_for_motion(const sensor_imu_t *sensor_imu, bool motion, int samples)
 {
 	uint8_t counts = 0;
 	float a[3], last_a[3];
@@ -121,7 +121,7 @@ void sensor_calibration_read(void)
 	memcpy(accBAinv, retained->accBAinv, sizeof(accBAinv));
 }
 
-void sensor_calibrate_imu(const sensor_imu_t *sensor_imu, const struct i2c_dt_spec *dev_i2c)
+void sensor_calibrate_imu(const sensor_imu_t *sensor_imu)
 {
 //	float last_accelBias[3], last_gyroBias[3];
 //	memcpy(last_accelBias, accelBias, sizeof(accelBias));
@@ -130,7 +130,7 @@ void sensor_calibrate_imu(const sensor_imu_t *sensor_imu, const struct i2c_dt_sp
 	LOG_INF("Rest the device on a stable surface");
 
 	set_led(SYS_LED_PATTERN_LONG, SYS_LED_PRIORITY_SENSOR);
-	if (!wait_for_motion(sensor_imu, dev_i2c, false, 6)) // Wait for accelerometer to settle, timeout 3s
+	if (!wait_for_motion(sensor_imu, false, 6)) // Wait for accelerometer to settle, timeout 3s
 	{
 		set_led(SYS_LED_PATTERN_OFF, SYS_LED_PRIORITY_SENSOR);
 		return; // Timeout, calibration failed
@@ -156,7 +156,7 @@ void sensor_calibrate_imu(const sensor_imu_t *sensor_imu, const struct i2c_dt_sp
 
 	LOG_INF("Reading data");
 	sensor_calibration_clear();
-	if (sensor_offsetBias(sensor_imu, dev_i2c, accelBias, gyroBias)) // This takes about 3s
+	if (sensor_offsetBias(sensor_imu, accelBias, gyroBias)) // This takes about 3s
 	{
 		LOG_INF("Motion detected");
 		accelBias[0] = NAN; // invalidate calibration
@@ -190,7 +190,7 @@ void sensor_calibrate_imu(const sensor_imu_t *sensor_imu, const struct i2c_dt_sp
 }
 
 #if CONFIG_SENSOR_USE_6_SIDE_CALIBRATION
-void sensor_calibrate_6_side(const sensor_imu_t *sensor_imu, const struct i2c_dt_spec *dev_i2c)
+void sensor_calibrate_6_side(const sensor_imu_t *sensor_imu)
 {
 //	float last_accBAinv[4][3];
 //	memcpy(last_accBAinv, accBAinv, sizeof(accBAinv));
@@ -198,7 +198,7 @@ void sensor_calibrate_6_side(const sensor_imu_t *sensor_imu, const struct i2c_dt
 	LOG_INF("Rest the device on a stable surface");
 
 	sensor_calibration_clear_6_side();
-	sensor_6_sideBias(sensor_imu, dev_i2c);
+	sensor_6_sideBias(sensor_imu);
 	sys_write(MAIN_ACC_6_BIAS_ID, &retained->accBAinv, accBAinv, sizeof(accBAinv));
 	LOG_INF("Accelerometer matrix:");
 	for (int i = 0; i < 3; i++)
@@ -381,7 +381,7 @@ void sensor_request_calibration_6_side(void)
 #endif
 
 // TODO: setup 6 sided calibration (bias and scale, and maybe gyro ZRO?), setup temp calibration (particulary for gyro ZRO)
-int sensor_offsetBias(const sensor_imu_t *sensor_imu, const struct i2c_dt_spec *dev_i2c, float *dest1, float *dest2)
+int sensor_offsetBias(const sensor_imu_t *sensor_imu, float *dest1, float *dest2)
 {
 	float rawData[3], last_a[3];
 	sensor_imu->accel_read(last_a);
@@ -445,7 +445,7 @@ static int isAccRest(float *acc, float *pre_acc, float threshold, int *t, int re
 	return 0;
 }
 
-void sensor_6_sideBias(const sensor_imu_t *sensor_imu, const struct i2c_dt_spec *dev_i2c)
+void sensor_6_sideBias(const sensor_imu_t *sensor_imu)
 {
 	// Acc 6 side calibrate
 	float rawData[3];
