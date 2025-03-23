@@ -53,7 +53,7 @@ int icm45_init(float clock_rate, float accel_time, float gyro_time, float *accel
 	err |= ssi_reg_write_byte(SENSOR_INTERFACE_DEV_IMU, ICM45686_FIFO_CONFIG0, 0x40 | 0b000111); // set FIFO Stream mode, set FIFO depth to 2K bytes
 	err |= ssi_reg_write_byte(SENSOR_INTERFACE_DEV_IMU, ICM45686_FIFO_CONFIG3, 0x0F); // begin FIFO stream, hires, a+g
 	if (err)
-		LOG_ERR("I2C error");
+		LOG_ERR("Communication error");
 	return (err < 0 ? err : 0);
 }
 
@@ -63,7 +63,7 @@ void icm45_shutdown(void)
 	last_gyro_odr = 0xff; // reset last odr
 	int err = ssi_reg_write_byte(SENSOR_INTERFACE_DEV_IMU, ICM45686_REG_MISC2, 0x02); // Don't need to wait for ICM to finish reset
 	if (err)
-		LOG_ERR("I2C error");
+		LOG_ERR("Communication error");
 }
 
 int icm45_update_odr(float accel_time, float gyro_time, float *accel_actual_time, float *gyro_actual_time)
@@ -237,7 +237,7 @@ int icm45_update_odr(float accel_time, float gyro_time, float *accel_actual_time
 	err |= ssi_reg_write_byte(SENSOR_INTERFACE_DEV_IMU, ICM45686_ACCEL_CONFIG0, ACCEL_UI_FS_SEL << 4 | ACCEL_ODR); // set accel ODR and FS
 	err |= ssi_reg_write_byte(SENSOR_INTERFACE_DEV_IMU, ICM45686_GYRO_CONFIG0, GYRO_UI_FS_SEL << 4 | GYRO_ODR); // set gyro ODR and FS
 	if (err)
-		LOG_ERR("I2C error");
+		LOG_ERR("Communication error");
 
 	*accel_actual_time = accel_time;
 	*gyro_actual_time = gyro_time;
@@ -288,7 +288,7 @@ uint16_t icm45_fifo_read(uint8_t *data, uint16_t len) // TODO: check if working
 			count = count > 240 ? count - 240 : 0;
 		}
 		if (err)
-			LOG_ERR("I2C error");
+			LOG_ERR("Communication error");
 		// specially handle packet error from unknown fifo corruption
 		for (int i = 0; i < packets; i++)
 		{
@@ -362,7 +362,7 @@ void icm45_accel_read(float a[3])
 	uint8_t rawAccel[6];
 	int err = ssi_burst_read(SENSOR_INTERFACE_DEV_IMU, ICM45686_ACCEL_DATA_X1_UI, &rawAccel[0], 6);
 	if (err)
-		LOG_ERR("I2C error");
+		LOG_ERR("Communication error");
 	for (int i = 0; i < 3; i++) // x, y, z
 	{
 		a[i] = (int16_t)((((uint16_t)rawAccel[i * 2]) << 8) | rawAccel[1 + (i * 2)]);
@@ -375,7 +375,7 @@ void icm45_gyro_read(float g[3])
 	uint8_t rawGyro[6];
 	int err = ssi_burst_read(SENSOR_INTERFACE_DEV_IMU, ICM45686_GYRO_DATA_X1_UI, &rawGyro[0], 6);
 	if (err)
-		LOG_ERR("I2C error");
+		LOG_ERR("Communication error");
 	for (int i = 0; i < 3; i++) // x, y, z
 	{
 		g[i] = (int16_t)((((uint16_t)rawGyro[i * 2]) << 8) | rawGyro[1 + (i * 2)]);
@@ -388,7 +388,7 @@ float icm45_temp_read(void)
 	uint8_t rawTemp[2];
 	int err = ssi_burst_read(SENSOR_INTERFACE_DEV_IMU, ICM45686_TEMP_DATA1_UI, &rawTemp[0], 2);
 	if (err)
-		LOG_ERR("I2C error");
+		LOG_ERR("Communication error");
 	// Temperature in Degrees Centigrade = (TEMP_DATA / 128) + 25
 	float temp = (int16_t)((((uint16_t)rawTemp[0]) << 8) | rawTemp[1]);
 	temp /= 128;
@@ -422,7 +422,7 @@ uint8_t icm45_setup_WOM(void) // TODO: check if working
 	err |= ssi_reg_write_byte(SENSOR_INTERFACE_DEV_IMU, ICM45686_TMST_WOM_CONFIG, 0x14); // enable WOM, enable WOM interrupt
 	err |= ssi_reg_write_byte(SENSOR_INTERFACE_DEV_IMU, ICM45686_INT1_CONFIG1, 0x0E); // route WOM interrupt
 	if (err)
-		LOG_ERR("I2C error");
+		LOG_ERR("Communication error");
 	return NRF_GPIO_PIN_PULLUP << 4 | NRF_GPIO_PIN_SENSE_LOW; // active low
 }
 
@@ -434,7 +434,7 @@ int icm45_ext_passthrough(bool passthrough) // TODO: might need IOC_PAD_SCENARIO
 	else
 		err |= ssi_reg_write_byte(SENSOR_INTERFACE_DEV_IMU, ICM45686_IOC_PAD_SCENARIO_AUX_OVRD, 0x00); // disable overrides
 	if (err)
-		LOG_ERR("I2C error");
+		LOG_ERR("Communication error");
 	return 0;
 }
 

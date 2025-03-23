@@ -26,7 +26,7 @@ void ist8306_shutdown(void)
 	int err = ssi_reg_write_byte(SENSOR_INTERFACE_DEV_MAG, IST8306_CNTL3, 0x01); // soft reset
 //	int err = ssi_reg_write_byte(SENSOR_INTERFACE_DEV_MAG, IST8306_ACTR, 0x02); // suspend
 	if (err)
-		LOG_ERR("I2C error");
+		LOG_ERR("Communication error");
 }
 
 int ist8306_update_odr(float time, float *actual_time)
@@ -107,7 +107,7 @@ int ist8306_update_odr(float time, float *actual_time)
 	err |= ssi_reg_write_byte(SENSOR_INTERFACE_DEV_MAG, IST8306_CNTL2, MODE);
 	err |= ssi_reg_write_byte(SENSOR_INTERFACE_DEV_MAG, IST8306_OSRCNTL, OSR);
 	if (err)
-		LOG_ERR("I2C error");
+		LOG_ERR("Communication error");
 
 	*actual_time = time;
 	return err;
@@ -118,7 +118,7 @@ void ist8306_mag_oneshot(void)
 	int err = ssi_reg_write_byte(SENSOR_INTERFACE_DEV_MAG, IST8306_CNTL2, MODE_SINGLE); // set single measurement mode
 	oneshot_trigger_time = k_uptime_get();
 	if (err)
-		LOG_ERR("I2C error");
+		LOG_ERR("Communication error");
 }
 
 void ist8306_mag_read(float m[3])
@@ -136,7 +136,7 @@ void ist8306_mag_read(float m[3])
 	uint8_t rawData[6];
 	err |= ssi_burst_read(SENSOR_INTERFACE_DEV_MAG, IST8306_DATAXL, &rawData[0], 6);
 	if (err)
-		LOG_ERR("I2C error");
+		LOG_ERR("Communication error");
 	ist8306_mag_process(rawData, m);
 }
 

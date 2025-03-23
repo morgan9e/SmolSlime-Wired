@@ -24,7 +24,7 @@ void ak_shutdown(void)
 	last_odr = 0xff; // reset last odr
 	int err = ssi_reg_write_byte(SENSOR_INTERFACE_DEV_MAG, AK09940_CNTL4, 0x01);
 	if (err)
-		LOG_ERR("I2C error");
+		LOG_ERR("Communication error");
 }
 
 int ak_update_odr(float time, float *actual_time)
@@ -87,7 +87,7 @@ int ak_update_odr(float time, float *actual_time)
 
 	int err = ssi_reg_write_byte(SENSOR_INTERFACE_DEV_MAG, AK09940_CNTL3, MT_LND2 << 5 | MODE_SMM);
 	if (err)
-		LOG_ERR("I2C error");
+		LOG_ERR("Communication error");
 
 	*actual_time = time;
 	return err;
@@ -98,7 +98,7 @@ void ak_mag_oneshot(void)
 	int err = ssi_reg_write_byte(SENSOR_INTERFACE_DEV_MAG, AK09940_CNTL3, MT_LND2 << 5 | MODE_SMM); // single measurement mode (does not change MT2)
 	oneshot_trigger_time = k_uptime_get();
 	if (err)
-		LOG_ERR("I2C error");
+		LOG_ERR("Communication error");
 }
 
 void ak_mag_read(float m[3])
@@ -117,7 +117,7 @@ void ak_mag_read(float m[3])
 	err |= ssi_burst_read(SENSOR_INTERFACE_DEV_MAG, AK09940_HXL, &rawData[0], 9);
 	err |= ssi_reg_read_byte(SENSOR_INTERFACE_DEV_MAG, AK09940_ST2, &status); // release protection
 	if (err)
-		LOG_ERR("I2C error");
+		LOG_ERR("Communication error");
 	ak_mag_process(rawData, m);
 }
 
@@ -132,7 +132,7 @@ float ak_temp_read(float bias[3])
 	temp += 30;
 	// TODO: see pg.24
 	if (err < 0)
-		LOG_ERR("I2C error");
+		LOG_ERR("Communication error");
 	return temp;
 }
 

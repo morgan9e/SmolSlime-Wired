@@ -27,13 +27,13 @@ int lsm_init(float clock_rate, float accel_time, float gyro_time, float *accel_a
 	int err = ssi_reg_write_byte(SENSOR_INTERFACE_DEV_IMU, LSM6DSV_CTRL6, FS_G_2000DPS); // set gyro FS
 	err |= ssi_reg_write_byte(SENSOR_INTERFACE_DEV_IMU, LSM6DSV_CTRL8, FS_XL_16G); // set accel FS
 	if (err)
-		LOG_ERR("I2C error");
+		LOG_ERR("Communication error");
 	last_accel_odr = 0xff; // reset last odr
 	last_gyro_odr = 0xff; // reset last odr
 	err |= lsm_update_odr(accel_time, gyro_time, accel_actual_time, gyro_actual_time);
 	err |= ssi_reg_write_byte(SENSOR_INTERFACE_DEV_IMU, LSM6DSV_FIFO_CTRL4, 0x06); // enable Continuous mode
 	if (err)
-		LOG_ERR("I2C error");
+		LOG_ERR("Communication error");
 //	if (use_ext_fifo)
 //		err |= lsm_ext_init(ext_addr, ext_reg);
 	return (err < 0 ? err : 0);
@@ -45,7 +45,7 @@ void lsm_shutdown(void)
 	last_gyro_odr = 0xff; // reset last odr
 	int err = ssi_reg_write_byte(SENSOR_INTERFACE_DEV_IMU, LSM6DSV_CTRL3, 0x01); // SW_RESET
 	if (err)
-		LOG_ERR("I2C error");
+		LOG_ERR("Communication error");
 }
 
 int lsm_update_odr(float accel_time, float gyro_time, float *accel_actual_time, float *gyro_actual_time)
@@ -232,7 +232,7 @@ int lsm_update_odr(float accel_time, float gyro_time, float *accel_actual_time, 
 
 	err |= ssi_reg_write_byte(SENSOR_INTERFACE_DEV_IMU, LSM6DSV_FIFO_CTRL3, ODR_XL | (ODR_G << 4)); // set accel and gyro batch rate
 	if (err)
-		LOG_ERR("I2C error");
+		LOG_ERR("Communication error");
 
 	*accel_actual_time = accel_time;
 	*gyro_actual_time = gyro_time;
@@ -256,7 +256,7 @@ uint16_t lsm_fifo_read(uint8_t *data, uint16_t len)
 		for (int i = 0; i < count; i++)
 			err |= ssi_burst_read(SENSOR_INTERFACE_DEV_IMU, LSM6DSV_FIFO_DATA_OUT_TAG, &data[i * PACKET_SIZE], PACKET_SIZE);
 		if (err)
-			LOG_ERR("I2C error");
+			LOG_ERR("Communication error");
 		data += count * PACKET_SIZE;
 		len -= count * PACKET_SIZE;
 		total += count;
@@ -294,7 +294,7 @@ void lsm_accel_read(float a[3])
 	uint8_t rawAccel[6];
 	int err = ssi_burst_read(SENSOR_INTERFACE_DEV_IMU, LSM6DSV_OUTX_L_A, &rawAccel[0], 6);
 	if (err)
-		LOG_ERR("I2C error");
+		LOG_ERR("Communication error");
 	for (int i = 0; i < 3; i++) // x, y, z
 	{
 		a[i] = (int16_t)((((uint16_t)rawAccel[1 + (i * 2)]) << 8) | rawAccel[i * 2]);
@@ -308,7 +308,7 @@ void lsm_gyro_read(float g[3])
 	uint8_t rawGyro[6];
 	int err = ssi_burst_read(SENSOR_INTERFACE_DEV_IMU, LSM6DSV_OUTX_L_G, &rawGyro[0], 6);
 	if (err)
-		LOG_ERR("I2C error");
+		LOG_ERR("Communication error");
 	for (int i = 0; i < 3; i++) // x, y, z
 	{
 		g[i] = (int16_t)((((uint16_t)rawGyro[1 + (i * 2)]) << 8) | rawGyro[i * 2]);
@@ -321,7 +321,7 @@ float lsm_temp_read(void)
 	uint8_t rawTemp[2];
 	int err = ssi_burst_read(SENSOR_INTERFACE_DEV_IMU, LSM6DSV_OUT_TEMP_L, &rawTemp[0], 2);
 	if (err)
-		LOG_ERR("I2C error");
+		LOG_ERR("Communication error");
 	// TSen Temperature sensitivity 256 LSB/°C
 	// The output of the temperature sensor is 0 LSB (typ.) at 25°C
 	float temp = (int16_t)((((uint16_t)rawTemp[1]) << 8) | rawTemp[0]);
@@ -345,7 +345,7 @@ uint8_t lsm_setup_WOM(void)
 	err |= ssi_reg_write_byte(SENSOR_INTERFACE_DEV_IMU, LSM6DSV_FUNCTIONS_ENABLE, 0x80); // enable interrupts
 	err |= ssi_reg_write_byte(SENSOR_INTERFACE_DEV_IMU, LSM6DSV_MD1_CFG, 0x20); // route wake-up to INT1
 	if (err)
-		LOG_ERR("I2C error");
+		LOG_ERR("Communication error");
 	return NRF_GPIO_PIN_NOPULL << 4 | NRF_GPIO_PIN_SENSE_HIGH; // active high
 }
 
@@ -383,7 +383,7 @@ void lsm_ext_read(uint8_t *raw_m)
 {
 	int err = ssi_burst_read(SENSOR_INTERFACE_DEV_IMU, LSM6DSV_SENSOR_HUB_1, raw_m, 6);
 	if (err)
-		LOG_ERR("I2C error");
+		LOG_ERR("Communication error");
 }
 
 int lsm_ext_passthrough(bool passthrough)
@@ -402,7 +402,7 @@ int lsm_ext_passthrough(bool passthrough)
 		err |= ssi_reg_write_byte(SENSOR_INTERFACE_DEV_IMU, LSM6DSV_FUNC_CFG_ACCESS, 0x00); // switch to normal registers
 	}
 	if (err)
-		LOG_ERR("I2C error");
+		LOG_ERR("Communication error");
 	return 0;
 }
 
@@ -415,7 +415,7 @@ int lsm_ext_init(uint8_t ext_addr, uint8_t ext_reg)
 	err |= ssi_reg_write_byte(SENSOR_INTERFACE_DEV_IMU, LSM6DSV_SLV0_CONFIG, 0x08 | 0x06); // enable external sensor fifo and set 6 read operations
 	err |= ssi_reg_write_byte(SENSOR_INTERFACE_DEV_IMU, LSM6DSV_FUNC_CFG_ACCESS, 0x00); // switch to normal registers
 	if (err)
-		LOG_ERR("I2C error");
+		LOG_ERR("Communication error");
 	return err;
 }
 

@@ -30,12 +30,12 @@ int lsm6dsm_init(float clock_rate, float accel_time, float gyro_time, float *acc
 {
 	int err = ssi_reg_write_byte(SENSOR_INTERFACE_DEV_IMU, LSM6DSM_CTRL3, 0x44); // freeze register until done reading, increment register address during multi-byte access (BDU, IF_INC)
 	if (err)
-		LOG_ERR("I2C error");
+		LOG_ERR("Communication error");
 	last_accel_odr = 0xff; // reset last odr
 	last_gyro_odr = 0xff; // reset last odr
 	err |= lsm6dsm_update_odr(accel_time, gyro_time, accel_actual_time, gyro_actual_time);
 	if (err)
-		LOG_ERR("I2C error");
+		LOG_ERR("Communication error");
 //	if (use_ext_fifo)
 //		err |= lsm_ext_init(ext_addr, ext_reg);
 	return (err < 0 ? err : 0);
@@ -47,7 +47,7 @@ void lsm6dsm_shutdown(void)
 	last_gyro_odr = 0xff; // reset last odr
 	int err = ssi_reg_write_byte(SENSOR_INTERFACE_DEV_IMU, LSM6DSM_CTRL3, 0x01); // SW_RESET
 	if (err)
-		LOG_ERR("I2C error");
+		LOG_ERR("Communication error");
 }
 
 int lsm6dsm_update_odr(float accel_time, float gyro_time, float *accel_actual_time, float *gyro_actual_time)
@@ -245,7 +245,7 @@ int lsm6dsm_update_odr(float accel_time, float gyro_time, float *accel_actual_ti
 	err |= ssi_reg_write_byte(SENSOR_INTERFACE_DEV_IMU, LSM6DSM_FIFO_CTRL3, (DEC_G << 3) | DEC_XL); // set decimation
 	err |= ssi_reg_write_byte(SENSOR_INTERFACE_DEV_IMU, LSM6DSM_FIFO_CTRL5, (ODR_FIFO >> 1) | 0x06); // set FIFO ODR, FIFO Continuous mode
 	if (err)
-		LOG_ERR("I2C error");
+		LOG_ERR("Communication error");
 
 	*accel_actual_time = accel_time;
 	*gyro_actual_time = gyro_time;
@@ -283,7 +283,7 @@ uint16_t lsm6dsm_fifo_read(uint8_t *data, uint16_t len)
 			err |= ssi_burst_read(SENSOR_INTERFACE_DEV_IMU, LSM6DSM_FIFO_DATA_OUT_L, &data[i * PACKET_SIZE + 1], PACKET_SIZE - 1);
 		}
 		if (err)
-			LOG_ERR("I2C error");
+			LOG_ERR("Communication error");
 		data += count * PACKET_SIZE;
 		len -= count * PACKET_SIZE;
 		total += count;
@@ -331,7 +331,7 @@ uint8_t lsm6dsm_setup_WOM(void) // TODO:
 	err |= ssi_reg_write_byte(SENSOR_INTERFACE_DEV_IMU, LSM6DSM_TAP_CFG, 0x90); // enable interrupts (keep SLOPE_FDS)
 	err |= ssi_reg_write_byte(SENSOR_INTERFACE_DEV_IMU, LSM6DSM_MD1_CFG, 0x20); // route wake-up to INT1
 	if (err)
-		LOG_ERR("I2C error");
+		LOG_ERR("Communication error");
 	return NRF_GPIO_PIN_NOPULL << 4 | NRF_GPIO_PIN_SENSE_HIGH; // active high
 }
 

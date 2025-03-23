@@ -15,7 +15,7 @@ int lis3_init(float time, float *actual_time)
 	int err = ssi_reg_write_byte(SENSOR_INTERFACE_DEV_MAG, LIS3MDL_CTRL_REG1, 0x80); // enable temp sensor
 	err |= ssi_reg_write_byte(SENSOR_INTERFACE_DEV_MAG, LIS3MDL_CTRL_REG2, FS_8G << 5);
 	if (err)
-		LOG_ERR("I2C error");
+		LOG_ERR("Communication error");
 	last_odr = 0xff; // reset last odr
 	err |= lis3_update_odr(time, actual_time);
 	return (err < 0 ? err : 0);
@@ -26,7 +26,7 @@ void lis3_shutdown(void)
 	last_odr = 0xff; // reset last odr
 	int err = ssi_reg_write_byte(SENSOR_INTERFACE_DEV_MAG, LIS3MDL_CTRL_REG2, 0x04);
 	if (err)
-		LOG_ERR("I2C error");
+		LOG_ERR("Communication error");
 }
 
 int lis3_update_odr(float time, float *actual_time)
@@ -141,7 +141,7 @@ int lis3_update_odr(float time, float *actual_time)
 	err |= ssi_reg_write_byte(SENSOR_INTERFACE_DEV_MAG, LIS3MDL_CTRL_REG3, MD); // set measurement mode
 	err |= ssi_reg_write_byte(SENSOR_INTERFACE_DEV_MAG, LIS3MDL_CTRL_REG4, OM << 2); // set Z-axis operating mode
 	if (err)
-		LOG_ERR("I2C error");
+		LOG_ERR("Communication error");
 
 	*actual_time = time;
 	return err;
@@ -152,7 +152,7 @@ void lis3_mag_oneshot(void)
 	// write MD_SINGLE again to trigger a measurement (not clear in datasheet?)
 	int err = ssi_reg_write_byte(SENSOR_INTERFACE_DEV_MAG, LIS3MDL_CTRL_REG3, MD_SINGLE_CONV);
 	if (err)
-		LOG_ERR("I2C error");
+		LOG_ERR("Communication error");
 }
 
 void lis3_mag_read(float m[3])
@@ -164,7 +164,7 @@ void lis3_mag_read(float m[3])
 	uint8_t rawData[6];
 	err |= ssi_burst_read(SENSOR_INTERFACE_DEV_MAG, LIS3MDL_OUT_X_L, &rawData[0], 6);
 	if (err)
-		LOG_ERR("I2C error");
+		LOG_ERR("Communication error");
 	lis3_mag_process(rawData, m);
 }
 
@@ -179,7 +179,7 @@ float lis3_temp_read(float bias[3])
 	temp /= 8;
 	// No value offset?
 	if (err)
-		LOG_ERR("I2C error");
+		LOG_ERR("Communication error");
 	return temp;
 }
 

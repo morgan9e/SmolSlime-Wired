@@ -37,7 +37,7 @@ int bmi_init(float clock_rate, float accel_time, float gyro_time, float *accel_a
 	err |= ssi_reg_write_byte(SENSOR_INTERFACE_DEV_IMU, BMI270_FIFO_CONFIG_0, 0x00); // do not return sensortime frame
 	err |= ssi_reg_write_byte(SENSOR_INTERFACE_DEV_IMU, BMI270_FIFO_CONFIG_1, 0xC0); // enable a+g data in FIFO, don't store header
 	if (err)
-		LOG_ERR("I2C error");
+		LOG_ERR("Communication error");
 	return (err < 0 ? err : 0);
 }
 
@@ -48,7 +48,7 @@ void bmi_shutdown(void) // this does not reset the device, to avoid clearing the
 	int err = ssi_reg_write_byte(SENSOR_INTERFACE_DEV_IMU, BMI270_PWR_CTRL, 0x00); // disable all sensors
 	err |= ssi_reg_write_byte(SENSOR_INTERFACE_DEV_IMU, BMI270_PWR_CONF, 0x01); // enable adv_power_save (suspend)
 	if (err)
-		LOG_ERR("I2C error");
+		LOG_ERR("Communication error");
 }
 
 int bmi_update_odr(float accel_time, float gyro_time, float *accel_actual_time, float *gyro_actual_time)
@@ -195,7 +195,7 @@ int bmi_update_odr(float accel_time, float gyro_time, float *accel_actual_time, 
 
 	err |= ssi_reg_write_byte(SENSOR_INTERFACE_DEV_IMU, BMI270_PWR_CTRL, 0x08 | (acc_odr != 0 ? 0x04 : 0) | (gyr_odr != 0 ? 0x02 : 0)); // enable temp, set accel and gyro power
 	if (err)
-		LOG_ERR("I2C error");
+		LOG_ERR("Communication error");
 
 	*accel_actual_time = accel_time;
 	*gyro_actual_time = gyro_time;
@@ -229,7 +229,7 @@ uint16_t bmi_fifo_read(uint8_t *data, uint16_t len)
 			count = count > 252 ? count - 252 : 0;
 		}
 		if (err)
-			LOG_ERR("I2C error");
+			LOG_ERR("Communication error");
 		data += packets * PACKET_SIZE;
 		len -= packets * PACKET_SIZE;
 		total += packets;
@@ -277,7 +277,7 @@ void bmi_accel_read(float a[3])
 	uint8_t rawAccel[6];
 	int err = ssi_burst_read(SENSOR_INTERFACE_DEV_IMU, BMI270_DATA_8, &rawAccel[0], 6);
 	if (err)
-		LOG_ERR("I2C error");
+		LOG_ERR("Communication error");
 	float a_bmi[3];
 	for (int i = 0; i < 3; i++) // x, y, z
 	{
@@ -294,7 +294,7 @@ void bmi_gyro_read(float g[3])
 	uint8_t rawGyro[6];
 	int err = ssi_burst_read(SENSOR_INTERFACE_DEV_IMU, BMI270_DATA_14, &rawGyro[0], 6);
 	if (err)
-		LOG_ERR("I2C error");
+		LOG_ERR("Communication error");
 	float g_bmi[3];
 	for (int i = 0; i < 3; i++) // x, y, z
 	{
@@ -313,7 +313,7 @@ float bmi_temp_read(void)
 	uint8_t rawTemp[2];
 	int err = ssi_burst_read(SENSOR_INTERFACE_DEV_IMU, BMI270_TEMPERATURE_0, &rawTemp[0], 2);
 	if (err)
-		LOG_ERR("I2C error");
+		LOG_ERR("Communication error");
 	if (rawTemp[0] == 0x00 && rawTemp[1] == 0x80)
 		return 23; // TODO: invalid temperature, what to return?
 	// 0x0000 -> 23°C
@@ -341,7 +341,7 @@ uint8_t bmi_setup_WOM(void) // TODO: seems too sensitive? try to match icm at le
 	err |= ssi_reg_write_byte(SENSOR_INTERFACE_DEV_IMU, BMI270_INT1_MAP_FEAT, 0x40); // enable any_motion_out (interrupt)
 	err |= ssi_reg_write_byte(SENSOR_INTERFACE_DEV_IMU, BMI270_PWR_CONF, 0x01); // enable adv_power_save (suspend)
 	if (err)
-		LOG_ERR("I2C error");
+		LOG_ERR("Communication error");
 	// LOG_DBG("WOM setup complete");
 	return NRF_GPIO_PIN_PULLUP << 4 | NRF_GPIO_PIN_SENSE_LOW; // active low
 }
@@ -374,7 +374,7 @@ static int asic_init(void)
 		LOG_DBG("ASIC initialized");
 	}
 	if (err)
-		LOG_ERR("I2C error");
+		LOG_ERR("Communication error");
 	return 0;
 }
 
@@ -394,7 +394,7 @@ static int upload_config_file(void)
 	}
 	err |= ssi_reg_write_byte(SENSOR_INTERFACE_DEV_IMU, BMI270_INIT_CTRL, 0x01); // complete config load
 	if (err)
-		LOG_ERR("I2C error");
+		LOG_ERR("Communication error");
 	// LOG_DBG("Completed config load");
 	return 0;
 }
@@ -409,7 +409,7 @@ static int factor_zx_read(void)
 	// Ratex = DATA_15<<8+DATA_14 - GYR_CAS.factor_zx * (DATA_19<<8+DATA_18) / 2^9
 	float factor_zx = (int8_t)data / 2 / 512.0;
 	if (err)
-		LOG_ERR("I2C error");
+		LOG_ERR("Communication error");
 	return factor_zx;
 }
 
@@ -474,7 +474,7 @@ int bmi_crt(uint8_t *data)
 	last_gyro_odr = gyr_odr;
 
 	if (err)
-		LOG_ERR("I2C error");
+		LOG_ERR("Communication error");
 
 	if (data[0] == 0)
 		return 1;

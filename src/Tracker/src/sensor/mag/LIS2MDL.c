@@ -24,7 +24,7 @@ void lis2_shutdown(void)
 	last_odr = 0xff; // reset last odr
 	int err = ssi_reg_write_byte(SENSOR_INTERFACE_DEV_MAG, LIS2MDL_CFG_REG_A, 0x20);
 	if (err)
-		LOG_ERR("I2C error");
+		LOG_ERR("Communication error");
 }
 
 int lis2_update_odr(float time, float *actual_time)
@@ -89,7 +89,7 @@ int lis2_update_odr(float time, float *actual_time)
 
 	int err = ssi_reg_write_byte(SENSOR_INTERFACE_DEV_MAG, LIS2MDL_CFG_REG_A, MODR << 2 | MD); // set mag ODR and MD
 	if (err)
-		LOG_ERR("I2C error");
+		LOG_ERR("Communication error");
 
 	*actual_time = time;
 	return err;
@@ -100,7 +100,7 @@ void lis2_mag_oneshot(void)
 	// write MD_SINGLE again to trigger a measurement
 	int err = ssi_reg_write_byte(SENSOR_INTERFACE_DEV_MAG, LIS2MDL_CFG_REG_A, last_odr << 2 | MD_SINGLE); // set mag ODR and MD
 	if (err)
-		LOG_ERR("I2C error");
+		LOG_ERR("Communication error");
 }
 
 void lis2_mag_read(float m[3])
@@ -112,7 +112,7 @@ void lis2_mag_read(float m[3])
 	uint8_t rawData[6];
 	err |= ssi_burst_read(SENSOR_INTERFACE_DEV_MAG, LIS2MDL_OUTX_L_REG, &rawData[0], 6);
 	if (err)
-		LOG_ERR("I2C error");
+		LOG_ERR("Communication error");
 	lis2_mag_process(rawData, m);
 }
 
@@ -127,7 +127,7 @@ float lis2_temp_read(float bias[3])
 	temp /= 8;
 	// No value offset?
 	if (err)
-		LOG_ERR("I2C error");
+		LOG_ERR("Communication error");
 	return temp;
 }
 
