@@ -274,7 +274,7 @@ static void button_thread(void)
 {
 	while (1)
 	{
-		k_msleep(10);
+		k_msleep(20);
 		if (press_time != 0 && k_uptime_get() - press_time > 50 && button_read()) // Button is being pressed
 			sys_request_system_reboot();
 	}
