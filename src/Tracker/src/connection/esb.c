@@ -108,9 +108,13 @@ void event_handler(struct esb_evt const *event)
 	}
 }
 
+bool clock_status = false;
+
 #if defined(CONFIG_CLOCK_CONTROL_NRF)
 int clocks_start(void)
 {
+	if (clock_status)
+		return 0;
 	int err;
 	int res;
 	struct onoff_manager *clk_mgr;
@@ -135,13 +139,14 @@ int clocks_start(void)
 
 	do
 	{
+		k_usleep(100);
 		err = sys_notify_fetch_result(&clk_cli.notify, &res);
 		if (!err && res)
 		{
 			LOG_ERR("Clock could not be started: %d", res);
 			return res;
 		}
-		if (err && ++fetch_attempts > 10000) {
+		if (err && ++fetch_attempts > 10) {
 			LOG_WRN("Unable to fetch Clock request result: %d", err);
 			return err;
 		}
@@ -153,11 +158,13 @@ int clocks_start(void)
 #endif /* defined(NRF54L15_XXAA) */
 
 	LOG_DBG("HF clock started");
+	clock_status = true;
 	return 0;
 }
 
 void clocks_stop(void)
 {
+	clock_status = false;
 	struct onoff_manager *clk_mgr;
 
 	clk_mgr = z_nrf_clock_control_get_onoff(CLOCK_CONTROL_NRF_SUBSYS_HF);
@@ -346,6 +353,8 @@ void esb_pair(void)
 		set_led(SYS_LED_PATTERN_SHORT, SYS_LED_PRIORITY_CONNECTION);
 		while (paired_addr[0] != checksum)
 		{
+			if (!clock_status)
+				clocks_start();
 			if (paired_addr[0])
 			{
 				LOG_INF("Incorrect checksum: %02X", paired_addr[0]);
@@ -385,6 +394,8 @@ void esb_write(uint8_t *data)
 {
 	if (!esb_initialized || !esb_paired)
 		return;
+	if (!clock_status)
+		clocks_start(); 
 #if defined(NRF54L15_XXAA) // TODO: esb halts with ack and tx fail
 	tx_payload.noack = true;
 #else
