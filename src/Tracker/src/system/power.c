@@ -11,6 +11,7 @@
 #include <zephyr/sys/poweroff.h>
 #include <zephyr/sys/reboot.h>
 #include <hal/nrf_gpio.h>
+#include <zephyr/pm/device.h>
 
 #include "power.h"
 
@@ -228,6 +229,10 @@ static void power_thread(void)
 {
 	while (1)
 	{
+#if DT_NODE_HAS_STATUS_OKAY(DT_NODELABEL(uart0))
+		const struct device *const uart = DEVICE_DT_GET(DT_NODELABEL(uart0));
+		pm_device_action_run(uart, PM_DEVICE_ACTION_SUSPEND);
+#endif
 		bool docked = dock_read();
 		bool charging = chg_read();
 		bool charged = stby_read();
