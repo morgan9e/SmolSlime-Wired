@@ -53,6 +53,9 @@ static struct esb_payload tx_payload_pair = ESB_CREATE_PAYLOAD(0,
 
 static uint8_t paired_addr[8] = {0};
 
+static bool esb_initialized = false;
+static bool esb_paired = false;
+
 LOG_MODULE_REGISTER(esb_event, LOG_LEVEL_INF);
 
 void event_handler(struct esb_evt const *event)
@@ -153,6 +156,16 @@ int clocks_start(void)
 	return 0;
 }
 
+void clocks_stop(void)
+{
+	struct onoff_manager *clk_mgr;
+
+	clk_mgr = z_nrf_clock_control_get_onoff(CLOCK_CONTROL_NRF_SUBSYS_HF);
+	onoff_release(clk_mgr);
+
+	LOG_DBG("HF clock stop request");
+}
+
 #elif defined(CONFIG_CLOCK_CONTROL_NRF2)
 
 int clocks_start(void)
@@ -191,6 +204,22 @@ int clocks_start(void)
 BUILD_ASSERT(false, "No Clock Control driver");
 #endif /* defined(CONFIG_CLOCK_CONTROL_NRF2) */
 
+static struct k_thread clocks_thread_id;
+static K_THREAD_STACK_DEFINE(clocks_thread_id_stack, 128);
+
+void clocks_request_start(uint32_t delay_us)
+{
+	k_thread_create(&clocks_thread_id, clocks_thread_id_stack, K_THREAD_STACK_SIZEOF(clocks_thread_id_stack), (k_thread_entry_t)clocks_start, NULL, NULL, NULL, 5, 0, K_USEC(delay_us));
+}
+
+static struct k_thread clocks_stop_thread_id;
+static K_THREAD_STACK_DEFINE(clocks_stop_thread_id_stack, 128);
+
+void clocks_request_stop(uint32_t delay_us)
+{
+	k_thread_create(&clocks_stop_thread_id, clocks_stop_thread_id_stack, K_THREAD_STACK_SIZEOF(clocks_stop_thread_id), (k_thread_entry_t)clocks_stop, NULL, NULL, NULL, 5, 0, K_USEC(delay_us));
+}
+
 // this was randomly generated
 // TODO: I have no idea?
 static const uint8_t discovery_base_addr_0[4] = {0x62, 0x39, 0x8A, 0xF2};
@@ -198,8 +227,6 @@ static const uint8_t discovery_base_addr_1[4] = {0x28, 0xFF, 0x50, 0xB8};
 static const uint8_t discovery_addr_prefix[8] = {0xFE, 0xFF, 0x29, 0x27, 0x09, 0x02, 0xB2, 0xD6};
 
 static uint8_t base_addr_0[4], base_addr_1[4], addr_prefix[8] = {0};
-
-static bool esb_initialized = false;
 
 int esb_initialize(bool tx)
 {
@@ -294,8 +321,6 @@ inline void esb_set_addr_paired(void)
 	memcpy(base_addr_1, addr_buffer + 4, sizeof(base_addr_1));
 	memcpy(addr_prefix, addr_buffer + 8, sizeof(addr_prefix));
 }
-
-static bool esb_paired = false;
 
 void esb_pair(void)
 {
