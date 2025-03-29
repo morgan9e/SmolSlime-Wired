@@ -66,11 +66,15 @@ void event_handler(struct esb_evt const *event)
 		if (tx_errors >= 100)
 			set_status(SYS_STATUS_CONNECTION_ERROR, false);
 		tx_errors = 0;
+		if (esb_paired)
+			clocks_stop();
 		break;
 	case ESB_EVENT_TX_FAILED:
 		if (++tx_errors == 100) // consecutive failure to transmit
 			set_status(SYS_STATUS_CONNECTION_ERROR, true);
 		LOG_DBG("TX FAILED");
+		if (esb_paired)
+			clocks_stop();
 		break;
 	case ESB_EVENT_RX_RECEIVED:
 		if (!esb_read_rx_payload(&rx_payload)) // zero, rx success
@@ -379,6 +383,7 @@ void esb_pair(void)
 
 	esb_set_addr_paired();
 	esb_paired = true;
+	clocks_stop();
 }
 
 void esb_reset_pair(void)
