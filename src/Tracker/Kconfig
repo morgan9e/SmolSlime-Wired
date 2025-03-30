@@ -4,10 +4,6 @@
 # SPDX-License-Identifier: LicenseRef-Nordic-5-Clause
 #
 
-source "Kconfig.zephyr"
-
-menu "SlimeNRF"
-
 config USE_SLIMENRF_CONSOLE
     bool "Use basic console"
     default y
@@ -237,4 +233,4 @@ config RADIO_TX_POWER
         Radio output power level.
         A lower value may reduce power consumption.
 
-endmenu
+source "Kconfig.zephyr"
