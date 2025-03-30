@@ -25,6 +25,8 @@
 
 #include "sensor/sensor.h"
 
+void vqf_update_sensor_ids(int imu);
+
 void vqf_init(float g_time, float a_time, float m_time);
 void vqf_load(const void *data);
 void vqf_save(void *data);

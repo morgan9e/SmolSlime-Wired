@@ -23,6 +23,7 @@
 #include "globals.h"
 #include "util.h"
 
+#include "sensor/sensors_enum.h"
 #include "../src/vqf.h" // conflicting with vqf.h in local path
 
 #include "../vqf/vqf.h" // conflicting with vqf.h in vqf-c
@@ -31,11 +32,18 @@
 #define DEG_TO_RAD (M_PI / 180.0f)
 #endif
 
+static uint8_t imu_id;
+
 static vqf_params_t params;
 static vqf_state_t state;
 static vqf_coeffs_t coeffs;
 
 static float last_a[3] = {0};
+
+void vqf_update_sensor_ids(int imu)
+{
+	imu_id = imu;
+}
 
 static void set_params()
 {
@@ -63,6 +71,38 @@ static void set_params()
 	params.magMinUndisturbedTime = 0.5f;
 	params.magMaxRejectionTime = 60.0f;
 	params.magRejectionFactor = 2.0f;
+	// Per-IMU parameters, from ESP firmware
+	switch (imu_id)
+	{
+	case IMU_BMI270:
+	case IMU_ICM42688:
+		params.biasSigmaInit = 0.5f;
+		params.biasClip = 1.0f;
+		params.restThGyr = 0.5f;
+		params.restThAcc = 0.196f;
+		break;
+	case IMU_ICM45686: // currently defaults
+		params.biasSigmaInit = 0.017f;
+		params.biasClip = 1.0f;
+		params.restThGyr = 0.5f;
+		params.restThAcc = 0.1f;
+		break;
+	case IMU_LSM6DS3:
+		params.biasSigmaInit = 3.0f;
+		params.biasClip = 6.0f;
+		params.restThGyr = 3.0f;
+		params.restThAcc = 0.392f;
+		break;
+	case IMU_LSM6DSO:
+	case IMU_LSM6DSR:
+	case IMU_LSM6DSV:
+		params.biasSigmaInit = 1.0f;
+		params.biasClip = 2.0f;
+		params.restThGyr = 1.0f;
+		params.restThAcc = 0.192f;
+		break;
+	default:
+	}
 }
 
 void vqf_init(float g_time, float a_time, float m_time)

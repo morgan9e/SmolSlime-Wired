@@ -464,6 +464,8 @@ int main_imu_init(void)
 
 	// Setup fusion
 	sensor_retained_read();
+	if (fusion_id == FUSION_VQF)
+		vqf_update_sensor_ids(sensor_imu_id);
 	if (retained->fusion_id == fusion_id) // Check if the retained fusion data is valid and matches the selected fusion
 	{ // Load state if the data is valid (fusion was initialized before)
 		sensor_fusion->load(retained->fusion_data);
