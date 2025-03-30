@@ -111,6 +111,7 @@
 int icm_init(float clock_rate, float accel_time, float gyro_time, float *accel_actual_time, float *gyro_actual_time);
 void icm_shutdown(void);
 
+void icm_update_fs(float accel_range, float gyro_range, float *accel_actual_range, float *gyro_actual_range);
 int icm_update_odr(float accel_time, float gyro_time, float *accel_actual_time, float *gyro_actual_time);
 
 uint16_t icm_fifo_read(uint8_t *data, uint16_t len);

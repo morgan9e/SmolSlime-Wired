@@ -139,6 +139,7 @@ writing to the register pointed by the post-auto-incremented address.
 int icm45_init(float clock_rate, float accel_time, float gyro_time, float *accel_actual_time, float *gyro_actual_time);
 void icm45_shutdown(void);
 
+void icm45_update_fs(float accel_range, float gyro_range, float *accel_actual_range, float *gyro_actual_range);
 int icm45_update_odr(float accel_time, float gyro_time, float *accel_actual_time, float *gyro_actual_time);
 
 uint16_t icm45_fifo_read(uint8_t *data, uint16_t len);

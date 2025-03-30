@@ -9,8 +9,12 @@
 
 #define PACKET_SIZE 7 // first byte is pattern, only 6 actual sample bytes
 
-static const float accel_sensitivity = 16.0f / 32768.0f; // Always 16G (FS = ±16 g: 0.488 mg/LSB)
-static const float gyro_sensitivity = 0.070f; // Always 2000dps (FS = ±2000 dps: 70 mdps/LSB)
+// TODO: shared with LSM
+//static float accel_sensitivity = 16.0f / 32768.0f; // Default 16G (FS = ±16 g: 0.488 mg/LSB)
+//static float gyro_sensitivity = 0.070f; // Default 2000dps (FS = ±2000 dps: 70 mdps/LSB)
+
+static uint8_t accel_fs = DSM_FS_XL_16G;
+static uint8_t gyro_fs = DSM_FS_G_2000DPS;
 
 static uint8_t last_accel_mode = 0xff;
 static uint8_t last_gyro_mode = 0xff;
@@ -50,6 +54,57 @@ void lsm6dsm_shutdown(void)
 	int err = ssi_reg_write_byte(SENSOR_INTERFACE_DEV_IMU, LSM6DSM_CTRL3, 0x01); // SW_RESET
 	if (err)
 		LOG_ERR("Communication error");
+}
+
+void lsm6dsm_update_fs(float accel_range, float gyro_range, float *accel_actual_range, float *gyro_actual_range)
+{
+	if (accel_range > 8)
+	{
+		accel_fs = DSM_FS_XL_16G;
+		accel_range = 16;
+	}
+	else if (accel_range > 4)
+	{
+		accel_fs = DSM_FS_XL_8G;
+		accel_range = 8;
+	}
+	else if (accel_range > 2)
+	{
+		accel_fs = DSM_FS_XL_4G;
+		accel_range = 4;
+	}
+	else
+	{
+		accel_fs = DSM_FS_XL_2G;
+		accel_range = 2;
+	}
+
+	if (gyro_range > 1000)
+	{
+		gyro_fs = DSM_FS_G_2000DPS;
+		gyro_range = 2000;
+	}
+	else if (gyro_range > 500)
+	{
+		gyro_fs = DSM_FS_G_1000DPS;
+		gyro_range = 1000;
+	}
+	else if (gyro_range > 250)
+	{
+		gyro_fs = DSM_FS_G_500DPS;
+		gyro_range = 500;
+	}
+	else
+	{
+		gyro_fs = DSM_FS_G_250DPS;
+		gyro_range = 250;
+	}
+
+	accel_sensitivity = accel_range / 32768.0f;
+	gyro_sensitivity = 35.0f * gyro_range / 1000000.0f;
+
+	*accel_actual_range = accel_range;
+	*gyro_actual_range = gyro_range;
 }
 
 int lsm6dsm_update_odr(float accel_time, float gyro_time, float *accel_actual_time, float *gyro_actual_time)
@@ -237,10 +292,10 @@ int lsm6dsm_update_odr(float accel_time, float gyro_time, float *accel_actual_ti
 		fifo_pattern_length = gyro_time == 0 ? 1 : accel_time / gyro_time + 0.5f;
 	}
 
-	int err = ssi_reg_write_byte(SENSOR_INTERFACE_DEV_IMU, LSM6DSM_CTRL1, ODR_XL | DSM_FS_XL_16G); // set accel ODR and FS
+	int err = ssi_reg_write_byte(SENSOR_INTERFACE_DEV_IMU, LSM6DSM_CTRL1, ODR_XL | accel_fs); // set accel ODR and FS
 	err |= ssi_reg_write_byte(SENSOR_INTERFACE_DEV_IMU, LSM6DSM_CTRL6, OP_MODE_XL); // set accelerator perf mode
 
-	err |= ssi_reg_write_byte(SENSOR_INTERFACE_DEV_IMU, LSM6DSM_CTRL2, ODR_G | DSM_FS_G_2000DPS); // set gyro ODR and mode
+	err |= ssi_reg_write_byte(SENSOR_INTERFACE_DEV_IMU, LSM6DSM_CTRL2, ODR_G | gyro_fs); // set gyro ODR and mode
 	err |= ssi_reg_write_byte(SENSOR_INTERFACE_DEV_IMU, LSM6DSM_CTRL7, OP_MODE_G); // set gyroscope perf mode
 	err |= ssi_reg_write_byte(SENSOR_INTERFACE_DEV_IMU, LSM6DSM_CTRL4, GYRO_SLEEP); // set gyroscope awake/sleep mode
 
@@ -357,6 +412,7 @@ const sensor_imu_t sensor_imu_lsm6dsm = {
 	*lsm6dsm_init,
 	*lsm6dsm_shutdown,
 
+	*lsm6dsm_update_fs,
 	*lsm6dsm_update_odr,
 
 	*lsm6dsm_fifo_read,

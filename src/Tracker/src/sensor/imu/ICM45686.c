@@ -67,6 +67,12 @@ void icm45_shutdown(void)
 		LOG_ERR("Communication error");
 }
 
+void icm45_update_fs(float accel_range, float gyro_range, float *accel_actual_range, float *gyro_actual_range)
+{
+	*accel_actual_range = 32; // always 32g in hires
+	*gyro_actual_range = 4000; // always 4000dps in hires
+}
+
 int icm45_update_odr(float accel_time, float gyro_time, float *accel_actual_time, float *gyro_actual_time)
 {
 	int ODR;
@@ -435,6 +441,7 @@ const sensor_imu_t sensor_imu_icm45686 = {
 	*icm45_init,
 	*icm45_shutdown,
 
+	*icm45_update_fs,
 	*icm45_update_odr,
 
 	*icm45_fifo_read,

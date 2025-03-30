@@ -73,6 +73,12 @@ void icm_shutdown(void)
 		LOG_ERR("Communication error");
 }
 
+void icm_update_fs(float accel_range, float gyro_range, float *accel_actual_range, float *gyro_actual_range)
+{
+	*accel_actual_range = 16; // always 16g in hires
+	*gyro_actual_range = 2000; // always 2000dps in hires
+}
+
 int icm_update_odr(float accel_time, float gyro_time, float *accel_actual_time, float *gyro_actual_time)
 {
 	int ODR;
@@ -416,6 +422,7 @@ const sensor_imu_t sensor_imu_icm42688 = {
 	*icm_init,
 	*icm_shutdown,
 
+	*icm_update_fs,
 	*icm_update_odr,
 
 	*icm_fifo_read,

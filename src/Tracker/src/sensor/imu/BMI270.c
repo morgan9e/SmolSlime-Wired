@@ -9,8 +9,11 @@
 
 #define PACKET_SIZE 12
 
-static const float accel_sensitivity = 16.0f / 32768.0f; // Always 16G
-static const float gyro_sensitivity = 2000.0f / 32768.0f; // Always 2000dps
+static float accel_sensitivity = 16.0f / 32768.0f; // default 16g
+static float gyro_sensitivity = 2000.0f / 32768.0f; // default 2000dps
+
+static uint8_t accel_fs = RANGE_16G;
+static uint8_t gyro_fs = RANGE_2000;
 
 static uint8_t last_accel_odr = 0xff;
 static uint8_t last_gyro_odr = 0xff;
@@ -33,8 +36,8 @@ int bmi_init(float clock_rate, float accel_time, float gyro_time, float *accel_a
 	factor_zx = factor_zx_read();
 	last_accel_odr = 0xff; // reset last odr
 	last_gyro_odr = 0xff; // reset last odr
-	err |= ssi_reg_write_byte(SENSOR_INTERFACE_DEV_IMU, BMI270_ACC_RANGE, RANGE_16G);
-	err |= ssi_reg_write_byte(SENSOR_INTERFACE_DEV_IMU, BMI270_GYR_RANGE, RANGE_2000);
+	err |= ssi_reg_write_byte(SENSOR_INTERFACE_DEV_IMU, BMI270_ACC_RANGE, accel_fs);
+	err |= ssi_reg_write_byte(SENSOR_INTERFACE_DEV_IMU, BMI270_GYR_RANGE, gyro_fs);
 	err |= bmi_update_odr(accel_time, gyro_time, accel_actual_time, gyro_actual_time);
 	err |= ssi_reg_write_byte(SENSOR_INTERFACE_DEV_IMU, BMI270_FIFO_CONFIG_0, 0x00); // do not return sensortime frame
 	err |= ssi_reg_write_byte(SENSOR_INTERFACE_DEV_IMU, BMI270_FIFO_CONFIG_1, 0xC0); // enable a+g data in FIFO, don't store header
@@ -51,6 +54,57 @@ void bmi_shutdown(void) // this does not reset the device, to avoid clearing the
 	err |= ssi_reg_write_byte(SENSOR_INTERFACE_DEV_IMU, BMI270_PWR_CONF, 0x01); // enable adv_power_save (suspend)
 	if (err)
 		LOG_ERR("Communication error");
+}
+
+void bmi_update_fs(float accel_range, float gyro_range, float *accel_actual_range, float *gyro_actual_range)
+{
+	if (accel_range > 8)
+	{
+		accel_fs = RANGE_16G;
+		accel_range = 16;
+	}
+	else if (accel_range > 4)
+	{
+		accel_fs = RANGE_8G;
+		accel_range = 8;
+	}
+	else if (accel_range > 2)
+	{
+		accel_fs = RANGE_4G;
+		accel_range = 4;
+	}
+	else
+	{
+		accel_fs = RANGE_2G;
+		accel_range = 2;
+	}
+
+	if (gyro_range > 1000)
+	{
+		gyro_fs = RANGE_2000;
+		gyro_range = 2000;
+	}
+	else if (gyro_range > 500)
+	{
+		gyro_fs = RANGE_1000;
+		gyro_range = 1000;
+	}
+	else if (gyro_range > 250)
+	{
+		gyro_fs = RANGE_500;
+		gyro_range = 500;
+	}
+	else
+	{
+		gyro_fs = RANGE_250;
+		gyro_range = 250;
+	}
+
+	accel_sensitivity = accel_range / 32768.0f;
+	gyro_sensitivity = gyro_range / 32768.0f;
+
+	*accel_actual_range = accel_range;
+	*gyro_actual_range = gyro_range;
 }
 
 int bmi_update_odr(float accel_time, float gyro_time, float *accel_actual_time, float *gyro_actual_time)
@@ -497,6 +551,7 @@ const sensor_imu_t sensor_imu_bmi270 = {
 	*bmi_init,
 	*bmi_shutdown,
 
+	*bmi_update_fs,
 	*bmi_update_odr,
 
 	*bmi_fifo_read,

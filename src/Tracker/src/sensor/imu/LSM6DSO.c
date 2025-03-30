@@ -9,6 +9,9 @@
 
 #define PACKET_SIZE 7
 
+static uint8_t accel_fs = DSO_FS_XL_16G;
+static uint8_t gyro_fs = DSO_FS_G_2000DPS;
+
 static uint8_t last_accel_mode = 0xff;
 static uint8_t last_gyro_mode = 0xff;
 static uint8_t last_accel_odr = 0xff;
@@ -46,6 +49,57 @@ void lsm6dso_shutdown(void)
 	int err = ssi_reg_write_byte(SENSOR_INTERFACE_DEV_IMU, LSM6DSO_CTRL3, 0x01); // SW_RESET
 	if (err)
 		LOG_ERR("Communication error");
+}
+
+void lsm6dso_update_fs(float accel_range, float gyro_range, float *accel_actual_range, float *gyro_actual_range)
+{
+	if (accel_range > 8)
+	{
+		accel_fs = DSO_FS_XL_16G;
+		accel_range = 16;
+	}
+	else if (accel_range > 4)
+	{
+		accel_fs = DSO_FS_XL_8G;
+		accel_range = 8;
+	}
+	else if (accel_range > 2)
+	{
+		accel_fs = DSO_FS_XL_4G;
+		accel_range = 4;
+	}
+	else
+	{
+		accel_fs = DSO_FS_XL_2G;
+		accel_range = 2;
+	}
+
+	if (gyro_range > 1000)
+	{
+		gyro_fs = DSO_FS_G_2000DPS;
+		gyro_range = 2000;
+	}
+	else if (gyro_range > 500)
+	{
+		gyro_fs = DSO_FS_G_1000DPS;
+		gyro_range = 1000;
+	}
+	else if (gyro_range > 250)
+	{
+		gyro_fs = DSO_FS_G_500DPS;
+		gyro_range = 500;
+	}
+	else
+	{
+		gyro_fs = DSO_FS_G_250DPS;
+		gyro_range = 250;
+	}
+
+	accel_sensitivity = accel_range / 32768.0f;
+	gyro_sensitivity = 35.0f * gyro_range / 1000000.0f;
+
+	*accel_actual_range = accel_range;
+	*gyro_actual_range = gyro_range;
 }
 
 int lsm6dso_update_odr(float accel_time, float gyro_time, float *accel_actual_time, float *gyro_actual_time)
@@ -213,10 +267,10 @@ int lsm6dso_update_odr(float accel_time, float gyro_time, float *accel_actual_ti
 	last_accel_odr = ODR_XL;
 	last_gyro_odr = ODR_G;
 
-	int err = ssi_reg_write_byte(SENSOR_INTERFACE_DEV_IMU, LSM6DSO_CTRL1, ODR_XL | DSO_FS_XL_16G); // set accel ODR and FS
+	int err = ssi_reg_write_byte(SENSOR_INTERFACE_DEV_IMU, LSM6DSO_CTRL1, ODR_XL | accel_fs); // set accel ODR and FS
 	err |= ssi_reg_write_byte(SENSOR_INTERFACE_DEV_IMU, LSM6DSO_CTRL6, OP_MODE_XL); // set accelerator perf mode
 
-	err |= ssi_reg_write_byte(SENSOR_INTERFACE_DEV_IMU, LSM6DSO_CTRL2, ODR_G | DSO_FS_G_2000DPS); // set gyro ODR and mode
+	err |= ssi_reg_write_byte(SENSOR_INTERFACE_DEV_IMU, LSM6DSO_CTRL2, ODR_G | gyro_fs); // set gyro ODR and mode
 	err |= ssi_reg_write_byte(SENSOR_INTERFACE_DEV_IMU, LSM6DSO_CTRL7, OP_MODE_G); // set gyroscope perf mode
 	err |= ssi_reg_write_byte(SENSOR_INTERFACE_DEV_IMU, LSM6DSO_CTRL4, GYRO_SLEEP); // set gyroscope awake/sleep mode
 
@@ -294,6 +348,7 @@ const sensor_imu_t sensor_imu_lsm6dso = {
 	*lsm6dso_init,
 	*lsm6dso_shutdown,
 
+	*lsm6dso_update_fs,
 	*lsm6dso_update_odr,
 
 	*lsm6dso_fifo_read,

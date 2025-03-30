@@ -73,6 +73,7 @@ typedef struct sensor_imu {
 	int (*init)(float, float, float, float*, float*); // first float is clock_rate, nonzero means use CLKIN, return update time, return 0 if success, -1 if general error
 	void (*shutdown)(void);
 
+	void (*update_fs)(float, float, float*, float*); // return actual range
 	int (*update_odr)(float, float, float*, float*); // return actual update time, return 0 if success, 1 if odr is same, -1 if general error
 
 	uint16_t (*fifo_read)(uint8_t*, uint16_t);

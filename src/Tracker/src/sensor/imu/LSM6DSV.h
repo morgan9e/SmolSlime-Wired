@@ -75,9 +75,14 @@
 #define FS_XL_8G  0x02
 #define FS_XL_16G 0x03
 
+// TODO: shared with common LSM
+extern float accel_sensitivity; // Default 16G (FS = ±16 g: 0.488 mg/LSB)
+extern float gyro_sensitivity; // Default 2000dps (FS = ±2000 dps: 70 mdps/LSB)
+
 int lsm_init(float clock_rate, float accel_time, float gyro_time, float *accel_actual_time, float *gyro_actual_time);
 void lsm_shutdown(void);
 
+void lsm_update_fs(float accel_range, float gyro_range, float *accel_actual_range, float *gyro_actual_range);
 int lsm_update_odr(float accel_time, float gyro_time, float *accel_actual_time, float *gyro_actual_time);
 
 uint16_t lsm_fifo_read(uint8_t *data, uint16_t len);

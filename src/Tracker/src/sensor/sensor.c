@@ -439,7 +439,18 @@ int main_imu_init(void)
 	if (clock_actual_rate != 0)
 		LOG_INF("Sensor clock rate: %.2fHz", (double)clock_actual_rate);
 
-	k_usleep(250); // wait for sensor register reset // TODO: is this needed?
+	// wait for sensor register reset // TODO: is this needed?
+	k_usleep(250);
+
+	// set FS/range
+	float accel_range = CONFIG_SENSOR_ACCEL_FS;
+	float gyro_range = CONFIG_SENSOR_GYRO_FS;
+	float accel_actual_range, gyro_actual_range;
+	sensor_imu->update_fs(accel_range, gyro_range, &accel_actual_range, &gyro_actual_range);
+	LOG_INF("Accelerometer range: %.2fg", (double)accel_actual_range);
+	LOG_INF("Gyroscope range: %.2fdps", (double)gyro_actual_range);
+
+	// setup sensor, set ODR
 	float accel_initial_time = 1.0 / CONFIG_SENSOR_ACCEL_ODR; // configure with ~1000Hz ODR
 	float gyro_initial_time = 1.0 / CONFIG_SENSOR_GYRO_ODR; // configure with ~1000Hz ODR
 	float mag_initial_time = sensor_update_time_ms / 1000.0; // configure with ~200Hz ODR

@@ -38,6 +38,12 @@ void imu_none_shutdown(void)
 	return;
 }
 
+void imu_none_update_fs(float accel_range, float gyro_range, float *accel_actual_range, float *gyro_actual_range)
+{
+	LOG_DBG("imu_none_update_fs, sensor has no IMU or IMU has no configurable FS");
+	return;
+}
+
 int imu_none_update_odr(float accel_time, float gyro_time, float *accel_actual_time, float *gyro_actual_time)
 {
 	LOG_DBG("imu_none_update_odr, sensor has no IMU or IMU has no configurable ODR");
@@ -108,6 +114,7 @@ const sensor_imu_t sensor_imu_none = {
 	*imu_none_init,
 	*imu_none_shutdown,
 
+	*imu_none_update_fs,
 	*imu_none_update_odr,
 
 	*imu_none_fifo_read,
