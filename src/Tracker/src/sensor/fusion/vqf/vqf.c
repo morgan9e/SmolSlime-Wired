@@ -81,11 +81,21 @@ static void set_params()
 		params.restThGyr = 0.5f;
 		params.restThAcc = 0.196f;
 		break;
-	case IMU_ICM45686: // currently defaults
-		params.biasSigmaInit = 0.017f;
-		params.biasClip = 1.0f;
-		params.restThGyr = 0.5f;
-		params.restThAcc = 0.1f;
+	case IMU_ICM45686:
+//		params.biasSigmaInit = 0.017f;
+//		params.biasClip = 1.0f;
+//		params.restThGyr = 0.5f;
+//		params.restThAcc = 0.1f;
+		params.tauAcc = 7.171490f;
+		params.biasSigmaInit = 0.337976f;
+		params.biasForgettingTime = 352.235500f;
+		params.biasSigmaMotion = 0.985346f;
+		params.biasVerticalForgettingFactor = 0.007959f;
+		params.biasSigmaRest = 0.028897f;
+		params.restMinT = 4.648680f;
+		params.restFilterTau = 1.900166f;
+		params.restThGyr = 2.620598f;
+		params.restThAcc = 2.142593f;
 		break;
 	case IMU_LSM6DS3:
 		params.biasSigmaInit = 3.0f;
