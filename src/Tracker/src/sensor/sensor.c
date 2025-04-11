@@ -830,11 +830,17 @@ void main_imu_thread(void)
 				sys_interface_resume();
 				if (mag_target_time < 0.005f) // cap at 0.005 (200hz), above this the sensor will use oneshot mode instead
 				{
-					mag_target_time = 0.005;
 					int err = sensor_mag->update_odr(INFINITY, &mag_actual_time);
-					if (!err)
-						LOG_DBG("Switching magnetometer to oneshot");
-					mag_use_oneshot = true;
+					if (mag_actual_time == INFINITY)
+					{
+						if (!err)
+							LOG_DBG("Switching magnetometer to oneshot");
+						mag_use_oneshot = true;
+					}
+					else // magnetometer did not have a oneshot mode, try 200Hz
+					{
+						mag_target_time = 0.005;
+					}
 				}
 				if (mag_target_time >= 0.005f || mag_actual_time != INFINITY) // under 200Hz or magnetometer did not have a oneshot mode
 				{
