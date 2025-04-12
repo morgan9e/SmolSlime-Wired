@@ -74,6 +74,7 @@ static int64_t last_info_time;
 
 static float max_gyro_speed_square;
 static bool mag_use_oneshot;
+static bool mag_skip_oneshot;
 
 static float accel_actual_time;
 static float gyro_actual_time;
@@ -827,8 +828,12 @@ void main_imu_thread(void)
 			{
 				float gyro_speed = sqrtf(max_gyro_speed_square);
 				float mag_target_time = 1.0f / (4 * gyro_speed); // target mag ODR for ~0.25 deg error
+				if (mag_target_time < 0.005f && mag_skip_oneshot) // only use continuous modes if oneshot is not available
+					mag_target_time = 0.005;
+				if (mag_target_time > 0.1f) // limit to 0.1 (minimum 10Hz)
+					mag_target_time = 0.1;
 				sys_interface_resume();
-				if (mag_target_time < 0.005f) // cap at 0.005 (200hz), above this the sensor will use oneshot mode instead
+				if (mag_target_time < 0.005f) // cap at 0.005 (200Hz), above this the sensor will use oneshot mode instead
 				{
 					int err = sensor_mag->update_odr(INFINITY, &mag_actual_time);
 					if (mag_actual_time == INFINITY)
@@ -839,6 +844,8 @@ void main_imu_thread(void)
 					}
 					else // magnetometer did not have a oneshot mode, try 200Hz
 					{
+						if (!err)
+							mag_skip_oneshot = true;
 						mag_target_time = 0.005;
 					}
 				}
