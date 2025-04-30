@@ -195,7 +195,7 @@ void qmc_mag_process(uint8_t *raw_m, float m[3])
 {
 	for (int i = 0; i < 3; i++) // x, y, z
 	{
-		m[i] = ((uint16_t*)raw_m)[i];
+		m[i] = ((int16_t*)raw_m)[i];
 		m[i] *= sensitivity; // result in mGauss
 	}
 }
