@@ -6,7 +6,8 @@ enum sys_status {
 	SYS_STATUS_CONNECTION_ERROR = 2,
 	SYS_STATUS_SYSTEM_ERROR = 4,
 	SYS_STATUS_USB_CONNECTED = 8,
-	SYS_STATUS_PLUGGED = 16
+	SYS_STATUS_PLUGGED = 16,
+	SYS_STATUS_CALIBRATION_RUNNING = 32
 };
 
 void set_status(enum sys_status status, bool set);

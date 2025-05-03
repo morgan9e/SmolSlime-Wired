@@ -693,12 +693,16 @@ static void calibration_thread(void)
 		switch (requested)
 		{
 		case 1:
+			set_status(SYS_STATUS_CALIBRATION_RUNNING, true);
 			sensor_calibrate_imu();
 			sensor_calibration_request(-1); // clear request
+			set_status(SYS_STATUS_CALIBRATION_RUNNING, false);
 			break;
 		case 2:
+			set_status(SYS_STATUS_CALIBRATION_RUNNING, true);
 			sensor_calibrate_6_side();
 			sensor_calibration_request(-1); // clear request
+			set_status(SYS_STATUS_CALIBRATION_RUNNING, false);
 			break;
 		default:
 			if (mag_progress & 0b10000000)

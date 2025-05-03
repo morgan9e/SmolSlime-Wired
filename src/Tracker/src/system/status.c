@@ -35,6 +35,9 @@ void set_status(enum sys_status status, bool set)
 		case SYS_STATUS_PLUGGED:
 			LOG_INF("Charger plugged");
 			break;
+		case SYS_STATUS_CALIBRATION_RUNNING:
+			LOG_INF("Calibration running");
+			break;
 		default:
 			break;
 		}
