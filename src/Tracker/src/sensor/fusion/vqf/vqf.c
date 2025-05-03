@@ -53,7 +53,7 @@ static void set_params()
 	params.tauMag = 10.0f; // best result for VQF from paper	
 	params.biasSigmaInit = 0.337976f; // best result from optimizer (based on gyro ZRO temperature drift: 0.25)
 	params.biasForgettingTime = 352.235500f; // best result from optimizer (based on time for temperature change: 200)
-	params.biasClip = 1.0f; // based on gyro ZRO
+	params.biasClip = 5.0f; // globally set (based on gyro ZRO: 1.0f)
 	params.biasSigmaMotion = 0.985346f; // best result from optimizer
 	params.biasVerticalForgettingFactor = 0.007959f; // best result from optimizer
 	params.biasSigmaRest = 0.028897f; // best result from optimizer (changed, unknown reason: 0.01f)
@@ -77,19 +77,19 @@ static void set_params()
 	case IMU_BMI270:
 	case IMU_ICM42688:
 		params.biasSigmaInit = 0.5f;
-		params.biasClip = 1.0f;
+		// params.biasClip = 1.0f;
 		params.restThGyr = 0.5f;
 		params.restThAcc = 0.196f;
 		break;
 	case IMU_ICM45686: // currently defaults
 		params.biasSigmaInit = 0.337976f;
-		params.biasClip = 1.0f;
+		// params.biasClip = 1.0f;
 		params.restThGyr = 2.620598f;
 		params.restThAcc = 2.142593f;
 		break;
 	case IMU_LSM6DS3:
 		params.biasSigmaInit = 3.0f;
-		params.biasClip = 6.0f;
+		// params.biasClip = 6.0f;
 		params.restThGyr = 3.0f;
 		params.restThAcc = 0.392f;
 		break;
@@ -97,7 +97,7 @@ static void set_params()
 	case IMU_LSM6DSR:
 	case IMU_LSM6DSV:
 		params.biasSigmaInit = 1.0f;
-		params.biasClip = 2.0f;
+		// params.biasClip = 2.0f;
 		params.restThGyr = 1.0f;
 		params.restThAcc = 0.192f;
 		break;
