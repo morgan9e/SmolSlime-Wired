@@ -151,6 +151,7 @@ void sensor_calibrate_imu()
 	set_led(SYS_LED_PATTERN_ON, SYS_LED_PRIORITY_SENSOR);
 	k_msleep(500); // Delay before beginning acquisition
 
+	// TODO: add back BMI270 specific calibration
 //	if (sensor_imu == &sensor_imu_bmi270) // bmi270 specific
 //	{
 //		LOG_INF("Running IMU specific calibration");
