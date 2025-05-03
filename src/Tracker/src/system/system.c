@@ -232,16 +232,7 @@ static int64_t press_time;
 
 static void button_pressed(const struct device *dev, struct gpio_callback *cb, uint32_t pins)
 {
-	if (button_read())
-	{
-		press_time = k_uptime_get();
-	}
-	else
-	{
-		if (press_time != 0 && k_uptime_get() - press_time > 50) // Debounce
-			sys_request_system_reboot(); // treat like pin reset but without pin reset reason
-		press_time = 0;
-	}
+	press_time = button_read() ? k_uptime_get() : 0;
 }
 
 static struct gpio_callback button_cb_data;
