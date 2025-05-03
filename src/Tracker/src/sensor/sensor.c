@@ -334,10 +334,8 @@ void sensor_scan_clear(void) // TODO: move some of this to sys?
 	retained_update();
 }
 
-void sensor_retained_read(void) // TODO: move some of this to sys?
+void sensor_retained_read(void) // TODO: move some of this to sys? or move to calibration?
 {
-	// Read calibration from retained
-	sensor_calibration_read();
 #if CONFIG_SENSOR_USE_6_SIDE_CALIBRATION
 	LOG_INF("Accelerometer matrix:");
 	for (int i = 0; i < 3; i++)
@@ -361,7 +359,7 @@ void sensor_retained_write(void) // TODO: move to sys?
 {
 	if (!sensor_fusion_init)
 		return;
-	memcpy(retained->magBias, sensor_calibration_get_magBias(), sizeof(retained->magBias));
+//	memcpy(retained->magBias, sensor_calibration_get_magBias(), sizeof(retained->magBias));
 	sensor_fusion->save(retained->fusion_data);
 	retained->fusion_id = fusion_id;
 	retained_update();
@@ -491,27 +489,11 @@ int main_imu_init(void)
 		sensor_fusion->init(gyro_actual_time, accel_actual_time, mag_initial_time); // TODO: using initial time since mag are not polled at the actual rate
 	}
 
-	// Calibrate IMU
-	if (isnan(sensor_calibration_get_accelBias()[0]))
-		sensor_calibrate_imu(sensor_imu);
-	else
-		sensor_calibration_validate();
 	if (sensor_imu == &sensor_imu_bmi270) // bmi270 specific
 	{
 		LOG_INF("Applying gyroscope gain");
 		bmi_gain_apply(sensor_calibration_get_sensor_data());
 	}
-
-#if CONFIG_SENSOR_USE_6_SIDE_CALIBRATION 
-	// Calibrate 6-side
-	if (isnan(sensor_calibration_get_accBAinv()[0][0]))
-		sensor_calibrate_6_side(sensor_imu);
-	else
-		sensor_calibration_validate_6_side();
-#endif
-
-	// Verfify magnetometer calibration
-	sensor_calibration_validate_mag();
 
 	LOG_INF("Using %s", fusion_names[fusion_id]);
 	LOG_INF("Initialized fusion");
@@ -589,38 +571,10 @@ void main_imu_thread(void)
 #endif
 			LOG_DBG("IMU packet count: %u", packets);
 
-			// Read magnetometer and process magneto
-			float mx = 0, my = 0, mz = 0;
+			// Read magnetometer
+			float raw_m[3];
 			if (mag_available && mag_enabled && sensor_mode == SENSOR_SENSOR_MODE_LOW_NOISE)
-			{
-				// Read accelerometer first, for calibration // TODO: really?
-				float raw_a[3];
-				sensor_imu->accel_read(raw_a);
-#if CONFIG_SENSOR_USE_6_SIDE_CALIBRATION
-				apply_BAinv(raw_a, sensor_calibration_get_accBAinv());
-				float ax = raw_a[0];
-				float ay = raw_a[1];
-				float az = raw_a[2];
-#else
-				float *accelBias = sensor_calibration_get_accelBias();
-				float ax = raw_a[0] - accelBias[0];
-				float ay = raw_a[1] - accelBias[1];
-				float az = raw_a[2] - accelBias[2];
-#endif
-				float a[] = {SENSOR_ACCELEROMETER_AXES_ALIGNMENT};
-
-				float m[3];
-				sensor_mag->mag_read(m);
-//				float *magBias = sensor_calibration_get_magBias();
-//				for (int i = 0; i < 3; i++)
-//					m[i] -= magBias[i];
-				sensor_sample_mag(a, m); // 400us
-				apply_BAinv(m, sensor_calibration_get_magBAinv());
-				mx = m[0];
-				my = m[1];
-				mz = m[2];
-			}
-			float m[] = {SENSOR_MAGNETOMETER_AXES_ALIGNMENT};
+				sensor_mag->mag_read(raw_m); // reading mag last, and it will be processed last
 
 			if (reconfig) // TODO: get rid of reconfig?
 			{
@@ -651,10 +605,8 @@ void main_imu_thread(void)
 			// Fuse all data
 			float a_sum[3] = {0};
 			int a_count = 0;
-			float g[3] = {0};
 			max_gyro_speed_square = 0;
 			int processed_packets = 0;
-			float *gyroBias = sensor_calibration_get_gyroBias();
 			for (uint16_t i = 0; i < packets; i++) // TODO: fifo_process_ext is available, need to implement it
 			{
 				float raw_a[3] = {0};
@@ -665,11 +617,11 @@ void main_imu_thread(void)
 				// TODO: split into separate functions
 				if (raw_g[0] != 0 || raw_g[1] != 0 || raw_g[2] != 0)
 				{
-					float gx = raw_g[0] - gyroBias[0]; //gres
-					float gy = raw_g[1] - gyroBias[1]; //gres
-					float gz = raw_g[2] - gyroBias[2]; //gres
-					float aligned[] = {SENSOR_GYROSCOPE_AXES_ALIGNMENT};
-					memcpy(g, aligned, sizeof(g));
+					sensor_calibration_process_gyro(raw_g);
+					float gx = raw_g[0];
+					float gy = raw_g[1];
+					float gz = raw_g[2];
+					float g[] = {SENSOR_GYROSCOPE_AXES_ALIGNMENT};
 
 					// Process fusion
 					sensor_fusion->update_gyro(g, gyro_actual_time);
@@ -691,17 +643,10 @@ void main_imu_thread(void)
 
 				if (raw_a[0] != 0 || raw_a[1] != 0 || raw_a[2] != 0)
 				{
-#if CONFIG_SENSOR_USE_6_SIDE_CALIBRATION
-					apply_BAinv(raw_a, sensor_calibration_get_accBAinv());
+					sensor_calibration_process_accel(raw_a);
 					float ax = raw_a[0];
 					float ay = raw_a[1];
 					float az = raw_a[2];
-#else
-					float *accelBias = sensor_calibration_get_accelBias();
-					float ax = raw_a[0] - accelBias[0];
-					float ay = raw_a[1] - accelBias[1];
-					float az = raw_a[2] - accelBias[2];
-#endif
 					float a[] = {SENSOR_ACCELEROMETER_AXES_ALIGNMENT};
 
 					// Process fusion
@@ -714,8 +659,18 @@ void main_imu_thread(void)
 
 				processed_packets++;
 			}
-			if (mag_available && mag_enabled)
+
+			if (mag_available && mag_enabled && sensor_mode == SENSOR_SENSOR_MODE_LOW_NOISE)
+			{
+				sensor_calibration_process_mag(raw_m);
+				float mx = raw_m[0];
+				float my = raw_m[1];
+				float mz = raw_m[2];
+				float m[] = {SENSOR_MAGNETOMETER_AXES_ALIGNMENT};
+
+				// Process fusion
 				sensor_fusion->update_mag(m, sensor_update_time_ms / 1000.0); // TODO: use actual time?
+			}
 
 			// Free the FIFO buffer
 			k_free(rawData);
@@ -749,14 +704,14 @@ void main_imu_thread(void)
 				packet_errors = 0;
 			}
 
-			// Update fusion gyro sanity?
-			sensor_fusion->update_gyro_sanity(g, m);
+			// Update fusion gyro sanity? // TODO: use to detect drift and correct or suspend tracking
+//			sensor_fusion->update_gyro_sanity(g, m);
 
 			// Get updated quaternion from fusion
 			sensor_fusion->get_quat(q);
 			q_normalize(q, q); // safe to use self as output
 
-			// Get linear acceleration
+			// Get linear acceleration // TODO: move to util functions
 			float lin_a[3] = {0};
 			if (v_diff_mag(a, lin_a) != 0) // lin_a as zero vector
 			{
@@ -768,7 +723,7 @@ void main_imu_thread(void)
 					lin_a[i] = (a[i] - vec_gravity[i]) * CONST_EARTH_GRAVITY; // vector to m/s^2
 			}
 
-			// Check the IMU gyroscope
+			// Check the IMU gyroscope // TODO: gyro sanity not used
 			if (sensor_fusion->get_gyro_sanity() == 0 ? q_epsilon(q, last_q, 0.005) : q_epsilon(q, last_q, 0.05)) // Probably okay to use the constantly updating last_q
 			{
 				int64_t last_data_delta = k_uptime_get() - last_data_time;
@@ -902,13 +857,13 @@ void main_imu_thread(void)
 				{
 					sensor_calibrate_mag();
 				}
-				else // only enough time to do one of the two
-				{
-					sys_interface_resume();
-					sensor_mag->temp_read(sensor_calibration_get_magBias()); // for some applicable magnetometer, calibrates bridge offsets
-					sys_interface_suspend();
-					sensor_retained_write();
-				}
+//				else // only enough time to do one of the two
+//				{
+//					sys_interface_resume();
+//					sensor_mag->temp_read(sensor_calibration_get_magBias()); // for some applicable magnetometer, calibrates bridge offsets
+//					sys_interface_suspend();
+//					sensor_retained_write();
+//				}
 			}
 		}
 		main_running = false;

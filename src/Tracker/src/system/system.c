@@ -358,7 +358,6 @@ void sys_reset_mode(uint8_t mode)
 	case 1:
 		LOG_INF("IMU calibration requested");
 		sensor_request_calibration();
-		sys_request_system_reboot(); // TODO: this should not be needed
 		break;
 	case 2: // Reset mode pairing reset
 		LOG_INF("Pairing reset requested");

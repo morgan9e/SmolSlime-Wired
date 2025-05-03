@@ -46,36 +46,47 @@ static double ata[100]; // init calibration
 static double norm_sum;
 static double sample_count;
 
+static float aBuf[3] = {0};
+
 LOG_MODULE_REGISTER(calibration, LOG_LEVEL_INF);
+
+static void calibration_thread(void);
+K_THREAD_DEFINE(calibration_thread_id, 512, calibration_thread, NULL, NULL, NULL, 6, 0, 0);
+
+static void sensor_sample_accel(const float a[3]);
+static void sensor_wait_accel(float a[3]);
+static void sensor_sample_gyro(const float g[3]);
+static void sensor_wait_gyro(float g[3]);
+
+void sensor_calibration_process_accel(float a[3])
+{
+	sensor_sample_accel(a);
+#if CONFIG_SENSOR_USE_6_SIDE_CALIBRATION
+	apply_BAinv(a, accBAinv);
+#else
+	for (int i = 0; i < 3; i++)
+		a[i] -= accelBias[i];
+#endif
+}
+
+void sensor_calibration_process_gyro(float g[3])
+{
+	sensor_sample_gyro(g);
+	for (int i = 0; i < 3; i++)
+		g[i] -= gyroBias[i];
+}
+
+void sensor_calibration_process_mag(float m[3])
+{
+//	for (int i = 0; i < 3; i++)
+//		m[i] -= magBias[i];
+	sensor_sample_mag(aBuf, m); // 400us
+	apply_BAinv(m, magBAinv);
+}
 
 uint8_t *sensor_calibration_get_sensor_data()
 {
 	return sensor_data;
-}
-
-float *sensor_calibration_get_accelBias()
-{
-    return accelBias;
-}
-
-float (*sensor_calibration_get_accBAinv())[3]
-{
-	return accBAinv;
-}
-
-float *sensor_calibration_get_gyroBias()
-{
-    return gyroBias;
-}
-
-float *sensor_calibration_get_magBias()
-{
-    return magBias;
-}
-
-float (*sensor_calibration_get_magBAinv())[3]
-{
-    return magBAinv;
 }
 
 int sensor_calibration_get_mag_progress()
@@ -83,16 +94,17 @@ int sensor_calibration_get_mag_progress()
     return mag_progress;
 }
 
-bool wait_for_motion(const sensor_imu_t *sensor_imu, bool motion, int samples)
+// TODO: isAccRest
+bool wait_for_motion(bool motion, int samples)
 {
 	uint8_t counts = 0;
 	float a[3], last_a[3];
-	sensor_imu->accel_read(last_a);
+	sensor_wait_accel(last_a);
 	LOG_INF("Accelerometer: %.5f %.5f %.5f", (double)last_a[0], (double)last_a[1], (double)last_a[2]);
 	for (int i = 0; i < samples + counts; i++)
 	{
 		k_msleep(500);
-		sensor_imu->accel_read(a);
+		sensor_wait_accel(a);
 		LOG_INF("Accelerometer: %.5f %.5f %.5f", (double)a[0], (double)a[1], (double)a[2]);
 		if (v_epsilon(a, last_a, 0.1) != motion)
 		{
@@ -121,16 +133,16 @@ void sensor_calibration_read(void)
 	memcpy(accBAinv, retained->accBAinv, sizeof(accBAinv));
 }
 
-void sensor_calibrate_imu(const sensor_imu_t *sensor_imu)
+void sensor_calibrate_imu()
 {
-//	float last_accelBias[3], last_gyroBias[3];
-//	memcpy(last_accelBias, accelBias, sizeof(accelBias));
-//	memcpy(last_gyroBias, gyroBias, sizeof(gyroBias));
+	float last_accelBias[3], last_gyroBias[3];
+	memcpy(last_accelBias, accelBias, sizeof(accelBias));
+	memcpy(last_gyroBias, gyroBias, sizeof(gyroBias));
 	LOG_INF("Calibrating main accelerometer and gyroscope zero rate offset");
 	LOG_INF("Rest the device on a stable surface");
 
 	set_led(SYS_LED_PATTERN_LONG, SYS_LED_PRIORITY_SENSOR);
-	if (!wait_for_motion(sensor_imu, false, 6)) // Wait for accelerometer to settle, timeout 3s
+	if (!wait_for_motion(false, 6)) // Wait for accelerometer to settle, timeout 3s
 	{
 		set_led(SYS_LED_PATTERN_OFF, SYS_LED_PRIORITY_SENSOR);
 		return; // Timeout, calibration failed
@@ -139,24 +151,24 @@ void sensor_calibrate_imu(const sensor_imu_t *sensor_imu)
 	set_led(SYS_LED_PATTERN_ON, SYS_LED_PRIORITY_SENSOR);
 	k_msleep(500); // Delay before beginning acquisition
 
-	if (sensor_imu == &sensor_imu_bmi270) // bmi270 specific
-	{
-		LOG_INF("Running IMU specific calibration");
-		int err = bmi_crt(sensor_data); // will automatically reinitialize
-		if (err)
-		{
-			LOG_WRN("IMU specific calibration was not completed properly");
-			set_led(SYS_LED_PATTERN_OFF, SYS_LED_PRIORITY_SENSOR);
-			return; // Calibration failed
-		}
-		else
-			sys_write(MAIN_SENSOR_DATA_ID, &retained->sensor_data, sensor_data, sizeof(sensor_data));
-		k_msleep(500); // Delay before beginning acquisition
-	}
+//	if (sensor_imu == &sensor_imu_bmi270) // bmi270 specific
+//	{
+//		LOG_INF("Running IMU specific calibration");
+//		int err = bmi_crt(sensor_data); // will automatically reinitialize // TODO: this blocks sensor!
+//		if (err)
+//		{
+//			LOG_WRN("IMU specific calibration was not completed properly");
+//			set_led(SYS_LED_PATTERN_OFF, SYS_LED_PRIORITY_SENSOR);
+//			return; // Calibration failed
+//		}
+//		else
+//			sys_write(MAIN_SENSOR_DATA_ID, &retained->sensor_data, sensor_data, sizeof(sensor_data));
+//		k_msleep(500); // Delay before beginning acquisition
+//	}
 
 	LOG_INF("Reading data");
 	sensor_calibration_clear();
-	if (sensor_offsetBias(sensor_imu, accelBias, gyroBias)) // This takes about 3s
+	if (sensor_offsetBias(accelBias, gyroBias)) // This takes about 3s
 	{
 		LOG_INF("Motion detected");
 		accelBias[0] = NAN; // invalidate calibration
@@ -173,14 +185,14 @@ void sensor_calibrate_imu(const sensor_imu_t *sensor_imu)
 	if (sensor_calibration_validate())
 	{
 		set_led(SYS_LED_PATTERN_OFF, SYS_LED_PRIORITY_SENSOR);
-//		LOG_INF("Restoring previous calibration");
-//		memcpy(accelBias, last_accelBias, sizeof(accelBias)); // restore last calibration
-//		memcpy(gyroBias, last_gyroBias, sizeof(gyroBias)); // restore last calibration
-//#if !CONFIG_SENSOR_USE_6_SIDE_CALIBRATION
-//		LOG_INF("Accelerometer bias: %.5f %.5f %.5f", (double)accelBias[0], (double)accelBias[1], (double)accelBias[2]);
-//#endif
-//		LOG_INF("Gyroscope bias: %.5f %.5f %.5f", (double)gyroBias[0], (double)gyroBias[1], (double)gyroBias[2]);
-//		sensor_calibration_validate(); // additionally verify old calibration
+		LOG_INF("Restoring previous calibration");
+		memcpy(accelBias, last_accelBias, sizeof(accelBias)); // restore last calibration
+		memcpy(gyroBias, last_gyroBias, sizeof(gyroBias)); // restore last calibration
+#if !CONFIG_SENSOR_USE_6_SIDE_CALIBRATION
+		LOG_INF("Accelerometer bias: %.5f %.5f %.5f", (double)accelBias[0], (double)accelBias[1], (double)accelBias[2]);
+#endif
+		LOG_INF("Gyroscope bias: %.5f %.5f %.5f", (double)gyroBias[0], (double)gyroBias[1], (double)gyroBias[2]);
+		sensor_calibration_validate(); // additionally verify old calibration
 		return;
 	}
 
@@ -190,28 +202,28 @@ void sensor_calibrate_imu(const sensor_imu_t *sensor_imu)
 }
 
 #if CONFIG_SENSOR_USE_6_SIDE_CALIBRATION
-void sensor_calibrate_6_side(const sensor_imu_t *sensor_imu)
+void sensor_calibrate_6_side(void)
 {
-//	float last_accBAinv[4][3];
-//	memcpy(last_accBAinv, accBAinv, sizeof(accBAinv));
+	float last_accBAinv[4][3];
+	memcpy(last_accBAinv, accBAinv, sizeof(accBAinv));
 	LOG_INF("Calibrating main accelerometer 6-side offset");
 	LOG_INF("Rest the device on a stable surface");
 
 	sensor_calibration_clear_6_side();
-	sensor_6_sideBias(sensor_imu);
+	sensor_6_sideBias();
 	sys_write(MAIN_ACC_6_BIAS_ID, &retained->accBAinv, accBAinv, sizeof(accBAinv));
 	LOG_INF("Accelerometer matrix:");
 	for (int i = 0; i < 3; i++)
 		LOG_INF("%.5f %.5f %.5f %.5f", (double)accBAinv[0][i], (double)accBAinv[1][i], (double)accBAinv[2][i], (double)accBAinv[3][i]);
 	if (sensor_calibration_validate_6_side())
 	{
-//		set_led(SYS_LED_PATTERN_OFF, SYS_LED_PRIORITY_SENSOR);
-//		LOG_INF("Restoring previous calibration");
-//		memcpy(accBAinv, last_accBAinv, sizeof(accBAinv)); // restore last calibration
-//		LOG_INF("Accelerometer matrix:");
-//		for (int i = 0; i < 3; i++)
-//			LOG_INF("%.5f %.5f %.5f %.5f", (double)accBAinv[0][i], (double)accBAinv[1][i], (double)accBAinv[2][i], (double)accBAinv[3][i]);
-//		sensor_calibration_validate_6_side(); // additionally verify old calibration
+		set_led(SYS_LED_PATTERN_OFF, SYS_LED_PRIORITY_SENSOR);
+		LOG_INF("Restoring previous calibration");
+		memcpy(accBAinv, last_accBAinv, sizeof(accBAinv)); // restore last calibration
+		LOG_INF("Accelerometer matrix:");
+		for (int i = 0; i < 3; i++)
+			LOG_INF("%.5f %.5f %.5f %.5f", (double)accBAinv[0][i], (double)accBAinv[1][i], (double)accBAinv[2][i], (double)accBAinv[3][i]);
+		sensor_calibration_validate_6_side(); // additionally verify old calibration
 		return;
 	}
 
@@ -219,6 +231,39 @@ void sensor_calibrate_6_side(const sensor_imu_t *sensor_imu)
 	set_led(SYS_LED_PATTERN_ONESHOT_COMPLETE, SYS_LED_PRIORITY_SENSOR);
 }
 #endif
+
+int64_t accel_time = 0;
+
+static void sensor_sample_accel(const float a[3])
+{
+	memcpy(aBuf, a, sizeof(aBuf));
+	accel_time = k_uptime_get();
+}
+
+static void sensor_wait_accel(float a[3])
+{
+	int64_t wait_time = k_uptime_get();
+	while (accel_time < wait_time)
+		k_msleep(1);
+	memcpy(a, aBuf, sizeof(aBuf));
+}
+
+float gBuf[3] = {0};
+int64_t gyro_time = 0;
+
+static void sensor_sample_gyro(const float g[3])
+{
+	memcpy(gBuf, g, sizeof(gBuf));
+	gyro_time = k_uptime_get();
+}
+
+static void sensor_wait_gyro(float g[3])
+{
+	int64_t wait_time = k_uptime_get();
+	while (gyro_time < wait_time)
+		k_msleep(1);
+	memcpy(g, gBuf, sizeof(gBuf));
+}
 
 static int check_sides(const float *a)
 {
@@ -364,30 +409,47 @@ void sensor_calibration_clear_mag(void)
 	sys_write(MAIN_MAG_BIAS_ID, &retained->magBAinv, magBAinv, sizeof(magBAinv));
 }
 
+static int sensor_calibration_request(int id)
+{
+	static int requested = 0;
+	switch (id)
+	{
+	case -1:
+		requested = 0;
+		return 0;
+	case 0:
+		return requested;
+	default:
+		if (requested != 0)
+		{
+			LOG_ERR("Sensor calibration is already running");
+			return -1;
+		}
+		requested = id;
+		return 0;
+	}
+}
+
 void sensor_request_calibration(void)
 {
-	accelBias[0] = NAN;
-	sys_write(MAIN_ACCEL_BIAS_ID, &retained->accelBias, accelBias, sizeof(accelBias));
-
-	sensor_fusion_invalidate();
+	sensor_calibration_request(1);
 }
 
 #if CONFIG_SENSOR_USE_6_SIDE_CALIBRATION
 void sensor_request_calibration_6_side(void)
 {
-	accBAinv[0][0] = NAN;
-	sys_write(MAIN_ACC_6_BIAS_ID, &retained->accBAinv, accBAinv, sizeof(accBAinv));
+	sensor_calibration_request(2);
 }
 #endif
 
 // TODO: setup 6 sided calibration (bias and scale, and maybe gyro ZRO?), setup temp calibration (particulary for gyro ZRO)
-int sensor_offsetBias(const sensor_imu_t *sensor_imu, float *dest1, float *dest2)
+int sensor_offsetBias(float *dest1, float *dest2)
 {
 	float rawData[3], last_a[3];
-	sensor_imu->accel_read(last_a);
+	sensor_wait_accel(last_a);
 	for (int i = 0; i < 500; i++)
 	{
-		sensor_imu->accel_read(rawData);
+		sensor_wait_accel(rawData);
 		if (!v_epsilon(rawData, last_a, 0.1))
 			return -1;
 #if !CONFIG_SENSOR_USE_6_SIDE_CALIBRATION
@@ -395,7 +457,7 @@ int sensor_offsetBias(const sensor_imu_t *sensor_imu, float *dest1, float *dest2
 		dest1[1] += rawData[1];
 		dest1[2] += rawData[2];
 #endif
-		sensor_imu->gyro_read(rawData);
+		sensor_wait_gyro(rawData);
 		dest2[0] += rawData[0];
 		dest2[1] += rawData[1];
 		dest2[2] += rawData[2];
@@ -445,21 +507,21 @@ static int isAccRest(float *acc, float *pre_acc, float threshold, int *t, int re
 	return 0;
 }
 
-void sensor_6_sideBias(const sensor_imu_t *sensor_imu)
+void sensor_6_sideBias(void)
 {
 	// Acc 6 side calibrate
 	float rawData[3];
 	float pre_acc[3] = {0};
 
-	const float THRESHOLD_ACC = 0.05f;
+	const float THRESHOLD_ACC = 0.05;
 	int resttime = 0;
 
 	mag_progress = 0; // reusing ata, so guarantee cleared mag progress
 	last_mag_progress = 0;
 	mag_progress_time = 0;
 	memset(ata, 0, sizeof(ata));
-	norm_sum = 0.0;
-	sample_count = 0.0;
+	norm_sum = 0;
+	sample_count = 0;
 	int c = 0;
 	printk("Starting accelerometer calibration.\n");
 	while (1)
@@ -468,7 +530,7 @@ void sensor_6_sideBias(const sensor_imu_t *sensor_imu)
 		printk("Waiting for a resting state...\n");
 		while (1)
 		{
-			sensor_imu->accel_read(&rawData[0]);
+			sensor_wait_accel(rawData);
 			int rest = isAccRest(rawData, pre_acc, THRESHOLD_ACC, &resttime, 100);
 			pre_acc[0] = rawData[0];
 			pre_acc[1] = rawData[1];
@@ -498,7 +560,7 @@ void sensor_6_sideBias(const sensor_imu_t *sensor_imu)
 
 				for (int i = 0; i < 100; i++)
 				{
-					sensor_imu->accel_read(&rawData[0]);
+					sensor_wait_accel(rawData);
 					magneto_sample(rawData[0], rawData[1], rawData[2], ata, &norm_sum, &sample_count);
 					if (i % 10 == 0)
 						printk("#");
@@ -506,7 +568,7 @@ void sensor_6_sideBias(const sensor_imu_t *sensor_imu)
 				}
 				set_led(SYS_LED_PATTERN_ONESHOT_PROGRESS, SYS_LED_PRIORITY_SENSOR);
 				printk("Recorded values!\n");
-				printk("%d side done \n", c);
+				printk("%d side done\n", c);
 				c++;
 				break;
 			}
@@ -517,8 +579,8 @@ void sensor_6_sideBias(const sensor_imu_t *sensor_imu)
 		while (1)
 		{
 			k_msleep(100);
-			sensor_imu->accel_read(&rawData[0]);
-			int rest = isAccRest(rawData,pre_acc,THRESHOLD_ACC,&resttime, 100);
+			sensor_wait_accel(rawData);
+			int rest = isAccRest(rawData, pre_acc, THRESHOLD_ACC, &resttime, 100);
 			pre_acc[0] = rawData[0];
 			pre_acc[1] = rawData[1];
 			pre_acc[2] = rawData[2];
@@ -541,3 +603,42 @@ void sensor_6_sideBias(const sensor_imu_t *sensor_imu)
 	printk("Calibration is complete.\n");
 }
 #endif
+
+static void calibration_thread(void)
+{
+	sensor_calibration_read();
+	// TODO:!!!!!!!!!!!
+	// TODO: be able to block the sensor while doing certain operations
+	// TODO: reset fusion on calibration finished
+	// TODO: magcal interferes with 6side
+	// TODO: start and run thread from request?
+	// TODO: replace wait_for_motion with isAccRest
+	// TODO: calibration requests will signal or start calibration
+
+	// Verify calibrations
+	sensor_calibration_validate();
+#if CONFIG_SENSOR_USE_6_SIDE_CALIBRATION 
+	sensor_calibration_validate_6_side();
+#endif
+	sensor_calibration_validate_mag();
+
+	// requested calibrations run here
+	while (1)
+	{
+		int requested = sensor_calibration_request(0);
+		switch (requested)
+		{
+		case 1:
+			sensor_calibrate_imu();
+			sensor_calibration_request(-1); // clear request
+			break;
+		case 2:
+			sensor_calibrate_6_side();
+			sensor_calibration_request(-1); // clear request
+			break;
+		default:
+			break;
+		}
+		k_msleep(100);
+	}
+}

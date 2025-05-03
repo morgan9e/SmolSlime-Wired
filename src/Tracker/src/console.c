@@ -294,15 +294,12 @@ static void console_thread(void)
 		}
 		else if (memcmp(line, command_calibrate, sizeof(command_calibrate)) == 0)
 		{
-//			reboot_counter_write(101);
 			sensor_request_calibration();
-			sys_request_system_reboot();
 		}
 #if CONFIG_SENSOR_USE_6_SIDE_CALIBRATION
 		else if (memcmp(line, command_6_side, sizeof(command_6_side)) == 0)
 		{
 			sensor_request_calibration_6_side();
-			sys_request_system_reboot();
 		}
 #endif
 #if SENSOR_MAG_EXISTS
@@ -314,7 +311,7 @@ static void console_thread(void)
 		else if (memcmp(line, command_pair, sizeof(command_pair)) == 0) 
 		{
 //			reboot_counter_write(102);
-			esb_reset_pair();
+			esb_reset_pair(); // TODO: make not require reboot
 			sys_request_system_reboot();
 		}
 #if DFU_EXISTS

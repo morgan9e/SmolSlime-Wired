@@ -27,20 +27,20 @@
 
 #include <zephyr/drivers/i2c.h>
 
+/* Sensor feeds data to calibration */
+void sensor_calibration_process_accel(float a[3]);
+void sensor_calibration_process_gyro(float g[3]);
+void sensor_calibration_process_mag(float m[3]);
+
 uint8_t *sensor_calibration_get_sensor_data();
-float *sensor_calibration_get_accelBias();
-float (*sensor_calibration_get_accBAinv())[3];
-float *sensor_calibration_get_gyroBias();
-float *sensor_calibration_get_magBias();
-float (*sensor_calibration_get_magBAinv())[3];
 int sensor_calibration_get_mag_progress();
 
-bool wait_for_motion(const sensor_imu_t *sensor_imu, bool motion, int samples);
+bool wait_for_motion(bool motion, int samples);
 
 void sensor_calibration_read(void);
 
-void sensor_calibrate_imu(const sensor_imu_t *sensor_imu);
-void sensor_calibrate_6_side(const sensor_imu_t *sensor_imu);
+void sensor_calibrate_imu(void);
+void sensor_calibrate_6_side(void);
 void sensor_sample_mag(const float a[3], const float m[3]);
 void sensor_calibrate_mag(void);
 
@@ -50,12 +50,12 @@ int sensor_calibration_validate_mag(void);
 
 void sensor_calibration_clear(void);
 void sensor_calibration_clear_6_side(void);
-void sensor_calibration_clear_mag(void);
+void sensor_calibration_clear_mag(void); // "request" mag cal
 
 void sensor_request_calibration(void);
 void sensor_request_calibration_6_side(void);
 
-int sensor_offsetBias(const sensor_imu_t *sensor_imu, float *dest1, float *dest2);
-void sensor_6_sideBias(const sensor_imu_t *sensor_imu);
+int sensor_offsetBias(float *dest1, float *dest2);
+void sensor_6_sideBias();
 
 #endif
