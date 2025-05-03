@@ -475,7 +475,7 @@ int main_imu_init(void)
 	LOG_INF("Initialized sensors");
 
 	// Setup fusion
-	sensor_retained_read();
+	sensor_retained_read(); // TODO: useless
 	if (fusion_id == FUSION_VQF)
 		vqf_update_sensor_ids(sensor_imu_id);
 	if (retained->fusion_id == fusion_id) // Check if the retained fusion data is valid and matches the selected fusion
@@ -869,7 +869,7 @@ void main_imu_thread(void)
 		main_running = false;
 //		k_sleep(K_FOREVER);
 		int64_t time_delta = k_uptime_get() - time_begin;
-		if(time_delta > 100)
+		if(time_delta > sensor_update_time_ms)
 			LOG_WRN("Update took %lld ms", time_delta);
 //		led_clock_offset += time_delta;
 		if (time_delta > sensor_update_time_ms)
