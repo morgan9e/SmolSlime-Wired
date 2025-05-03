@@ -151,9 +151,8 @@ static int sys_retained_init(void)
 	// on most nrf, reset by pin reset will clear retained
 	if (!reset_pin_reset) // if reset reason is not by pin reset, system automatically trusts retained state
 		ram_retention_valid = true;
-	bool ram_retention = retained_validate(); // Check ram retention
 	// All contents of NVS was stored in RAM to not need initializing NVS often
-	if (!ram_retention)
+	if (!retained_validate()) // Check ram retention
 	{ 
 		LOG_WRN("Invalidated RAM");
 		sys_nvs_init();
@@ -165,7 +164,6 @@ static int sys_retained_init(void)
 		nvs_read(&fs, MAIN_MAG_BIAS_ID, &retained->magBAinv, sizeof(retained->magBAinv));
 		nvs_read(&fs, MAIN_ACC_6_BIAS_ID, &retained->accBAinv, sizeof(retained->accBAinv));
 		retained_update();
-		ram_retention = true;
 	}
 	else
 	{
