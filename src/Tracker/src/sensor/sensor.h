@@ -47,6 +47,7 @@ int main_imu_init(void);
 void main_imu_thread(void);
 void wait_for_threads(void);
 void main_imu_suspend(void);
+void main_imu_resume(void);
 void main_imu_wakeup(void);
 
 typedef struct sensor_fusion {

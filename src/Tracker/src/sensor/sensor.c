@@ -864,6 +864,8 @@ void main_imu_thread(void)
 			k_yield();
 		else
 			k_msleep(sensor_update_time_ms - time_delta);
+		if (main_suspended) // TODO:
+			k_thread_suspend(main_imu_thread_id);
 		main_running = true;
 	}
 }
@@ -876,16 +878,23 @@ void wait_for_threads(void) // TODO: add timeout
 
 void main_imu_suspend(void) // TODO: add timeout
 {
-	if (!main_running) // don't suspend if already stopped
-		return;
 	main_suspended = true;
+	if (!main_running) // don't suspend if already stopped (TODO: may be called from sensor thread)
+		return;
 	while (sensor_sensor_scanning)
 		k_usleep(1); // try not to interrupt scanning
 	while (main_running) // TODO: change to detect if i2c is busy
 		k_usleep(1); // try not to interrupt anything actually
 	k_thread_suspend(main_imu_thread_id);
-	main_running = false; // TODO: redundant
 	LOG_INF("Suspended sensor thread");
+}
+
+void main_imu_resume(void)
+{
+	if (!main_suspended) // not suspended
+		return;
+	k_thread_resume(main_imu_thread_id);
+	LOG_INF("Resumed sensor thread");
 }
 
 void main_imu_wakeup(void)
