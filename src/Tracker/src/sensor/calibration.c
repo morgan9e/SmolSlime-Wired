@@ -233,36 +233,44 @@ void sensor_calibrate_6_side(void)
 }
 #endif
 
-int64_t accel_time = 0;
+uint64_t accel_sample = 0;
+uint64_t accel_wait_sample = 0;
 
 static void sensor_sample_accel(const float a[3])
 {
 	memcpy(aBuf, a, sizeof(aBuf));
-	accel_time = k_uptime_get();
+	accel_sample++;
+	if (accel_wait_sample)
+		k_usleep(1); // yield to waiting thread
 }
 
 static void sensor_wait_accel(float a[3])
 {
-	int64_t wait_time = k_uptime_get();
-	while (accel_time < wait_time)
-		k_msleep(1);
+	accel_wait_sample = accel_sample;
+	while (accel_sample <= accel_wait_sample)
+		k_usleep(1);
+	accel_wait_sample = 0;
 	memcpy(a, aBuf, sizeof(aBuf));
 }
 
 float gBuf[3] = {0};
-int64_t gyro_time = 0;
+uint64_t gyro_sample = 0;
+uint64_t gyro_wait_sample = 0;
 
 static void sensor_sample_gyro(const float g[3])
 {
 	memcpy(gBuf, g, sizeof(gBuf));
-	gyro_time = k_uptime_get();
+	gyro_sample++;
+	if (gyro_wait_sample)
+		k_usleep(1); // yield to waiting thread
 }
 
 static void sensor_wait_gyro(float g[3])
 {
-	int64_t wait_time = k_uptime_get();
-	while (gyro_time < wait_time)
-		k_msleep(1);
+	gyro_wait_sample = gyro_sample;
+	while (gyro_sample <= gyro_wait_sample)
+		k_usleep(1);
+	gyro_wait_sample = 0;
 	memcpy(g, gBuf, sizeof(gBuf));
 }
 
@@ -273,6 +281,7 @@ static int check_sides(const float *a)
 		(-1.2f < a[2] && a[2] < -0.8f ? 1 << 4 : 0) | (1.2f > a[2] && a[2] > 0.8f ? 1 << 5 : 0);
 }
 
+// TODO: run on calibration thread
 void sensor_sample_mag(const float a[3], const float m[3])
 {
 	float zero[3] = {0};
@@ -559,13 +568,17 @@ void sensor_6_sideBias(void)
 				set_led(SYS_LED_PATTERN_ON, SYS_LED_PRIORITY_SENSOR);
 				k_msleep(100);
 
-				for (int i = 0; i < 100; i++)
+				int64_t sampling_start_time = k_uptime_get();
+				uint8_t i = 0;
+				while (k_uptime_get() < sampling_start_time + 1000)
 				{
 					sensor_wait_accel(rawData);
 					magneto_sample(rawData[0], rawData[1], rawData[2], ata, &norm_sum, &sample_count);
-					if (i % 10 == 0)
+					if (k_uptime_get() >= sampling_start_time + i * 100)
+					{
 						printk("#");
-					k_msleep(10);
+						i++;
+					}
 				}
 				set_led(SYS_LED_PATTERN_ONESHOT_PROGRESS, SYS_LED_PRIORITY_SENSOR);
 				printk("Recorded values!\n");
