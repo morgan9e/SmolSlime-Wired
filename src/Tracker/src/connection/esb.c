@@ -112,22 +112,30 @@ void event_handler(struct esb_evt const *event)
 bool clock_status = false;
 
 #if defined(CONFIG_CLOCK_CONTROL_NRF)
+static struct onoff_manager *clk_mgr;
+
+static int clocks_init(void)
+{
+	clk_mgr = z_nrf_clock_control_get_onoff(CLOCK_CONTROL_NRF_SUBSYS_HF);
+	if (!clk_mgr)
+	{
+		LOG_ERR("Unable to get the Clock manager");
+		return -ENOTSUP;
+	}
+
+	return 0;
+}
+
+SYS_INIT(clocks_init, APPLICATION, CONFIG_APPLICATION_INIT_PRIORITY);
+
 int clocks_start(void)
 {
 	if (clock_status)
 		return 0;
 	int err;
 	int res;
-	struct onoff_manager *clk_mgr;
 	struct onoff_client clk_cli;
 	int fetch_attempts = 0;
-
-	clk_mgr = z_nrf_clock_control_get_onoff(CLOCK_CONTROL_NRF_SUBSYS_HF);
-	if (!clk_mgr)
-	{
-		LOG_ERR("Unable to get the Clock manager");
-		return -ENXIO;
-	}
 
 	sys_notify_init_spinwait(&clk_cli.notify);
 
@@ -165,10 +173,10 @@ int clocks_start(void)
 
 void clocks_stop(void)
 {
+	if (!clock_status)
+		return;
 	clock_status = false;
-	struct onoff_manager *clk_mgr;
 
-	clk_mgr = z_nrf_clock_control_get_onoff(CLOCK_CONTROL_NRF_SUBSYS_HF);
 	onoff_release(clk_mgr);
 
 	LOG_DBG("HF clock stop request");
