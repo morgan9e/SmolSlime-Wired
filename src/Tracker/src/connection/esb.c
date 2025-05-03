@@ -151,7 +151,7 @@ int clocks_start(void)
 			return res;
 		}
 		if (err && ++fetch_attempts > 10) {
-			LOG_WRN("Unable to fetch Clock request result: %d", err);
+			LOG_WRN_ONCE("Unable to fetch Clock request result: %d", err);
 			return err;
 		}
 	} while (err);
