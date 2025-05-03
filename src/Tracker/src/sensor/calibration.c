@@ -55,13 +55,10 @@ K_THREAD_DEFINE(calibration_thread_id, 1024, calibration_thread, NULL, NULL, NUL
 
 static void sensor_sample_accel(const float a[3]);
 static void sensor_wait_accel(float a[3]);
-static void sensor_get_accel(float a[3]);
 static void sensor_sample_gyro(const float g[3]);
 static void sensor_wait_gyro(float g[3]);
-static void sensor_get_gyro(float g[3]);
 static void sensor_sample_mag(const float m[3]);
 static void sensor_wait_mag(float m[3]);
-static void sensor_get_mag(float m[3]);
 
 void sensor_calibration_process_accel(float a[3])
 {
@@ -267,11 +264,6 @@ static void sensor_wait_accel(float a[3])
 	memcpy(a, aBuf, sizeof(aBuf));
 }
 
-static void sensor_get_accel(float a[3])
-{
-	memcpy(a, aBuf, sizeof(aBuf));
-}
-
 static float gBuf[3] = {0};
 uint64_t gyro_sample = 0;
 uint64_t gyro_wait_sample = 0;
@@ -293,11 +285,6 @@ static void sensor_wait_gyro(float g[3])
 	memcpy(g, gBuf, sizeof(gBuf));
 }
 
-static void sensor_get_gyro(float g[3])
-{
-	memcpy(g, gBuf, sizeof(gBuf));
-}
-
 static float mBuf[3] = {0};
 uint64_t mag_sample = 0;
 uint64_t mag_wait_sample = 0;
@@ -316,11 +303,6 @@ static void sensor_wait_mag(float m[3])
 	while (mag_sample <= mag_wait_sample)
 		k_usleep(1);
 	mag_wait_sample = 0;
-	memcpy(m, mBuf, sizeof(mBuf));
-}
-
-static void sensor_get_mag(float m[3])
-{
 	memcpy(m, mBuf, sizeof(mBuf));
 }
 
@@ -361,10 +343,9 @@ int sensor_calibrate_mag(void)
 	if (v_diff_mag(magBAinv[0], zero) != 0)
 		return -1; // magnetometer calibration already exists
 
-	float a[3], m[3];
+	float m[3];
 	sensor_wait_mag(m);
-	sensor_get_accel(a);
-	sensor_sample_mag_magneto_sample(a, m); // 400us
+	sensor_sample_mag_magneto_sample(aBuf, m); // 400us
 	if (mag_progress != 0b11111111)
 		return 0;
 
