@@ -126,7 +126,7 @@ int qmc_update_odr(float time, float *actual_time)
 		MODR = ODR_10Hz;
 		time = 1.f / 10;
 	}
-	else if (ODR >= 0)
+	else
 	{
 		MODR = ODR_1Hz;
 		time = 1.f;
