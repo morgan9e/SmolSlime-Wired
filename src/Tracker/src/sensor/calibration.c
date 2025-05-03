@@ -38,15 +38,13 @@ static float accelBias[3] = {0}, gyroBias[3] = {0}, magBias[3] = {0}; // offset 
 static float magBAinv[4][3];
 static float accBAinv[4][3];
 
-static int mag_progress;
-static int last_mag_progress;
+static uint8_t mag_progress;
+static uint8_t last_mag_progress;
 static int64_t mag_progress_time;
 
 static double ata[100]; // init calibration
 static double norm_sum;
 static double sample_count;
-
-static float aBuf[3] = {0};
 
 LOG_MODULE_REGISTER(calibration, LOG_LEVEL_INF);
 
@@ -55,8 +53,13 @@ K_THREAD_DEFINE(calibration_thread_id, 1024, calibration_thread, NULL, NULL, NUL
 
 static void sensor_sample_accel(const float a[3]);
 static void sensor_wait_accel(float a[3]);
+static void sensor_get_accel(float a[3]);
 static void sensor_sample_gyro(const float g[3]);
 static void sensor_wait_gyro(float g[3]);
+static void sensor_get_gyro(float g[3]);
+static void sensor_sample_mag(const float m[3]);
+static void sensor_wait_mag(float m[3]);
+static void sensor_get_mag(float m[3]);
 
 void sensor_calibration_process_accel(float a[3])
 {
@@ -80,7 +83,7 @@ void sensor_calibration_process_mag(float m[3])
 {
 //	for (int i = 0; i < 3; i++)
 //		m[i] -= magBias[i];
-	sensor_sample_mag(aBuf, m); // 400us
+	sensor_sample_mag(m);
 	apply_BAinv(m, magBAinv);
 }
 
@@ -233,6 +236,7 @@ void sensor_calibrate_6_side(void)
 }
 #endif
 
+static float aBuf[3] = {0};
 uint64_t accel_sample = 0;
 uint64_t accel_wait_sample = 0;
 
@@ -253,7 +257,12 @@ static void sensor_wait_accel(float a[3])
 	memcpy(a, aBuf, sizeof(aBuf));
 }
 
-float gBuf[3] = {0};
+static void sensor_get_accel(float a[3])
+{
+	memcpy(a, aBuf, sizeof(aBuf));
+}
+
+static float gBuf[3] = {0};
 uint64_t gyro_sample = 0;
 uint64_t gyro_wait_sample = 0;
 
@@ -274,6 +283,37 @@ static void sensor_wait_gyro(float g[3])
 	memcpy(g, gBuf, sizeof(gBuf));
 }
 
+static void sensor_get_gyro(float g[3])
+{
+	memcpy(g, gBuf, sizeof(gBuf));
+}
+
+static float mBuf[3] = {0};
+uint64_t mag_sample = 0;
+uint64_t mag_wait_sample = 0;
+
+static void sensor_sample_mag(const float m[3])
+{
+	memcpy(mBuf, m, sizeof(mBuf));
+	mag_sample++;
+	if (mag_wait_sample)
+		k_usleep(1); // yield to waiting thread
+}
+
+static void sensor_wait_mag(float m[3])
+{
+	mag_wait_sample = mag_sample;
+	while (mag_sample <= mag_wait_sample)
+		k_usleep(1);
+	mag_wait_sample = 0;
+	memcpy(m, mBuf, sizeof(mBuf));
+}
+
+static void sensor_get_mag(float m[3])
+{
+	memcpy(m, mBuf, sizeof(mBuf));
+}
+
 static int check_sides(const float *a)
 {
 	return (-1.2f < a[0] && a[0] < -0.8f ? 1 << 0 : 0) | (1.2f > a[0] && a[0] > 0.8f ? 1 << 1 : 0) | // dumb check if all accel axes were reached for calibration, assume the user is intentionally doing this
@@ -281,22 +321,17 @@ static int check_sides(const float *a)
 		(-1.2f < a[2] && a[2] < -0.8f ? 1 << 4 : 0) | (1.2f > a[2] && a[2] > 0.8f ? 1 << 5 : 0);
 }
 
-// TODO: run on calibration thread
-void sensor_sample_mag(const float a[3], const float m[3])
+// TODO: terrible name
+static void sensor_sample_mag_magneto_sample(const float a[3], const float m[3])
 {
-	float zero[3] = {0};
-	if (v_diff_mag(magBAinv[0], zero) != 0)
-		return; // magnetometer calibration already exists
-
 	magneto_sample(m[0], m[1], m[2], ata, &norm_sum, &sample_count); // 400us
-	int new_mag_progress = mag_progress;
+	uint8_t new_mag_progress = mag_progress;
 	new_mag_progress |= check_sides(a);
 	if (new_mag_progress > mag_progress && new_mag_progress == last_mag_progress)
 	{
 		if (k_uptime_get() > mag_progress_time)
 		{
 			mag_progress = new_mag_progress;
-			//LOG_INF("Magnetometer calibration progress: %d", new_mag_progress);
 			LOG_INF("Magnetometer calibration progress: %s %s %s %s %s %s" , (new_mag_progress & 0x01) ? "-X" : "--", (new_mag_progress & 0x02) ? "+X" : "--", (new_mag_progress & 0x04) ? "-Y" : "--", (new_mag_progress & 0x08) ? "+Y" : "--", (new_mag_progress & 0x10) ? "-Z" : "--", (new_mag_progress & 0x20) ? "+Z" : "--");
 			set_led(SYS_LED_PATTERN_ONESHOT_PROGRESS, SYS_LED_PRIORITY_SENSOR);
 		}
@@ -306,19 +341,29 @@ void sensor_sample_mag(const float a[3], const float m[3])
 		mag_progress_time = k_uptime_get() + 1000;
 		last_mag_progress = new_mag_progress;
 	}
-	if (mag_progress == 0b111111)
+	if (mag_progress == 0b10111111)
 		set_led(SYS_LED_PATTERN_FLASH, SYS_LED_PRIORITY_SENSOR); // Magnetometer calibration is ready to apply
 }
 
-void sensor_calibrate_mag(void)
+int sensor_calibrate_mag(void)
 {
+	float zero[3] = {0};
+	if (v_diff_mag(magBAinv[0], zero) != 0)
+		return -1; // magnetometer calibration already exists
+
+	float a[3], m[3];
+	sensor_wait_mag(m);
+	sensor_get_accel(a);
+	sensor_sample_mag_magneto_sample(a, m); // 400us
+	if (mag_progress != 0b11111111)
+		return 0;
+
 	float last_magBAinv[4][3];
 	memcpy(last_magBAinv, magBAinv, sizeof(magBAinv));
 	LOG_INF("Calibrating magnetometer hard/soft iron offset");
 
 	// max allocated 1072 bytes
 	magneto_current_calibration(magBAinv, ata, norm_sum, sample_count); // 25ms
-	//mag_progress |= 1 << 7;
 	mag_progress = 0;
 	// clear data
 	memset(ata, 0, sizeof(ata));
@@ -337,11 +382,12 @@ void sensor_calibrate_mag(void)
 		for (int i = 0; i < 3; i++)
 			LOG_INF("%.5f %.5f %.5f %.5f", (double)magBAinv[0][i], (double)magBAinv[1][i],(double)magBAinv[2][i], (double)magBAinv[3][i]);
 		sensor_calibration_validate_mag(); // additionally verify old calibration
-		return;
+		return -1;
 	}
 
 	LOG_INF("Finished calibration");
 	set_led(SYS_LED_PATTERN_ONESHOT_COMPLETE, SYS_LED_PRIORITY_SENSOR);
+	return 0;
 }
 
 int sensor_calibration_validate(void)
@@ -452,6 +498,13 @@ void sensor_request_calibration_6_side(void)
 }
 #endif
 
+void sensor_request_calibration_mag(void)
+{
+	mag_progress |= 1 << 7;
+	if (mag_progress == 0b10111111)
+		mag_progress |= 1 << 6;
+}
+
 // TODO: setup 6 sided calibration (bias and scale, and maybe gyro ZRO?), setup temp calibration (particulary for gyro ZRO)
 int sensor_offsetBias(float *dest1, float *dest2)
 {
@@ -547,7 +600,7 @@ void sensor_6_sideBias(void)
 			pre_acc[2] = rawData[2];
 
 			// force not resting until a new side is detected and stable
-			int new_mag_progress = mag_progress;
+			uint8_t new_mag_progress = mag_progress;
 			new_mag_progress |= check_sides(rawData);
 			if (new_mag_progress > mag_progress && new_mag_progress == last_mag_progress)
 			{
@@ -621,13 +674,10 @@ void sensor_6_sideBias(void)
 static void calibration_thread(void)
 {
 	sensor_calibration_read();
-	// TODO:!!!!!!!!!!!
 	// TODO: be able to block the sensor while doing certain operations
 	// TODO: reset fusion on calibration finished
-	// TODO: magcal interferes with 6side
 	// TODO: start and run thread from request?
 	// TODO: replace wait_for_motion with isAccRest
-	// TODO: calibration requests will signal or start calibration
 
 	// Verify calibrations
 	sensor_calibration_validate();
@@ -651,8 +701,13 @@ static void calibration_thread(void)
 			sensor_calibration_request(-1); // clear request
 			break;
 		default:
+			if (mag_progress & 0b10000000)
+				requested = sensor_calibrate_mag();
 			break;
 		}
-		k_msleep(100);
+		if (requested < 0)
+			k_msleep(5);
+		else
+			k_msleep(100);
 	}
 }

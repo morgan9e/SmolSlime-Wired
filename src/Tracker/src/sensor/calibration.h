@@ -41,8 +41,7 @@ void sensor_calibration_read(void);
 
 void sensor_calibrate_imu(void);
 void sensor_calibrate_6_side(void);
-void sensor_sample_mag(const float a[3], const float m[3]);
-void sensor_calibrate_mag(void);
+int sensor_calibrate_mag(void);
 
 int sensor_calibration_validate(void);
 int sensor_calibration_validate_6_side(void);
@@ -54,6 +53,7 @@ void sensor_calibration_clear_mag(void); // "request" mag cal
 
 void sensor_request_calibration(void);
 void sensor_request_calibration_6_side(void);
+void sensor_request_calibration_mag(void);
 
 int sensor_offsetBias(float *dest1, float *dest2);
 void sensor_6_sideBias();

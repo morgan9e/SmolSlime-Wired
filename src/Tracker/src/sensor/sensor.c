@@ -391,6 +391,7 @@ uint8_t sensor_setup_WOM(void)
 
 void sensor_fusion_invalidate(void)
 {
+	// TODO: reinitialize fusion
 	if (sensor_fusion_init)
 	{ // clear fusion gyro offset
 		float g_off[3] = {0};
@@ -850,24 +851,11 @@ void main_imu_thread(void)
 				connection_clocks_request_stop();
 			}
 
-			// Handle magnetometer calibration or bridge offset calibration
+			// Handle magnetometer calibration
 			if (mag_available && mag_enabled && last_sensor_mode == SENSOR_SENSOR_MODE_LOW_POWER && sensor_mode == SENSOR_SENSOR_MODE_LOW_POWER)
-			{
-				if (sensor_calibration_get_mag_progress() == 0b111111) // Save magnetometer calibration while idling
-				{
-					sensor_calibrate_mag();
-				}
-//				else // only enough time to do one of the two
-//				{
-//					sys_interface_resume();
-//					sensor_mag->temp_read(sensor_calibration_get_magBias()); // for some applicable magnetometer, calibrates bridge offsets
-//					sys_interface_suspend();
-//					sensor_retained_write();
-//				}
-			}
+				sensor_request_calibration_mag();
 		}
 		main_running = false;
-//		k_sleep(K_FOREVER);
 		int64_t time_delta = k_uptime_get() - time_begin;
 		if(time_delta > sensor_update_time_ms)
 			LOG_WRN("Update took %lld ms", time_delta);
