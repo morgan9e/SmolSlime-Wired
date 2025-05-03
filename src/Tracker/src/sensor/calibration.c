@@ -520,7 +520,9 @@ int sensor_offsetBias(float *dest1, float *dest2)
 {
 	float rawData[3], last_a[3];
 	sensor_wait_accel(last_a);
-	for (int i = 0; i < 500; i++)
+	int64_t sampling_start_time = k_uptime_get();
+	int i = 0;
+	while (k_uptime_get() < sampling_start_time + 3000)
 	{
 		sensor_wait_accel(rawData);
 		if (!v_epsilon(rawData, last_a, 0.1))
@@ -534,12 +536,13 @@ int sensor_offsetBias(float *dest1, float *dest2)
 		dest2[0] += rawData[0];
 		dest2[1] += rawData[1];
 		dest2[2] += rawData[2];
-		k_msleep(5);
+		i++;
 	}
+	LOG_INF("Samples: %d", i);
 #if !CONFIG_SENSOR_USE_6_SIDE_CALIBRATION
-	dest1[0] /= 500.0f;
-	dest1[1] /= 500.0f;
-	dest1[2] /= 500.0f;
+	dest1[0] /= i;
+	dest1[1] /= i;
+	dest1[2] /= i;
 	if (dest1[0] > 0.9f)
 		dest1[0] -= 1.0f; // Remove gravity from the x-axis accelerometer bias calculation
 	else if (dest1[0] < -0.9f)
@@ -555,9 +558,9 @@ int sensor_offsetBias(float *dest1, float *dest2)
 	else
 		return -1;
 #endif
-	dest2[0] /= 500.0f;
-	dest2[1] /= 500.0f;
-	dest2[2] /= 500.0f;
+	dest2[0] /= i;
+	dest2[1] /= i;
+	dest2[2] /= i;
 	return 0;
 }
 
@@ -580,6 +583,7 @@ static int isAccRest(float *acc, float *pre_acc, float threshold, int *t, int re
 	return 0;
 }
 
+// TODO: can be used to get a better gyro bias
 void sensor_6_sideBias(void)
 {
 	// Acc 6 side calibrate
