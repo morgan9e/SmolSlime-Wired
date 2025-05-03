@@ -51,7 +51,7 @@ static float aBuf[3] = {0};
 LOG_MODULE_REGISTER(calibration, LOG_LEVEL_INF);
 
 static void calibration_thread(void);
-K_THREAD_DEFINE(calibration_thread_id, 512, calibration_thread, NULL, NULL, NULL, 6, 0, 0);
+K_THREAD_DEFINE(calibration_thread_id, 1024, calibration_thread, NULL, NULL, NULL, 6, 0, 0);
 
 static void sensor_sample_accel(const float a[3]);
 static void sensor_wait_accel(float a[3]);
