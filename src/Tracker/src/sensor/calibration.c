@@ -26,11 +26,13 @@
 
 #include <math.h>
 
+#include "sensors_enum.h"
 #include "magneto/magneto1_4.h"
 #include "imu/BMI270.h"
 
 #include "calibration.h"
 
+static uint8_t imu_id;
 static uint8_t sensor_data[128]; // any use sensor data
 
 static float accelBias[3] = {0}, gyroBias[3] = {0}, magBias[3] = {0}; // offset biases
@@ -85,6 +87,11 @@ void sensor_calibration_process_mag(float m[3])
 //		m[i] -= magBias[i];
 	sensor_sample_mag(m);
 	apply_BAinv(m, magBAinv);
+}
+
+void sensor_calibration_update_sensor_ids(int imu)
+{
+	imu_id = imu;
 }
 
 uint8_t *sensor_calibration_get_sensor_data()
@@ -154,21 +161,24 @@ void sensor_calibrate_imu()
 	set_led(SYS_LED_PATTERN_ON, SYS_LED_PRIORITY_SENSOR);
 	k_msleep(500); // Delay before beginning acquisition
 
-	// TODO: add back BMI270 specific calibration
-//	if (sensor_imu == &sensor_imu_bmi270) // bmi270 specific
-//	{
-//		LOG_INF("Running IMU specific calibration");
-//		int err = bmi_crt(sensor_data); // will automatically reinitialize // TODO: this blocks sensor!
-//		if (err)
-//		{
-//			LOG_WRN("IMU specific calibration was not completed properly");
-//			set_led(SYS_LED_PATTERN_OFF, SYS_LED_PRIORITY_SENSOR);
-//			return; // Calibration failed
-//		}
-//		else
-//			sys_write(MAIN_SENSOR_DATA_ID, &retained->sensor_data, sensor_data, sizeof(sensor_data));
-//		k_msleep(500); // Delay before beginning acquisition
-//	}
+	if (imu_id == IMU_BMI270) // bmi270 specific
+	{
+		LOG_INF("Suspending sensor thread");
+		main_imu_suspend();
+		LOG_INF("Running IMU specific calibration");
+		int err = bmi_crt(sensor_data); // will automatically reinitialize // TODO: this blocks sensor!
+		LOG_INF("Resuming sensor thread");
+		main_imu_resume();
+		if (err)
+		{
+			LOG_WRN("IMU specific calibration was not completed properly");
+			set_led(SYS_LED_PATTERN_OFF, SYS_LED_PRIORITY_SENSOR);
+			return; // Calibration failed
+		}
+		else
+			sys_write(MAIN_SENSOR_DATA_ID, &retained->sensor_data, sensor_data, sizeof(sensor_data));
+		k_msleep(500); // Delay before beginning acquisition
+	}
 
 	LOG_INF("Reading data");
 	sensor_calibration_clear();

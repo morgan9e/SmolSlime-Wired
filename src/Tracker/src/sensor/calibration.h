@@ -32,6 +32,7 @@ void sensor_calibration_process_accel(float a[3]);
 void sensor_calibration_process_gyro(float g[3]);
 void sensor_calibration_process_mag(float m[3]);
 
+void sensor_calibration_update_sensor_ids(int imu);
 uint8_t *sensor_calibration_get_sensor_data();
 int sensor_calibration_get_mag_progress();
 

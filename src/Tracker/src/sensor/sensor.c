@@ -490,6 +490,7 @@ int main_imu_init(void)
 		sensor_fusion->init(gyro_actual_time, accel_actual_time, mag_initial_time); // TODO: using initial time since mag are not polled at the actual rate
 	}
 
+	sensor_calibration_update_sensor_ids(sensor_imu_id);
 	if (sensor_imu == &sensor_imu_bmi270) // bmi270 specific
 	{
 		LOG_INF("Applying gyroscope gain");
