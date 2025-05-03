@@ -163,7 +163,7 @@ void connection_write_packet_1() // full precision quat and accel
 	buf[6] = TO_FIXED_7(sensor_a[2]);
 	esb_write(data);
 }
-#include <zephyr/kernel.h>
+
 void connection_write_packet_2() // reduced precision quat and accel with battery, temp, and rssi
 {
 	uint8_t data[16] = {0};
