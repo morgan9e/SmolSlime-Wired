@@ -55,10 +55,14 @@ K_THREAD_DEFINE(calibration_thread_id, 1024, calibration_thread, NULL, NULL, NUL
 
 static void sensor_sample_accel(const float a[3]);
 static int sensor_wait_accel(float a[3], k_timeout_t timeout);
+
 static void sensor_sample_gyro(const float g[3]);
 static int sensor_wait_gyro(float g[3], k_timeout_t timeout);
+
 static void sensor_sample_mag(const float m[3]);
 static int sensor_wait_mag(float m[3], k_timeout_t timeout);
+
+static void magneto_reset(void);
 
 void sensor_calibration_process_accel(float a[3])
 {
@@ -225,11 +229,21 @@ void sensor_calibrate_6_side(void)
 	LOG_INF("Rest the device on a stable surface");
 
 	sensor_calibration_clear_6_side();
-	sensor_6_sideBias();
-	sys_write(MAIN_ACC_6_BIAS_ID, &retained->accBAinv, accBAinv, sizeof(accBAinv));
-	LOG_INF("Accelerometer matrix:");
-	for (int i = 0; i < 3; i++)
-		LOG_INF("%.5f %.5f %.5f %.5f", (double)accBAinv[0][i], (double)accBAinv[1][i], (double)accBAinv[2][i], (double)accBAinv[3][i]);
+	int err = sensor_6_sideBias();
+	if (err)
+	{
+		magneto_reset();
+		if (err == -1)
+			LOG_INF("Motion detected");
+		accBAinv[0][0] = NAN; // invalidate calibration
+	}
+	else
+	{
+		sys_write(MAIN_ACC_6_BIAS_ID, &retained->accBAinv, accBAinv, sizeof(accBAinv));
+		LOG_INF("Accelerometer matrix:");
+		for (int i = 0; i < 3; i++)
+			LOG_INF("%.5f %.5f %.5f %.5f", (double)accBAinv[0][i], (double)accBAinv[1][i], (double)accBAinv[2][i], (double)accBAinv[3][i]);
+	}
 	if (sensor_calibration_validate_6_side())
 	{
 		set_led(SYS_LED_PATTERN_OFF, SYS_LED_PRIORITY_SENSOR);
@@ -574,6 +588,16 @@ int sensor_offsetBias(float *dest1, float *dest2)
 	return 0;
 }
 
+static void magneto_reset(void)
+{	
+	mag_progress = 0; // reusing ata, so guarantee cleared mag progress
+	last_mag_progress = 0;
+	mag_progress_time = 0;
+	memset(ata, 0, sizeof(ata));
+	norm_sum = 0;
+	sample_count = 0;
+}
+
 #if CONFIG_SENSOR_USE_6_SIDE_CALIBRATION
 static int isAccRest(float *acc, float *pre_acc, float threshold, int *t, int restdelta)
 {
@@ -594,7 +618,7 @@ static int isAccRest(float *acc, float *pre_acc, float threshold, int *t, int re
 }
 
 // TODO: can be used to get a better gyro bias
-void sensor_6_sideBias(void)
+int sensor_6_sideBias(void)
 {
 	// Acc 6 side calibrate
 	float rawData[3];
@@ -603,12 +627,7 @@ void sensor_6_sideBias(void)
 	const float THRESHOLD_ACC = 0.05;
 	int resttime = 0;
 
-	mag_progress = 0; // reusing ata, so guarantee cleared mag progress
-	last_mag_progress = 0;
-	mag_progress_time = 0;
-	memset(ata, 0, sizeof(ata));
-	norm_sum = 0;
-	sample_count = 0;
+	magneto_reset();
 	int c = 0;
 	printk("Starting accelerometer calibration.\n");
 	while (1)
@@ -618,7 +637,7 @@ void sensor_6_sideBias(void)
 		while (1)
 		{
 			if (sensor_wait_accel(rawData, K_MSEC(1000)))
-				return; // Timeout // TODO: not handling magneto state
+				return -2; // Timeout, magneto state not handled here
 			int rest = isAccRest(rawData, pre_acc, THRESHOLD_ACC, &resttime, 100);
 			pre_acc[0] = rawData[0];
 			pre_acc[1] = rawData[1];
@@ -651,7 +670,9 @@ void sensor_6_sideBias(void)
 				while (k_uptime_get() < sampling_start_time + 1000)
 				{
 					if (sensor_wait_accel(rawData, K_MSEC(1000)))
-						return; // Timeout // TODO: not handling magneto state
+						return -2; // Timeout, magneto state not handled here
+					if (!v_epsilon(rawData, pre_acc, 0.1))
+						return -1; // Motion detected
 					magneto_sample(rawData[0], rawData[1], rawData[2], ata, &norm_sum, &sample_count);
 					if (k_uptime_get() >= sampling_start_time + i * 100)
 					{
@@ -673,7 +694,7 @@ void sensor_6_sideBias(void)
 		{
 			k_msleep(100);
 			if (sensor_wait_accel(rawData, K_MSEC(1000)))
-				return; // Timeout // TODO: not handling magneto state
+				return -2; // Timeout, magneto state not handled here
 			int rest = isAccRest(rawData, pre_acc, THRESHOLD_ACC, &resttime, 100);
 			pre_acc[0] = rawData[0];
 			pre_acc[1] = rawData[1];
@@ -685,16 +706,14 @@ void sensor_6_sideBias(void)
 				break;
 			}
 		}
-		k_msleep(5);
 	}
-	mag_progress = 0; // reusing ata, so guarantee cleared mag progress
-	last_mag_progress = 0;
-	mag_progress_time = 0;
 
 	printk("Calculating the data....\n");
 	magneto_current_calibration(accBAinv, ata, norm_sum, sample_count);
+	magneto_reset();
 
 	printk("Calibration is complete.\n");
+	return 0;
 }
 #endif
 
