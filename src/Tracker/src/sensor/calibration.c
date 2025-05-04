@@ -62,7 +62,9 @@ static int sensor_wait_gyro(float g[3], k_timeout_t timeout);
 static void sensor_sample_mag(const float m[3]);
 static int sensor_wait_mag(float m[3], k_timeout_t timeout);
 
+#if CONFIG_SENSOR_USE_6_SIDE_CALIBRATION
 static void magneto_reset(void);
+#endif
 
 void sensor_calibration_process_accel(float a[3])
 {
@@ -588,16 +590,6 @@ int sensor_offsetBias(float *dest1, float *dest2)
 	return 0;
 }
 
-static void magneto_reset(void)
-{	
-	mag_progress = 0; // reusing ata, so guarantee cleared mag progress
-	last_mag_progress = 0;
-	mag_progress_time = 0;
-	memset(ata, 0, sizeof(ata));
-	norm_sum = 0;
-	sample_count = 0;
-}
-
 #if CONFIG_SENSOR_USE_6_SIDE_CALIBRATION
 static int isAccRest(float *acc, float *pre_acc, float threshold, int *t, int restdelta)
 {
@@ -615,6 +607,16 @@ static int isAccRest(float *acc, float *pre_acc, float threshold, int *t, int re
 	if (*t > 2000)
 		return 1;
 	return 0;
+}
+
+static void magneto_reset(void)
+{	
+	mag_progress = 0; // reusing ata, so guarantee cleared mag progress
+	last_mag_progress = 0;
+	mag_progress_time = 0;
+	memset(ata, 0, sizeof(ata));
+	norm_sum = 0;
+	sample_count = 0;
 }
 
 // TODO: can be used to get a better gyro bias
@@ -727,7 +729,7 @@ static void calibration_thread(void)
 
 	// Verify calibrations
 	sensor_calibration_validate();
-#if CONFIG_SENSOR_USE_6_SIDE_CALIBRATION 
+#if CONFIG_SENSOR_USE_6_SIDE_CALIBRATION
 	sensor_calibration_validate_6_side();
 #endif
 	sensor_calibration_validate_mag();
@@ -744,12 +746,14 @@ static void calibration_thread(void)
 			sensor_calibration_request(-1); // clear request
 			set_status(SYS_STATUS_CALIBRATION_RUNNING, false);
 			break;
+#if CONFIG_SENSOR_USE_6_SIDE_CALIBRATION
 		case 2:
 			set_status(SYS_STATUS_CALIBRATION_RUNNING, true);
 			sensor_calibrate_6_side();
 			sensor_calibration_request(-1); // clear request
 			set_status(SYS_STATUS_CALIBRATION_RUNNING, false);
 			break;
+#endif
 		default:
 			if (mag_progress & 0b10000000)
 				requested = sensor_calibrate_mag();
