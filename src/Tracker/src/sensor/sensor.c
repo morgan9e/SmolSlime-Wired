@@ -739,11 +739,7 @@ void main_imu_thread(void)
 					sys_request_system_reboot();
 				}
 			}
-			else if (processed_packets < packets)
-			{
-				LOG_DBG("Only %u/%u packets processed", processed_packets, packets);
-			}
-			else if (packets > 0)
+			else if (processed_packets == packets && packets > 0)
 			{
 				packet_errors = 0;
 			}
