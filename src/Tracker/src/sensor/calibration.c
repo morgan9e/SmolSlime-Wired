@@ -241,7 +241,7 @@ void sensor_calibrate_6_side(void)
 	}
 	else
 	{
-		sys_write(MAIN_ACC_6_BIAS_ID, &retained->accBAinv, accBAinv, sizeof(accBAinv));
+		sys_write(MAIN_ACC_6_BIAS_ID, &retained->accBAinv, accBAinv, sizeof(accBAinv)); // TODO: do not overwrite before validation!
 		LOG_INF("Accelerometer matrix:");
 		for (int i = 0; i < 3; i++)
 			LOG_INF("%.5f %.5f %.5f %.5f", (double)accBAinv[0][i], (double)accBAinv[1][i], (double)accBAinv[2][i], (double)accBAinv[3][i]);
@@ -397,11 +397,8 @@ int sensor_calibrate_mag(void)
 
 	// max allocated 1072 bytes
 	magneto_current_calibration(magBAinv, ata, norm_sum, sample_count); // 25ms
-	mag_progress = 0;
 	// clear data
-	memset(ata, 0, sizeof(ata));
-	norm_sum = 0.0;
-	sample_count = 0.0;
+	magneto_reset();
 	sys_write(MAIN_MAG_BIAS_ID, &retained->magBAinv, magBAinv, sizeof(magBAinv));
 	LOG_INF("Magnetometer matrix:");
 	for (int i = 0; i < 3; i++)
