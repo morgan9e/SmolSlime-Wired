@@ -48,7 +48,13 @@ static double ata[100]; // init calibration
 static double norm_sum;
 static double sample_count;
 
+//#define DEBUG true
+
+#if DEBUG
+LOG_MODULE_REGISTER(calibration, LOG_LEVEL_DBG);
+#else
 LOG_MODULE_REGISTER(calibration, LOG_LEVEL_INF);
+#endif
 
 static void calibration_thread(void);
 K_THREAD_DEFINE(calibration_thread_id, 1024, calibration_thread, NULL, NULL, NULL, 6, 0, 0);
@@ -396,6 +402,17 @@ int sensor_calibrate_mag(void)
 	LOG_INF("Calibrating magnetometer hard/soft iron offset");
 
 	// max allocated 1072 bytes
+#if DEBUG
+	printk("ata:\n");
+	for (int i = 0; i < 10; i++)
+	{
+		for (int j = 0; j < 10; j++)
+			printk("%7.2f, ", (double)ata[i * 10 + j]);
+		printk("\n");
+		k_msleep(3);
+	}
+	printk("norm_sum: %.2f, sample_count: %.0f\n", norm_sum, sample_count);
+#endif
 	magneto_current_calibration(magBAinv, ata, norm_sum, sample_count); // 25ms
 	// clear data
 	magneto_reset();
@@ -708,6 +725,17 @@ int sensor_6_sideBias(void)
 	}
 
 	printk("Calculating the data....\n");
+#if DEBUG
+	printk("ata:\n");
+	for (int i = 0; i < 10; i++)
+	{
+		for (int j = 0; j < 10; j++)
+			printk("%7.2f, ", (double)ata[i * 10 + j]);
+		printk("\n");
+		k_msleep(3);
+	}
+	printk("norm_sum: %.2f, sample_count: %.0f\n", norm_sum, sample_count);
+#endif
 	wait_for_threads(); // TODO: let the data cook or something idk why this has to be here to work
 	magneto_current_calibration(accBAinv, ata, norm_sum, sample_count);
 	magneto_reset();
