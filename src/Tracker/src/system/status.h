@@ -12,6 +12,8 @@ enum sys_status {
 
 void set_status(enum sys_status status, bool set);
 
+bool get_status(enum sys_status status);
+
 bool status_ready(void);
 
 #endif

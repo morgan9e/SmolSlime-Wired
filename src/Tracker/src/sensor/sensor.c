@@ -768,7 +768,9 @@ void main_imu_thread(void)
 			}
 
 			// Check the IMU gyroscope // TODO: gyro sanity not used
-			if (sensor_fusion->get_gyro_sanity() == 0 ? q_epsilon(q, last_q, 0.005) : q_epsilon(q, last_q, 0.05)) // Probably okay to use the constantly updating last_q
+			bool calibrating = get_status(SYS_STATUS_CALIBRATION_RUNNING);
+			bool resting = sensor_fusion->get_gyro_sanity() == 0 ? !q_epsilon(q, last_q, 0.005) : !q_epsilon(q, last_q, 0.05); // TODO: Probably okay to use the constantly updating last_q?
+			if (!calibrating && resting)
 			{
 				int64_t last_data_delta = k_uptime_get() - last_data_time;
 				if (sensor_mode < SENSOR_SENSOR_MODE_LOW_POWER && last_data_delta > 500) // No motion in lp timeout
