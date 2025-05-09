@@ -413,6 +413,7 @@ int sensor_calibrate_mag(void)
 	}
 	printk("norm_sum: %.2f, sample_count: %.0f\n", norm_sum, sample_count);
 #endif
+	wait_for_threads();
 	magneto_current_calibration(magBAinv, ata, norm_sum, sample_count); // 25ms
 	// clear data
 	magneto_reset();
