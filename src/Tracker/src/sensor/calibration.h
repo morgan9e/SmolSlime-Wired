@@ -23,10 +23,6 @@
 #ifndef SLIMENRF_SENSOR_CALIBRATION
 #define SLIMENRF_SENSOR_CALIBRATION
 
-#include "sensor.h"
-
-#include <zephyr/drivers/i2c.h>
-
 /* Sensor feeds data to calibration */
 void sensor_calibration_process_accel(float a[3]);
 void sensor_calibration_process_gyro(float g[3]);
@@ -34,15 +30,8 @@ void sensor_calibration_process_mag(float m[3]);
 
 void sensor_calibration_update_sensor_ids(int imu);
 uint8_t *sensor_calibration_get_sensor_data();
-int sensor_calibration_get_mag_progress();
-
-bool wait_for_motion(bool motion, int samples);
 
 void sensor_calibration_read(void);
-
-void sensor_calibrate_imu(void);
-void sensor_calibrate_6_side(void);
-int sensor_calibrate_mag(void);
 
 int sensor_calibration_validate(bool write);
 int sensor_calibration_validate_6_side(bool write);
@@ -55,8 +44,5 @@ void sensor_calibration_clear_mag(bool write); // "request" mag cal
 void sensor_request_calibration(void);
 void sensor_request_calibration_6_side(void);
 void sensor_request_calibration_mag(void);
-
-int sensor_offsetBias(float *dest1, float *dest2);
-int sensor_6_sideBias();
 
 #endif
