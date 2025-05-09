@@ -721,10 +721,12 @@ void main_imu_thread(void)
 				float my = raw_m[1];
 				float mz = raw_m[2];
 				float m[] = {SENSOR_MAGNETOMETER_AXES_ALIGNMENT};
-				connection_update_sensor_mag(m);
 
 				// Process fusion
 				sensor_fusion->update_mag(m, sensor_update_time_ms / 1000.0); // TODO: use actual time?
+
+				v_rotate(m, q3, m);
+				connection_update_sensor_mag(m);
 			}
 
 			// Copy average acceleration for this frame
