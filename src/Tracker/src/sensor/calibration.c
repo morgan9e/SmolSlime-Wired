@@ -192,7 +192,7 @@ void sensor_calibrate_imu()
 	}
 
 	LOG_INF("Reading data");
-	sensor_calibration_clear();
+	sensor_calibration_clear(false);
 	int err = sensor_offsetBias(accelBias, gyroBias);
 	if (err) // This takes about 3s
 	{
@@ -202,14 +202,12 @@ void sensor_calibrate_imu()
 	}
 	else
 	{
-		sys_write(MAIN_ACCEL_BIAS_ID, &retained->accelBias, accelBias, sizeof(accelBias));
-		sys_write(MAIN_GYRO_BIAS_ID, &retained->gyroBias, gyroBias, sizeof(gyroBias));
 #if !CONFIG_SENSOR_USE_6_SIDE_CALIBRATION
 		LOG_INF("Accelerometer bias: %.5f %.5f %.5f", (double)accelBias[0], (double)accelBias[1], (double)accelBias[2]);
 #endif
 		LOG_INF("Gyroscope bias: %.5f %.5f %.5f", (double)gyroBias[0], (double)gyroBias[1], (double)gyroBias[2]);
 	}
-	if (sensor_calibration_validate())
+	if (sensor_calibration_validate(false))
 	{
 		set_led(SYS_LED_PATTERN_OFF, SYS_LED_PRIORITY_SENSOR);
 		LOG_INF("Restoring previous calibration");
@@ -219,9 +217,11 @@ void sensor_calibrate_imu()
 		LOG_INF("Accelerometer bias: %.5f %.5f %.5f", (double)accelBias[0], (double)accelBias[1], (double)accelBias[2]);
 #endif
 		LOG_INF("Gyroscope bias: %.5f %.5f %.5f", (double)gyroBias[0], (double)gyroBias[1], (double)gyroBias[2]);
-		sensor_calibration_validate(); // additionally verify old calibration
+		sensor_calibration_validate(true); // additionally verify old calibration
 		return;
 	}
+	sys_write(MAIN_ACCEL_BIAS_ID, &retained->accelBias, accelBias, sizeof(accelBias));
+	sys_write(MAIN_GYRO_BIAS_ID, &retained->gyroBias, gyroBias, sizeof(gyroBias));
 
 	LOG_INF("Finished calibration");
 	sensor_fusion_invalidate();
@@ -236,7 +236,7 @@ void sensor_calibrate_6_side(void)
 	LOG_INF("Calibrating main accelerometer 6-side offset");
 	LOG_INF("Rest the device on a stable surface");
 
-	sensor_calibration_clear_6_side();
+	sensor_calibration_clear_6_side(false);
 	int err = sensor_6_sideBias();
 	if (err)
 	{
@@ -247,12 +247,11 @@ void sensor_calibrate_6_side(void)
 	}
 	else
 	{
-		sys_write(MAIN_ACC_6_BIAS_ID, &retained->accBAinv, accBAinv, sizeof(accBAinv)); // TODO: do not overwrite before validation!
 		LOG_INF("Accelerometer matrix:");
 		for (int i = 0; i < 3; i++)
 			LOG_INF("%.5f %.5f %.5f %.5f", (double)accBAinv[0][i], (double)accBAinv[1][i], (double)accBAinv[2][i], (double)accBAinv[3][i]);
 	}
-	if (sensor_calibration_validate_6_side())
+	if (sensor_calibration_validate_6_side(false))
 	{
 		set_led(SYS_LED_PATTERN_OFF, SYS_LED_PRIORITY_SENSOR);
 		LOG_INF("Restoring previous calibration");
@@ -260,9 +259,10 @@ void sensor_calibrate_6_side(void)
 		LOG_INF("Accelerometer matrix:");
 		for (int i = 0; i < 3; i++)
 			LOG_INF("%.5f %.5f %.5f %.5f", (double)accBAinv[0][i], (double)accBAinv[1][i], (double)accBAinv[2][i], (double)accBAinv[3][i]);
-		sensor_calibration_validate_6_side(); // additionally verify old calibration
+		sensor_calibration_validate_6_side(true); // additionally verify old calibration
 		return;
 	}
+	sys_write(MAIN_ACC_6_BIAS_ID, &retained->accBAinv, accBAinv, sizeof(accBAinv));
 
 	LOG_INF("Finished calibration");
 	set_led(SYS_LED_PATTERN_ONESHOT_COMPLETE, SYS_LED_PRIORITY_SENSOR);
@@ -415,13 +415,12 @@ int sensor_calibrate_mag(void)
 #endif
 	wait_for_threads();
 	magneto_current_calibration(magBAinv, ata, norm_sum, sample_count); // 25ms
-	// clear data
 	magneto_reset();
-	sys_write(MAIN_MAG_BIAS_ID, &retained->magBAinv, magBAinv, sizeof(magBAinv));
+
 	LOG_INF("Magnetometer matrix:");
 	for (int i = 0; i < 3; i++)
 		LOG_INF("%.5f %.5f %.5f %.5f", (double)magBAinv[0][i], (double)magBAinv[1][i],(double)magBAinv[2][i], (double)magBAinv[3][i]);
-	if (sensor_calibration_validate_mag())
+	if (sensor_calibration_validate_mag(false))
 	{
 		set_led(SYS_LED_PATTERN_OFF, SYS_LED_PRIORITY_SENSOR);
 		LOG_INF("Restoring previous calibration");
@@ -429,21 +428,22 @@ int sensor_calibrate_mag(void)
 		LOG_INF("Magnetometer matrix:");
 		for (int i = 0; i < 3; i++)
 			LOG_INF("%.5f %.5f %.5f %.5f", (double)magBAinv[0][i], (double)magBAinv[1][i],(double)magBAinv[2][i], (double)magBAinv[3][i]);
-		sensor_calibration_validate_mag(); // additionally verify old calibration
+		sensor_calibration_validate_mag(true); // additionally verify old calibration
 		return -1;
 	}
+	sys_write(MAIN_MAG_BIAS_ID, &retained->magBAinv, magBAinv, sizeof(magBAinv));
 
 	LOG_INF("Finished calibration");
 	set_led(SYS_LED_PATTERN_ONESHOT_COMPLETE, SYS_LED_PRIORITY_SENSOR);
 	return 0;
 }
 
-int sensor_calibration_validate(void)
+int sensor_calibration_validate(bool write)
 {
 	float zero[3] = {0};
 	if (!v_epsilon(accelBias, zero, 0.5) || !v_epsilon(gyroBias, zero, 50.0)) // check accel is <0.5G and gyro <50dps
 	{
-		sensor_calibration_clear();
+		sensor_calibration_clear(write);
 		LOG_WRN("Invalidated calibration");
 		LOG_WRN("The IMU may be damaged or calibration was not completed properly");
 		return -1;
@@ -451,7 +451,7 @@ int sensor_calibration_validate(void)
 	return 0;
 }
 
-int sensor_calibration_validate_6_side(void)
+int sensor_calibration_validate_6_side(bool write)
 {
 	float zero[3] = {0};
 	float diagonal[3];
@@ -461,7 +461,7 @@ int sensor_calibration_validate_6_side(void)
 	float average[3] = {magnitude, magnitude, magnitude};
 	if (!v_epsilon(accBAinv[0], zero, 0.5) || !v_epsilon(diagonal, average, magnitude * 0.1f)) // check accel is <0.5G and diagonals are within 10%
 	{
-		sensor_calibration_clear_6_side();
+		sensor_calibration_clear_6_side(write);
 		LOG_WRN("Invalidated calibration");
 		LOG_WRN("The IMU may be damaged or calibration was not completed properly");
 		return -1;
@@ -469,7 +469,7 @@ int sensor_calibration_validate_6_side(void)
 	return 0;
 }
 
-int sensor_calibration_validate_mag(void)
+int sensor_calibration_validate_mag(bool write)
 {
 	float zero[3] = {0};
 	float diagonal[3];
@@ -479,7 +479,7 @@ int sensor_calibration_validate_mag(void)
 	float average[3] = {magnitude, magnitude, magnitude};
 	if (!v_epsilon(magBAinv[0], zero, 1) || !v_epsilon(diagonal, average, MAX(magnitude * 0.2f, 0.1f))) // check offset is <1 unit and diagonals are within 20%
 	{
-		sensor_calibration_clear_mag();
+		sensor_calibration_clear_mag(write);
 		LOG_WRN("Invalidated calibration");
 		LOG_WRN("The magnetometer may be damaged or calibration was not completed properly");
 		return -1;
@@ -487,30 +487,42 @@ int sensor_calibration_validate_mag(void)
 	return 0;
 }
 
-void sensor_calibration_clear(void)
+void sensor_calibration_clear(bool write)
 {
 	memset(accelBias, 0, sizeof(accelBias));
 	memset(gyroBias, 0, sizeof(gyroBias));
-	sys_write(MAIN_ACCEL_BIAS_ID, &retained->accelBias, accelBias, sizeof(accelBias));
-	sys_write(MAIN_GYRO_BIAS_ID, &retained->gyroBias, gyroBias, sizeof(gyroBias));
+	if (write)
+	{
+		LOG_INF("Clearing stored calibration data");
+		sys_write(MAIN_ACCEL_BIAS_ID, &retained->accelBias, accelBias, sizeof(accelBias));
+		sys_write(MAIN_GYRO_BIAS_ID, &retained->gyroBias, gyroBias, sizeof(gyroBias));
+	}
 
 	sensor_fusion_invalidate();
 }
 
 #if CONFIG_SENSOR_USE_6_SIDE_CALIBRATION
-void sensor_calibration_clear_6_side(void)
+void sensor_calibration_clear_6_side(bool write)
 {
 	memset(accBAinv, 0, sizeof(accBAinv));
 	for (int i = 0; i < 3; i++) // set identity matrix
 		accBAinv[i + 1][i] = 1;
-	sys_write(MAIN_ACC_6_BIAS_ID, &retained->accBAinv, accBAinv, sizeof(accBAinv));
+	if (write)
+	{
+		LOG_INF("Clearing stored calibration data");
+		sys_write(MAIN_ACC_6_BIAS_ID, &retained->accBAinv, accBAinv, sizeof(accBAinv));
+	}
 }
 #endif
 
-void sensor_calibration_clear_mag(void)
+void sensor_calibration_clear_mag(bool write)
 {
 	memset(magBAinv, 0, sizeof(magBAinv)); // zeroed matrix will disable magnetometer in fusion
-	sys_write(MAIN_MAG_BIAS_ID, &retained->magBAinv, magBAinv, sizeof(magBAinv));
+	if (write)
+	{
+		LOG_INF("Clearing stored calibration data");
+		sys_write(MAIN_MAG_BIAS_ID, &retained->magBAinv, magBAinv, sizeof(magBAinv));
+	}
 }
 
 static int sensor_calibration_request(int id)
@@ -755,11 +767,11 @@ static void calibration_thread(void)
 	// TODO: replace wait_for_motion with isAccRest
 
 	// Verify calibrations
-	sensor_calibration_validate();
+	sensor_calibration_validate(true);
 #if CONFIG_SENSOR_USE_6_SIDE_CALIBRATION
-	sensor_calibration_validate_6_side();
+	sensor_calibration_validate_6_side(true);
 #endif
-	sensor_calibration_validate_mag();
+	sensor_calibration_validate_mag(true);
 
 	// requested calibrations run here
 	while (1)

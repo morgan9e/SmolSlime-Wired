@@ -44,13 +44,13 @@ void sensor_calibrate_imu(void);
 void sensor_calibrate_6_side(void);
 int sensor_calibrate_mag(void);
 
-int sensor_calibration_validate(void);
-int sensor_calibration_validate_6_side(void);
-int sensor_calibration_validate_mag(void);
+int sensor_calibration_validate(bool write);
+int sensor_calibration_validate_6_side(bool write);
+int sensor_calibration_validate_mag(bool write);
 
-void sensor_calibration_clear(void);
-void sensor_calibration_clear_6_side(void);
-void sensor_calibration_clear_mag(void); // "request" mag cal
+void sensor_calibration_clear(bool write);
+void sensor_calibration_clear_6_side(bool write);
+void sensor_calibration_clear_mag(bool write); // "request" mag cal
 
 void sensor_request_calibration(void);
 void sensor_request_calibration_6_side(void);
