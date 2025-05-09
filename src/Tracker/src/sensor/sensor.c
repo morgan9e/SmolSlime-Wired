@@ -68,6 +68,8 @@ static float last_q[4] = {1.0f, 0.0f, 0.0f, 0.0f}; // vector to hold quaternion
 
 static float q3[4] = {SENSOR_QUATERNION_CORRECTION}; // correction quaternion
 
+static float last_lin_a[3] = {0}; // vector to hold last linear accelerometer
+
 static int64_t last_suspend_attempt_time = 0;
 static int64_t last_data_time;
 static int64_t last_info_time;
@@ -868,10 +870,13 @@ void main_imu_thread(void)
 			}
 
 			// Send packet with new orientation
-			if (!q_epsilon(q, last_q, 0.001))
+			bool send_quat_data = !q_epsilon(q, last_q, 0.001);
+			bool send_lin_accel_data = !v_epsilon(lin_a, last_lin_a, 0.01);
+			if (send_quat_data || send_lin_accel_data)
 			{
 				bool send_precise_quat = q_epsilon(q, last_q, 0.005);
 				memcpy(last_q, q, sizeof(q));
+				memcpy(last_lin_a, lin_a, sizeof(lin_a));
 				float q_offset[4];
 				q_multiply(q, q3, q_offset);
 				v_rotate(lin_a, q3, lin_a);
