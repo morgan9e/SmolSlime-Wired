@@ -871,7 +871,7 @@ void main_imu_thread(void)
 
 			// Send packet with new orientation
 			bool send_quat_data = !q_epsilon(q, last_q, 0.001);
-			bool send_lin_accel_data = !v_epsilon(lin_a, last_lin_a, 0.01);
+			bool send_lin_accel_data = !v_epsilon(lin_a, last_lin_a, 0.05);
 			if (send_quat_data || send_lin_accel_data)
 			{
 				bool send_precise_quat = q_epsilon(q, last_q, 0.005);
