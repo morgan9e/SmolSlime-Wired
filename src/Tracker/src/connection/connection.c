@@ -154,11 +154,11 @@ void connection_write_packet_1() // full precision quat and accel
 	data[0] = 1; // packet 1
 	data[1] = tracker_id;
 	uint16_t *buf = (uint16_t *)&data[2];
-	buf[0] = TO_FIXED_15(sensor_q[1]);
+	buf[0] = TO_FIXED_15(sensor_q[1]); // ±1.0
 	buf[1] = TO_FIXED_15(sensor_q[2]);
 	buf[2] = TO_FIXED_15(sensor_q[3]);
 	buf[3] = TO_FIXED_15(sensor_q[0]);
-	buf[4] = TO_FIXED_7(sensor_a[0]);
+	buf[4] = TO_FIXED_7(sensor_a[0]); // range is ±256m/s² or ±26.1g 
 	buf[5] = TO_FIXED_7(sensor_a[1]);
 	buf[6] = TO_FIXED_7(sensor_a[2]);
 	esb_write(data);
