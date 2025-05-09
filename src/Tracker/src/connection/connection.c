@@ -103,10 +103,7 @@ void connection_update_battery(bool battery_available, bool plugged, uint32_t ba
 	batt |= 0x80; // battery_available, server will show a battery indicator
 
 	if (plugged) // Charging
-	{
-		batt_v = 255; // server will show a charging indicator
-		return;
-	}
+		battery_mV = MAX(battery_mV, 4310); // server will show a charging indicator
 
 	battery_mV /= 10;
 	battery_mV -= 245;
