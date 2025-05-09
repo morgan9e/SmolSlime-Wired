@@ -288,6 +288,11 @@ static void power_thread(void)
 			plugged = true;
 		else if ((plugged && battery_mV <= 4250) || abnormal_reading)
 			plugged = false;
+#ifdef POWER_USBREGSTATUS_VBUSDETECT_Msk
+		bool usb_plugged = NRF_POWER->USBREGSTATUS & POWER_USBREGSTATUS_VBUSDETECT_Msk;
+#else
+		bool usb_plugged = false;
+#endif
 
 		if (!power_init)
 		{
@@ -339,14 +344,14 @@ static void power_thread(void)
 		else if (average_battery_pptt > last_battery_pptt[15]) // Upper bound +0pptt
 			last_battery_pptt[15] = average_battery_pptt;
 
-		connection_update_battery(battery_available, charging || charged || plugged, last_battery_pptt[15], battery_mV);
+		connection_update_battery(battery_available, charging || charged || plugged || usb_plugged, last_battery_pptt[15], battery_mV);
 
-		if (!device_plugged && (charging || charged || plugged))
+		if (!device_plugged && (charging || charged || plugged || usb_plugged))
 		{
 			device_plugged = true;
 			set_status(SYS_STATUS_PLUGGED, true);
 		}
-		else if (device_plugged && !(charging || charged || plugged))
+		else if (device_plugged && !(charging || charged || plugged || usb_plugged))
 		{
 			device_plugged = false;
 			set_status(SYS_STATUS_PLUGGED, false);
@@ -356,7 +361,7 @@ static void power_thread(void)
 			set_led(SYS_LED_PATTERN_PULSE_PERSIST, SYS_LED_PRIORITY_SYSTEM);
 		else if (charged)
 			set_led(SYS_LED_PATTERN_ON_PERSIST, SYS_LED_PRIORITY_SYSTEM);
-		else if (plugged)
+		else if (plugged || usb_plugged)
 			set_led(SYS_LED_PATTERN_PULSE_PERSIST, SYS_LED_PRIORITY_SYSTEM);
 		else if (battery_low)
 			set_led(SYS_LED_PATTERN_LONG_PERSIST, SYS_LED_PRIORITY_SYSTEM);
