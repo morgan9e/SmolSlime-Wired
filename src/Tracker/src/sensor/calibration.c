@@ -708,6 +708,7 @@ int sensor_6_sideBias(void)
 	}
 
 	printk("Calculating the data....\n");
+	wait_for_threads(); // TODO: let the data cook or something idk why this has to be here to work
 	magneto_current_calibration(accBAinv, ata, norm_sum, sample_count);
 	magneto_reset();
 
