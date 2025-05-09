@@ -113,7 +113,11 @@ static bool use_ext_fifo = false;
 
 //#define DEBUG true
 
+#if DEBUG
+LOG_MODULE_REGISTER(sensor, LOG_LEVEL_DBG);
+#else
 LOG_MODULE_REGISTER(sensor, LOG_LEVEL_INF);
+#endif
 
 K_THREAD_DEFINE(main_imu_thread_id, 1024, main_imu_thread, NULL, NULL, NULL, 7, 0, 0);
 
@@ -699,6 +703,9 @@ void main_imu_thread(void)
 				processed_packets++;
 			}
 
+			// Free the FIFO buffer
+			k_free(rawData);
+
 #if DEBUG
 			if (valid_acquisition)
 				total_processed_packets += processed_packets;
@@ -715,9 +722,6 @@ void main_imu_thread(void)
 				// Process fusion
 				sensor_fusion->update_mag(m, sensor_update_time_ms / 1000.0); // TODO: use actual time?
 			}
-
-			// Free the FIFO buffer
-			k_free(rawData);
 
 			// Copy average acceleration for this frame
 			static float a[3] = {0}; // keep persistent
