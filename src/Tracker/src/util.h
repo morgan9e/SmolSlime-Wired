@@ -39,8 +39,8 @@
 #define SATURATE_UINT10(x) ((x) > 1023 ? 1023 : ((x) < 0 ? 0 : (x)))
 
 #define TO_FIXED_15(x) ((int16_t)SATURATE_INT16((x) * (1 << 15)))
-#define TO_FIXED_11(x) ((int16_t)((x) * (1 << 11)))
-#define TO_FIXED_10(x) ((int16_t)((x) * (1 << 10)))
+#define TO_FIXED_11(x) ((int16_t)SATURATE_INT16((x) * (1 << 11)))
+#define TO_FIXED_10(x) ((int16_t)SATURATE_INT16((x) * (1 << 10)))
 #define TO_FIXED_7(x) ((int16_t)SATURATE_INT16((x) * (1 << 7)))
 #define FIXED_15_TO_DOUBLE(x) (((double)(x)) / (1 << 15))
 #define FIXED_11_TO_DOUBLE(x) (((double)(x)) / (1 << 11))

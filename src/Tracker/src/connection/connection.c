@@ -27,7 +27,7 @@
 
 static uint8_t tracker_id, batt, batt_v, sensor_temp, imu_id, mag_id, tracker_status;
 static uint8_t tracker_svr_status = SVR_STATUS_OK;
-static float sensor_q[4], sensor_a[3];
+static float sensor_q[4], sensor_a[3], sensor_m[3];
 
 LOG_MODULE_REGISTER(connection, LOG_LEVEL_INF);
 
@@ -71,6 +71,11 @@ void connection_update_sensor_data(float *q, float *a)
 {
 	memcpy(sensor_q, q, sizeof(sensor_q));
 	memcpy(sensor_a, a, sizeof(sensor_a));
+}
+
+void connection_update_sensor_mag(float *m)
+{
+	memcpy(sensor_m, m, sizeof(sensor_m));
 }
 
 void connection_update_sensor_temp(float temp)
@@ -204,5 +209,21 @@ void connection_write_packet_3() // status
 	data[2] = tracker_svr_status;
 	data[3] = tracker_status;
 	data[15] = 0; // rssi (supplied by receiver)
+	esb_write(data);
+}
+
+void connection_write_packet_4() // full precision quat and magnetometer
+{
+	uint8_t data[16] = {0};
+	data[0] = 4; // packet 4
+	data[1] = tracker_id;
+	uint16_t *buf = (uint16_t *)&data[2];
+	buf[0] = TO_FIXED_15(sensor_q[1]);
+	buf[1] = TO_FIXED_15(sensor_q[2]);
+	buf[2] = TO_FIXED_15(sensor_q[3]);
+	buf[3] = TO_FIXED_15(sensor_q[0]);
+	buf[4] = TO_FIXED_10(sensor_m[0]); // range is ±32G
+	buf[5] = TO_FIXED_10(sensor_m[1]);
+	buf[6] = TO_FIXED_10(sensor_m[2]);
 	esb_write(data);
 }
