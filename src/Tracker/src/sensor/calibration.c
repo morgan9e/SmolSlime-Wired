@@ -66,7 +66,9 @@ static void sensor_sample_mag(const float m[3]);
 static int sensor_wait_mag(float m[3], k_timeout_t timeout);
 
 static void sensor_calibrate_imu(void);
+#if CONFIG_SENSOR_USE_6_SIDE_CALIBRATION
 static void sensor_calibrate_6_side(void);
+#endif
 static int sensor_calibrate_mag(void);
 
 // helpers
@@ -79,7 +81,9 @@ static int isAccRest(float *, float *, float, int *, int);
 
 // calibration logic
 static int sensor_offsetBias(float *dest1, float *dest2);
+#if CONFIG_SENSOR_USE_6_SIDE_CALIBRATION
 static int sensor_6_sideBias();
+#endif
 static void sensor_sample_mag_magneto_sample(const float a[3], const float m[3]);
 
 static int sensor_calibration_request(int id);
