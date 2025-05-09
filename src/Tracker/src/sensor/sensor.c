@@ -69,7 +69,6 @@ static float last_q[4] = {1.0f, 0.0f, 0.0f, 0.0f}; // vector to hold quaternion
 static float q3[4] = {SENSOR_QUATERNION_CORRECTION}; // correction quaternion
 
 static float last_lin_a[3] = {0}; // vector to hold last linear accelerometer
-static float last_m[3] = {0}; // vector to hold last magnetometer
 
 static int64_t last_suspend_attempt_time = 0;
 static int64_t last_data_time;
@@ -889,7 +888,7 @@ void main_imu_thread(void)
 					connection_write_packet_2();
 					send_info = false;
 				}
-				else if (k_uptime_get() - last_mag_time > 200) // try to send mag data every 200ms
+				else if (mag_available && mag_enabled && k_uptime_get() - last_mag_time > 200) // try to send mag data every 200ms
 				{
 					connection_write_packet_4();
 					last_mag_time = k_uptime_get();
