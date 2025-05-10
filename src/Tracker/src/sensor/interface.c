@@ -3,8 +3,9 @@
 #include <zephyr/logging/log.h>
 
 //#define DEBUG true
+//#define DEBUG_RATE true
 
-#if DEBUG
+#if DEBUG || DEBUG_RATE
 LOG_MODULE_REGISTER(sensor_interface, LOG_LEVEL_DBG);
 #endif
 
@@ -84,6 +85,12 @@ int ssi_write(enum sensor_interface_dev dev, const uint8_t *buf, uint32_t num_by
 		LOG_DBG("ssi_write: err=%d", err);
 		k_msleep(500);
 		return err;
+#elif DEBUG_RATE
+		int64_t start = k_uptime_ticks();
+		int err = spi_transceive_dt(sensor_interface_dev_spi[dev], &tx, NULL);
+		int64_t end = k_uptime_ticks();
+		printk("ssi_write: %zuB, %.2f MB/s\n", num_bytes, (double)num_bytes / (double)k_ticks_to_us_near64(end - start));
+		return err;
 #else
 		return spi_transceive_dt(sensor_interface_dev_spi[dev], &tx, NULL);
 #endif
@@ -113,6 +120,12 @@ int ssi_read(enum sensor_interface_dev dev, uint8_t *buf, uint32_t num_bytes)
 		LOG_HEXDUMP_DBG(buf, num_bytes, "ssi_read: buf");
 		LOG_DBG("ssi_read: err=%d", err);
 		k_msleep(500);
+		return err;
+#elif DEBUG_RATE
+		int64_t start = k_uptime_ticks();
+		int err = spi_transceive_dt(sensor_interface_dev_spi[dev], NULL, &rx);
+		int64_t end = k_uptime_ticks();
+		printk("ssi_read: %zuB, %.2f MB/s\n", num_bytes, (double)num_bytes / (double)k_ticks_to_us_near64(end - start));
 		return err;
 #else
 		return spi_transceive_dt(sensor_interface_dev_spi[dev], NULL, &rx);
@@ -147,6 +160,12 @@ int ssi_write_read(enum sensor_interface_dev dev, const void *write_buf, size_t 
 		LOG_HEXDUMP_DBG(read_buf, num_read, "ssi_write_read: read_buf");
 		LOG_DBG("ssi_write_read: err=%d", err);
 		k_msleep(500);
+		return err;
+#elif DEBUG_RATE
+		int64_t start = k_uptime_ticks();
+		int err = spi_transceive_dt(sensor_interface_dev_spi[dev], &tx, &rx);
+		int64_t end = k_uptime_ticks();
+		printk("ssi_write_read: %zuB, %.2f MB/s\n", (num_write + num_read), (double)(num_write + num_read) / (double)k_ticks_to_us_near64(end - start));
 		return err;
 #else
 		return spi_transceive_dt(sensor_interface_dev_spi[dev], &tx, &rx);
@@ -183,6 +202,12 @@ int ssi_burst_write(enum sensor_interface_dev dev, uint8_t start_addr, const uin
 		int err = spi_transceive_dt(sensor_interface_dev_spi[dev], &tx, NULL);
 		LOG_DBG("ssi_burst_write: err=%d", err);
 		k_msleep(500);
+		return err;
+#elif DEBUG_RATE
+		int64_t start = k_uptime_ticks();
+		int err = spi_transceive_dt(sensor_interface_dev_spi[dev], &tx, NULL);
+		int64_t end = k_uptime_ticks();
+		printk("ssi_burst_write: %zuB, %.2f MB/s\n", num_bytes, (double)num_bytes / (double)k_ticks_to_us_near64(end - start));
 		return err;
 #else
 		return spi_transceive_dt(sensor_interface_dev_spi[dev], &tx, NULL);
@@ -226,7 +251,7 @@ int ssi_reg_update_byte(enum sensor_interface_dev dev, uint8_t reg_addr, uint8_t
 
 int ssi_reg_read_interval(enum sensor_interface_dev dev, uint8_t start_addr, uint8_t *buf, uint32_t num_bytes, uint32_t interval)
 {
-#if DEBUG
+#if DEBUG || DEBUG_RATE
 	uint32_t start = k_cycle_get_32();
 #endif
 	// TODO: better way to handle with spi?
@@ -241,7 +266,7 @@ int ssi_reg_read_interval(enum sensor_interface_dev dev, uint8_t start_addr, uin
 #endif
 	while (num_bytes > 0)
 	{
-#if DEBUG
+#if DEBUG || DEBUG_RATE
 		LOG_DBG("ssi_reg_read_interval: num_bytes=%u", num_bytes);
 #endif
 		if (interval > num_bytes)
@@ -252,7 +277,7 @@ int ssi_reg_read_interval(enum sensor_interface_dev dev, uint8_t start_addr, uin
 		buf += interval;
 		num_bytes -= interval;
 	}
-#if DEBUG
+#if DEBUG || DEBUG_RATE
 	uint32_t end = k_cycle_get_32();
 	LOG_DBG("ssi_reg_read_interval: us=%u", k_cyc_to_us_near32(end - start));
 #endif
@@ -261,7 +286,7 @@ int ssi_reg_read_interval(enum sensor_interface_dev dev, uint8_t start_addr, uin
 
 int ssi_burst_read_interval(enum sensor_interface_dev dev, uint8_t start_addr, uint8_t *buf, uint32_t num_bytes, uint32_t interval)
 {
-#if DEBUG
+#if DEBUG || DEBUG_RATE
 	uint32_t start = k_cycle_get_32();
 #endif
 	// TODO: better way to handle with spi?
@@ -273,7 +298,7 @@ int ssi_burst_read_interval(enum sensor_interface_dev dev, uint8_t start_addr, u
 #endif
 	while (num_bytes > 0)
 	{
-#if DEBUG
+#if DEBUG || DEBUG_RATE
 		LOG_DBG("ssi_burst_read_interval: num_bytes=%u", num_bytes);
 #endif
 		if (interval > num_bytes)
@@ -284,7 +309,7 @@ int ssi_burst_read_interval(enum sensor_interface_dev dev, uint8_t start_addr, u
 		buf += interval;
 		num_bytes -= interval;
 	}
-#if DEBUG
+#if DEBUG || DEBUG_RATE
 	uint32_t end = k_cycle_get_32();
 	LOG_DBG("ssi_burst_read_interval: us=%u", k_cyc_to_us_near32(end - start));
 #endif
