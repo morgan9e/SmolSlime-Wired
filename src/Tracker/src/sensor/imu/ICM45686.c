@@ -20,7 +20,9 @@ static const float clock_reference = 32000;
 static float clock_scale = 1; // ODR is scaled by clock_rate/clock_reference
 
 #define FIFO_MULT 0.00075f // assuming i2c fast mode
+#define FIFO_MULT_SPI 0.0001f // ~24MHz
 
+static float fifo_multiplier_factor = FIFO_MULT;
 static float fifo_multiplier = 0;
 
 LOG_MODULE_REGISTER(ICM45686, LOG_LEVEL_DBG);
@@ -28,7 +30,10 @@ LOG_MODULE_REGISTER(ICM45686, LOG_LEVEL_DBG);
 int icm45_init(float clock_rate, float accel_time, float gyro_time, float *accel_actual_time, float *gyro_actual_time)
 {
 	// setup interface for SPI
-	sensor_interface_spi_configure(SENSOR_INTERFACE_DEV_IMU, MHZ(24), 0);
+	if (!sensor_interface_spi_configure(SENSOR_INTERFACE_DEV_IMU, MHZ(24), 0))
+		fifo_multiplier_factor = FIFO_MULT_SPI; // SPI mode
+	else
+		fifo_multiplier_factor = FIFO_MULT; // I2C mode
 	int err = 0;
 	if (clock_rate > 0)
 	{
@@ -247,13 +252,13 @@ int icm45_update_odr(float accel_time, float gyro_time, float *accel_actual_time
 
 	// extra read packets by ODR time
 	if (accel_time == 0 && gyro_time != 0)
-		fifo_multiplier = FIFO_MULT / gyro_time; 
+		fifo_multiplier = fifo_multiplier_factor / gyro_time; 
 	else if (accel_time != 0 && gyro_time == 0)
-		fifo_multiplier = FIFO_MULT / accel_time;
+		fifo_multiplier = fifo_multiplier_factor / accel_time;
 	else if (gyro_time > accel_time)
-		fifo_multiplier = FIFO_MULT / accel_time;
+		fifo_multiplier = fifo_multiplier_factor / accel_time;
 	else if (accel_time > gyro_time)
-		fifo_multiplier = FIFO_MULT / gyro_time;
+		fifo_multiplier = fifo_multiplier_factor / gyro_time;
 	else
 		fifo_multiplier = 0;
 

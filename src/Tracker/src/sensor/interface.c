@@ -57,12 +57,13 @@ void sensor_interface_register_sensor_mag_ext(struct i2c_dt_spec *dev) // only u
 }
 
 // must be called to set correct frequency
-void sensor_interface_spi_configure(enum sensor_interface_dev dev, uint32_t frequency, uint32_t dummy_reads)
+int sensor_interface_spi_configure(enum sensor_interface_dev dev, uint32_t frequency, uint32_t dummy_reads)
 {
 	if (sensor_interface_dev_spec[dev] != SENSOR_INTERFACE_SPEC_SPI)
-		return; // no spi device registered
+		return -1; // no spi device registered
 	sensor_interface_dev_spi[dev]->config.frequency = frequency;
 	sensor_interface_dev_spi_dummy_reads[dev] = dummy_reads; // shoutout to BMI270
+	return 0;
 }
 
 // TODO: spi config by device
