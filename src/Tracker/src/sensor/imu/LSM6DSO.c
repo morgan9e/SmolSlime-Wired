@@ -290,7 +290,10 @@ uint16_t lsm6dso_fifo_read(uint8_t *data, uint16_t len)
 		count = (uint16_t)((rawCount[1] & 3) << 8 | rawCount[0]); // Turn the 16 bits into a unsigned 16-bit value // TODO: might be 3 bits not 2
 		uint16_t limit = len / PACKET_SIZE;
 		if (count > limit)
+		{
+			LOG_WRN("FIFO read buffer limit reached, %d packets dropped", count - limit);
 			count = limit;
+		}
 		for (int i = 0; i < count; i++)
 			err |= ssi_burst_read(SENSOR_INTERFACE_DEV_IMU, LSM6DSO_FIFO_DATA_OUT_TAG, &data[i * PACKET_SIZE], PACKET_SIZE);
 		if (err)

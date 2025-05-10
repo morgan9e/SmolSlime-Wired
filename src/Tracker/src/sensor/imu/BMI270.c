@@ -274,6 +274,7 @@ uint16_t bmi_fifo_read(uint8_t *data, uint16_t len)
 		uint16_t limit = len / PACKET_SIZE;
 		if (packets > limit)
 		{
+			LOG_WRN("FIFO read buffer limit reached, %d packets dropped", packets - limit);
 			packets = limit;
 			count = packets * PACKET_SIZE;
 		}

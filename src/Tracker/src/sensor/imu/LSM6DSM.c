@@ -307,7 +307,10 @@ uint16_t lsm6dsm_fifo_read(uint8_t *data, uint16_t len)
 		count /= PACKET_SIZE / 2; // words to "packets" (actually PACKET_SIZE - 1)
 		uint16_t limit = len / PACKET_SIZE;
 		if (count > limit)
+		{
+			LOG_WRN("FIFO read buffer limit reached, %d packets dropped", count - limit);
 			count = limit;
+		}
 		for (int i = 0; i < count; i++)
 		{
 			err |= ssi_burst_read(SENSOR_INTERFACE_DEV_IMU, LSM6DSM_FIFO_STATUS3, &rawCount[0], 2); // reading pattern
