@@ -750,15 +750,21 @@ void main_imu_thread(void)
 			}
 
 			// Check packet processing
-			if (packets != 0 && processed_packets == 0)
+			if ((packets != 0 || k_uptime_get() > 100) && processed_packets == 0)
 			{
-				LOG_WRN("No packets processed");
+				if (packets)
+					LOG_WRN("No packets processed");
+				else
+					LOG_WRN("No packets in buffer");
 				if (++packet_errors == 10)
 				{
 					LOG_ERR("Packet error threshold exceeded");
-					set_status(SYS_STATUS_SENSOR_ERROR, true); // kind of redundant
-					sensor_retained_write(); // keep the fusion state
-					sys_request_system_reboot();
+					set_status(SYS_STATUS_SENSOR_ERROR, true);
+					if (packets)
+					{
+						sensor_retained_write(); // keep the fusion state
+						sys_request_system_reboot();
+					}
 				}
 			}
 			else if (processed_packets == packets && packets > 0)
