@@ -4,6 +4,8 @@
 #include "sensor/sensor.h"
 
 // https://www.st.com/resource/en/datasheet/lsm6dsv.pdf
+#define LSM6DSV_IF_CFG                     0x03
+
 #define LSM6DSV_FIFO_CTRL3                 0x09
 #define LSM6DSV_FIFO_CTRL4                 0x0A
 
