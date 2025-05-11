@@ -178,7 +178,7 @@ void connection_write_packet_2() // reduced precision quat and accel with batter
 	q_fem(sensor_q, v); // exponential map
 	for (int i = 0; i < 3; i++)
 		v[i] = (v[i] + 1) / 2; // map -1-1 to 0-1
-	uint16_t v_buf[3] = {TO_FIXED_10(v[0]), TO_FIXED_11(v[1]), TO_FIXED_11(v[2])}; // fill 32 bits
+	uint16_t v_buf[3] = {SATURATE_UINT10((1 << 10) * v[0]), SATURATE_UINT11((1 << 11) * v[1]), SATURATE_UINT11((1 << 11) * v[2])}; // fill 32 bits
 	uint32_t *q_buf = (uint32_t *)&data[5];
 	*q_buf = v_buf[0] | (v_buf[1] << 10) | (v_buf[2] << 21);
 
