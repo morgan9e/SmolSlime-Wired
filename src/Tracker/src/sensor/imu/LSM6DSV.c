@@ -39,6 +39,7 @@ int lsm_init(float clock_rate, float accel_time, float gyro_time, float *accel_a
 		LOG_ERR("Communication error");
 	last_accel_odr = 0xff; // reset last odr
 	last_gyro_odr = 0xff; // reset last odr
+	err |= ssi_reg_write_byte(SENSOR_INTERFACE_DEV_IMU, LSM6DSV_IF_CFG, 0x18); // INT H_LACTIVE active low, PP_OD open-drain
 	int8_t internal_freq_fine;
 	err |= ssi_reg_read_byte(SENSOR_INTERFACE_DEV_IMU, LSM6DSV_INTERNAL_FREQ_FINE, &internal_freq_fine); // affects ODR
 	freq_scale = 1.0f + 0.0013f * (float)internal_freq_fine;
