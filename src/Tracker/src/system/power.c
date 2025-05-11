@@ -25,7 +25,7 @@ enum sys_regulator {
 	SYS_REGULATOR_LDO
 };
 
-static uint32_t last_battery_pptt[16] = {[0 ... 15] = 10001};
+static int16_t last_battery_pptt[16] = {[0 ... 15] = -1};
 static int last_battery_pptt_index = 0;
 static bool battery_low = false;
 
@@ -278,7 +278,7 @@ static void power_thread(void)
 		bool charged = stby_read();
 
 		int battery_mV;
-		uint32_t battery_pptt = read_batt_mV(&battery_mV);
+		int16_t battery_pptt = read_batt_mV(&battery_mV);
 
 		bool abnormal_reading = battery_mV < 100 || battery_mV > 6000;
 		bool battery_available = battery_mV > 1500 && !abnormal_reading; // Keep working without the battery connected, otherwise it is obviously too dead to boot system
@@ -323,10 +323,10 @@ static void power_thread(void)
 			battery_low = false;
 
 		// Average battery readings across 16 samples (last reading is first sample)
-		uint32_t average_battery_pptt = battery_pptt;
+		int32_t average_battery_pptt = battery_pptt;
 		for (uint8_t i = 0; i < 15; i++)
 		{
-			if (last_battery_pptt[i] == 10001)
+			if (NRFX_ABS(average_battery_pptt - last_battery_pptt[i]) > 100 || last_battery_pptt[i] == -1)
 				average_battery_pptt += average_battery_pptt / (i + 1);
 			else
 				average_battery_pptt += last_battery_pptt[i];
