@@ -737,7 +737,7 @@ void main_imu_thread(void)
 				// Process fusion
 				sensor_fusion->update_mag(m, sensor_update_time_ms / 1000.0); // TODO: use actual time?
 
-				v_rotate(m, q3, m);
+				v_rotate(m, q3, m); // magnetic field in local device frame, no other transformation will be done
 				connection_update_sensor_mag(m);
 			}
 
@@ -900,8 +900,8 @@ void main_imu_thread(void)
 				memcpy(last_q, q, sizeof(q));
 				memcpy(last_lin_a, lin_a, sizeof(lin_a));
 				float q_offset[4];
-				q_multiply(q, q3, q_offset);
-				v_rotate(lin_a, q3, lin_a);
+				q_multiply(q, q3, q_offset); // quaternion in device orientation, connection will change format from wxyz to xyzw
+				v_rotate(lin_a, q3, lin_a); // linear acceleration in local device frame, no other transformation will be done
 				connection_update_sensor_data(q_offset, lin_a);
 				if (send_info && !send_precise_quat) // prioritize quat precision
 				{
