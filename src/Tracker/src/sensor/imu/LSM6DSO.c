@@ -320,9 +320,10 @@ uint8_t lsm6dso_setup_WOM(void)
 
 	err |= ssi_reg_write_byte(SENSOR_INTERFACE_DEV_IMU, LSM6DSO_TAP_CFG2, 0x80); // enable interrupts
 	err |= ssi_reg_write_byte(SENSOR_INTERFACE_DEV_IMU, LSM6DSO_MD1_CFG, 0x20); // route wake-up to INT1
+	err |= ssi_reg_write_byte(SENSOR_INTERFACE_DEV_IMU, LSM6DSO_CTRL3, 0x30); // INT1 H_LACTIVE active low, PP_OD open-drain
 	if (err)
 		LOG_ERR("Communication error");
-	return NRF_GPIO_PIN_NOPULL << 4 | NRF_GPIO_PIN_SENSE_HIGH; // active high
+	return NRF_GPIO_PIN_PULLUP << 4 | NRF_GPIO_PIN_SENSE_LOW; // active low
 }
 
 int lsm6dso_ext_setup(uint8_t addr, uint8_t reg)
