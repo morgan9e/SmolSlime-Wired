@@ -41,6 +41,7 @@ uint16_t led_clock = 0;
 uint32_t led_clock_offset = 0;
 
 uint32_t tx_errors = 0;
+int64_t last_tx_success = 0;
 
 static struct esb_payload rx_payload;
 static struct esb_payload tx_payload = ESB_CREATE_PAYLOAD(0,
@@ -55,6 +56,9 @@ static bool esb_paired = false;
 
 LOG_MODULE_REGISTER(esb_event, LOG_LEVEL_INF);
 
+static void esb_thread(void);
+K_THREAD_DEFINE(esb_thread_id, 512, esb_thread, NULL, NULL, NULL, 6, 0, 0);
+
 void event_handler(struct esb_evt const *event)
 {
 	switch (event->evt_id)
@@ -68,7 +72,10 @@ void event_handler(struct esb_evt const *event)
 		break;
 	case ESB_EVENT_TX_FAILED:
 		if (++tx_errors == 100) // consecutive failure to transmit
+		{
+			last_tx_success = k_uptime_get();
 			set_status(SYS_STATUS_CONNECTION_ERROR, true);
+		}
 		LOG_DBG("TX FAILED");
 		if (esb_paired)
 			clocks_stop();
@@ -387,4 +394,20 @@ void esb_write(uint8_t *data)
 bool esb_ready(void)
 {
 	return esb_initialized && esb_paired;
+}
+
+static void esb_thread(void)
+{
+	while (1)
+	{
+		if (tx_errors >= 100)
+		{
+			if (CONFIG_USER_SHUTDOWN && k_uptime_get() - last_tx_success > 2000) // shutdown if receiver is not detected
+			{
+				LOG_WRN("No response from receiver in %dm", CONFIG_CONNECTION_TIMEOUT_DELAY / 60000);
+				sys_request_system_off();
+			}
+		}
+		k_msleep(100);
+	}
 }

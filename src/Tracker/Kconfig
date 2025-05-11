@@ -81,6 +81,13 @@ config WOM_USE_DCDC
     help
         Use DCDC instead of LDO in IMU wake up state if it is more efficient.
 
+config CONNECTION_TIMEOUT_DELAY
+    int "Connection timeout delay (ms)"
+    default 300000
+    depends on USER_SHUTDOWN
+    help
+        Connection timeout duration when receiver is not detected.
+
 menu "Sensor power saving"
 
 config SENSOR_LP_TIMEOUT

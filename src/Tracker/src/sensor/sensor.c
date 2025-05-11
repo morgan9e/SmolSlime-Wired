@@ -817,7 +817,7 @@ void main_imu_thread(void)
 				}
 				if (sensor_timeout == SENSOR_SENSOR_TIMEOUT_ACTIVITY && last_data_delta > CONFIG_ACTIVE_TIMEOUT_DELAY)
 				{
-					LOG_INF("No motion from sensors in %dm", CONFIG_ACTIVE_TIMEOUT_DELAY/60000);
+					LOG_INF("No motion from sensors in %dm", CONFIG_ACTIVE_TIMEOUT_DELAY / 60000);
 #if CONFIG_SLEEP_ON_ACTIVE_TIMEOUT && CONFIG_USE_IMU_WAKE_UP
 					sys_request_WOM(true); // TODO: should queue shutdown and suspend itself instead
 //					main_imu_suspend(); // TODO: auto suspend, the device should configure WOM ASAP but it does not
@@ -831,7 +831,7 @@ void main_imu_thread(void)
 #if CONFIG_USE_IMU_TIMEOUT && CONFIG_USE_IMU_WAKE_UP
 				if (sensor_timeout == SENSOR_SENSOR_TIMEOUT_IMU && last_data_delta > imu_timeout) // No motion in ramp time
 				{
-					LOG_INF("No motion from sensors in %llds", imu_timeout/1000);
+					LOG_INF("No motion from sensors in %llds", imu_timeout / 1000);
 					sys_request_WOM(false); // TODO: should queue shutdown and suspend itself instead
 //					main_imu_suspend(); // TODO: auto suspend, the device should configure WOM ASAP but it does not
 					sensor_timeout = SENSOR_SENSOR_TIMEOUT_IMU_ELAPSED; // only try to suspend once
