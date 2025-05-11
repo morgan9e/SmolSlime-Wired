@@ -326,7 +326,7 @@ static void power_thread(void)
 		int32_t average_battery_pptt = battery_pptt;
 		for (uint8_t i = 0; i < 15; i++)
 		{
-			if (NRFX_ABS(average_battery_pptt - last_battery_pptt[i]) > 100 || last_battery_pptt[i] == -1)
+			if (NRFX_ABS(average_battery_pptt / (i + 1) - last_battery_pptt[i]) > 300 || last_battery_pptt[i] == -1)
 				average_battery_pptt += average_battery_pptt / (i + 1);
 			else
 				average_battery_pptt += last_battery_pptt[i];
