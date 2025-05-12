@@ -35,7 +35,7 @@
 /* Sensor gyroscope, accelerometer, and magnetometer axes should align to the IMU body axes
  * SENSOR_QUATERNION_CORRECTION should align the sensor to the device following Android convention
  * On flat surface / face up:
- * Right side of the device is +X
+ * Left from the perspective of the device / right from your perspective is +X
  * Front side (facing up) is +Z
  * Mounted on body / standing up:
  * Top side of the device is +Y
