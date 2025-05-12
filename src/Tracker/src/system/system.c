@@ -233,10 +233,14 @@ int set_sensor_clock(bool enable, float rate, float *actual_rate)
 #if BUTTON_EXISTS // Alternate button if available to use as "reset key"
 static const struct gpio_dt_spec button0 = GPIO_DT_SPEC_GET(DT_ALIAS(sw0), gpios);
 static int64_t press_time;
+static int64_t last_press_duration = 0;
 
 static void button_pressed(const struct device *dev, struct gpio_callback *cb, uint32_t pins)
 {
-	press_time = button_read() ? k_uptime_get() : 0;
+	bool pressed = button_read();
+	if (press_time && !pressed)
+		last_press_duration = k_uptime_get() - press_time;
+	press_time = pressed ? k_uptime_get() : 0;
 }
 
 static struct gpio_callback button_cb_data;
@@ -265,11 +269,34 @@ bool button_read(void)
 #if BUTTON_EXISTS // Alternate button if available to use as "reset key"
 static void button_thread(void)
 {
+	int num_presses = 0;
+	int64_t last_press = 0;
 	while (1)
 	{
+		if (press_time)
+			set_led(SYS_LED_PATTERN_OFF_FORCE, SYS_LED_PRIORITY_HIGHEST);
+		if (last_press_duration)
+		{
+			num_presses++;
+			LOG_INF("Button pressed %d times", num_presses);
+			last_press_duration = 0;
+			last_press = k_uptime_get();
+			set_led(SYS_LED_PATTERN_ON, SYS_LED_PRIORITY_HIGHEST);
+		}
+		if (last_press && k_uptime_get() - last_press > 1000)
+		{
+			last_press = 0;
+			if (num_presses == 1)
+				sys_request_system_reboot();
+			sys_reset_mode(num_presses - 1);
+			LOG_INF("Button was pressed %d times", num_presses);
+			num_presses = 0;
+			set_led(SYS_LED_PATTERN_OFF, SYS_LED_PRIORITY_HIGHEST);
+		}
+		if (press_time && k_uptime_get() - press_time > 1000 && button_read()) // Button is being held
+			sys_user_shutdown();
+
 		k_msleep(20);
-		if (press_time != 0 && k_uptime_get() - press_time > 50 && button_read()) // Button is being pressed
-			sys_request_system_reboot();
 	}
 }
 #endif
