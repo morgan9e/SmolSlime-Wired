@@ -238,7 +238,7 @@ static int64_t last_press_duration = 0;
 static void button_pressed(const struct device *dev, struct gpio_callback *cb, uint32_t pins)
 {
 	bool pressed = button_read();
-	if (press_time && !pressed)
+	if (press_time && !pressed && k_uptime_get() - press_time > 50) // debounce
 		last_press_duration = k_uptime_get() - press_time;
 	press_time = pressed ? k_uptime_get() : 0;
 }
@@ -275,7 +275,7 @@ static void button_thread(void)
 	{
 		if (press_time)
 			set_led(SYS_LED_PATTERN_OFF_FORCE, SYS_LED_PRIORITY_HIGHEST);
-		if (last_press_duration)
+		if (last_press_duration > 50) // debounce
 		{
 			num_presses++;
 			LOG_INF("Button pressed %d times", num_presses);
