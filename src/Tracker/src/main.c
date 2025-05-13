@@ -56,7 +56,6 @@ int main(void)
 #endif
 #endif
 
-//	start_time = k_uptime_get(); // Need to get start time for imu startup delay
 	set_led(SYS_LED_PATTERN_ON, SYS_LED_PRIORITY_BOOT); // Boot LED
 
 	uint8_t reboot_counter = reboot_counter_read();
@@ -101,16 +100,6 @@ int main(void)
 		set_led(SYS_LED_PATTERN_OFF, SYS_LED_PRIORITY_BOOT);
 
 	sys_reset_mode(reset_mode);
-
-	k_msleep(1); // TODO: fixes some weird issue with the device bootlooping, what is the cause
-
-	clocks_start();
-
-	esb_pair();
-
-	esb_initialize(true);
-	//timer_init();
-// 1ms to start ESB
 
 	return 0;
 }

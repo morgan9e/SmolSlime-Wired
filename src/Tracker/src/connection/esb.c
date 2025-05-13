@@ -400,6 +400,11 @@ static void esb_thread(void)
 {
 	while (1)
 	{
+		if (!esb_paired)
+		{
+			esb_pair();
+			esb_initialize(true);
+		}
 		if (tx_errors >= 100)
 		{
 			if (CONFIG_USER_SHUTDOWN && k_uptime_get() - last_tx_success > CONFIG_CONNECTION_TIMEOUT_DELAY) // shutdown if receiver is not detected
