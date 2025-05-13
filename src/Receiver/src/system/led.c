@@ -5,6 +5,7 @@
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/drivers/pwm.h>
 #include <zephyr/kernel.h>
+#include <zephyr/pm/device.h>
 
 #include "led.h"
 
@@ -68,23 +69,77 @@ static int led_pattern_state;
 
 static int led_pin_init(void)
 {
+	LOG_DBG("led_pin_init");
 	gpio_pin_configure_dt(&led, GPIO_OUTPUT);
+	gpio_pin_set_dt(&led, 0);
 #if LED0_EXISTS
 	gpio_pin_configure_dt(&led0, GPIO_OUTPUT);
+	gpio_pin_set_dt(&led0, 0);
 #endif
 #if LED1_EXISTS
 	gpio_pin_configure_dt(&led1, GPIO_OUTPUT);
+	gpio_pin_set_dt(&led1, 0);
 #endif
 #if LED2_EXISTS
 	gpio_pin_configure_dt(&led2, GPIO_OUTPUT);
+	gpio_pin_set_dt(&led2, 0);
 #endif
 #if LED3_EXISTS
 	gpio_pin_configure_dt(&led3, GPIO_OUTPUT);
+	gpio_pin_set_dt(&led3, 0);
 #endif
 	return 0;
 }
 
 SYS_INIT(led_pin_init, APPLICATION, CONFIG_APPLICATION_INIT_PRIORITY);
+
+static void led_pin_reset(void)
+{
+	LOG_DBG("led_pin_reset");
+	gpio_pin_configure_dt(&led, GPIO_DISCONNECTED);
+#if LED0_EXISTS
+	gpio_pin_configure_dt(&led0, GPIO_DISCONNECTED);
+#endif
+#if LED1_EXISTS
+	gpio_pin_configure_dt(&led1, GPIO_DISCONNECTED);
+#endif
+#if LED2_EXISTS
+	gpio_pin_configure_dt(&led2, GPIO_DISCONNECTED);
+#endif
+#if LED3_EXISTS
+	gpio_pin_configure_dt(&led3, GPIO_DISCONNECTED);
+#endif
+}
+
+static void led_suspend(void)
+{
+	LOG_DBG("led_suspend");
+#ifdef PWM_LED_EXISTS
+	pm_device_action_run(pwm_led.dev, PM_DEVICE_ACTION_SUSPEND);
+#endif
+#ifdef PWM_LED1_EXISTS
+	pm_device_action_run(pwm_led1.dev, PM_DEVICE_ACTION_SUSPEND);
+#endif
+#ifdef PWM_LED2_EXISTS
+	pm_device_action_run(pwm_led2.dev, PM_DEVICE_ACTION_SUSPEND);
+#endif
+	led_pin_reset();
+}
+
+static void led_resume(void)
+{
+	LOG_DBG("led_resume");
+#ifdef PWM_LED_EXISTS
+	pm_device_action_run(pwm_led.dev, PM_DEVICE_ACTION_RESUME);
+#endif
+#ifdef PWM_LED1_EXISTS
+	pm_device_action_run(pwm_led1.dev, PM_DEVICE_ACTION_RESUME);
+#endif
+#ifdef PWM_LED2_EXISTS
+	pm_device_action_run(pwm_led2.dev, PM_DEVICE_ACTION_RESUME);
+#endif
+	led_pin_init();
+}
 
 #ifdef CONFIG_LED_RGB_COLOR
 #define LED_RGB_COLOR
@@ -145,6 +200,7 @@ static int led_pwm_period[4][1] = {
 // TODO: use computed constants for high/low brightness and color values
 static void led_pin_set(enum sys_led_color color, int brightness_pptt, int value_pptt)
 {
+	LOG_DBG("led_pin_set: color %d, brightness %d, value %d", color, brightness_pptt, value_pptt);
 	if (brightness_pptt < 0)
 		brightness_pptt = 0;
 	else if (brightness_pptt > 10000)
@@ -167,39 +223,12 @@ static void led_pin_set(enum sys_led_color color, int brightness_pptt, int value
 	gpio_pin_set_dt(&led, value_pptt > 5000);
 #endif
 }
-
-// reset all led pins
-static void led_pin_reset()
-{
-// setting PWM to 0 constantly is expensive..
-//#if PWM_LED_EXISTS
-//	pwm_set_pulse_dt(&pwm_led, 0);
-//#endif
-//#if PWM_LED1_EXISTS
-//	pwm_set_pulse_dt(&pwm_led1, 0);
-//#endif
-//#if PWM_LED2_EXISTS
-//	pwm_set_pulse_dt(&pwm_led2, 0);
-//#endif
-	led_pin_init(); // reinit led
-	gpio_pin_set_dt(&led, 0);
-#if LED0_EXISTS
-	gpio_pin_set_dt(&led0, 0);
-#endif
-#if LED1_EXISTS
-	gpio_pin_set_dt(&led1, 0);
-#endif
-#if LED2_EXISTS
-	gpio_pin_set_dt(&led2, 0);
-#endif
-#if LED3_EXISTS
-	gpio_pin_set_dt(&led3, 0);
-#endif
-}
 #endif
 
 void set_led(enum sys_led_pattern led_pattern, int priority)
 {
+	LOG_DBG("set_led: current_led_pattern %d, current_priority %d", current_led_pattern, current_priority);
+	LOG_DBG("set_led: pattern %d, priority %d", led_pattern, priority);
 #if LED_EXISTS
 	if (led_pattern <= SYS_LED_PATTERN_OFF && k_current_get() == led_thread_id)
 		led_patterns[current_priority] = led_pattern;
@@ -219,16 +248,18 @@ void set_led(enum sys_led_pattern led_pattern, int priority)
 	led_pattern_state = 0;
 	if (current_led_pattern <= SYS_LED_PATTERN_OFF)
 	{
-		led_pin_reset();
+		led_suspend();
 		k_thread_suspend(led_thread_id);
 	}
 	else if (k_current_get() != led_thread_id) // do not suspend if called from thread
 	{
 		k_thread_suspend(led_thread_id);
+		led_resume();
 		k_thread_resume(led_thread_id);
 	}
 	else
 	{
+		led_resume();
 		k_thread_resume(led_thread_id);
 	}
 #endif
@@ -242,7 +273,6 @@ static void led_thread(void)
 #else
 	while (1)
 	{
-		led_pin_reset();
 		switch (current_led_pattern)
 		{
 		case SYS_LED_PATTERN_ON:
@@ -313,8 +343,18 @@ static void led_thread(void)
 			break;
 		case SYS_LED_PATTERN_PULSE_PERSIST:
 			led_pattern_state = (led_pattern_state + 1) % 1000;
-			float led_value = sinf(led_pattern_state * (M_PI / 1000));
-			led_pin_set(SYS_LED_COLOR_CHARGING, 10000, led_value * 10000);
+//			float led_value = sinf(led_pattern_state * (M_PI / 1000));
+//			led_pin_set(SYS_LED_COLOR_CHARGING, 10000, led_value * 10000);
+			int led_value = led_pattern_state > 500 ? 1000 - led_pattern_state : led_pattern_state;
+			if (led_value < 200)
+				led_value = (led_value) * 30;
+			else if (led_value < 300)
+				led_value = (led_value - 200) * 20 + 6000;
+			else if (led_value < 400)
+				led_value = (led_value - 300) * 15 + 8000;
+			else
+				led_value = (led_value - 400) * 5 + 9500;
+			led_pin_set(SYS_LED_COLOR_CHARGING, 10000, led_value);
 			k_msleep(5);
 			break;
 		case SYS_LED_PATTERN_ACTIVE_PERSIST: // off duration first because the device may turn on multiple times rapidly and waste battery power
