@@ -295,7 +295,7 @@ static void button_thread(void)
 		}
 		if (press_time && k_uptime_get() - press_time > 1000 && button_read()) // Button is being held
 			sys_user_shutdown();
-		k_msleep(100);
+		k_msleep(20);
 	}
 }
 #endif
