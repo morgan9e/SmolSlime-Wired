@@ -285,18 +285,17 @@ static void button_thread(void)
 		}
 		if (last_press && k_uptime_get() - last_press > 1000)
 		{
+			LOG_INF("Button was pressed %d times", num_presses);
 			last_press = 0;
 			if (num_presses == 1)
 				sys_request_system_reboot();
 			sys_reset_mode(num_presses - 1);
-			LOG_INF("Button was pressed %d times", num_presses);
 			num_presses = 0;
 			set_led(SYS_LED_PATTERN_OFF, SYS_LED_PRIORITY_HIGHEST);
 		}
 		if (press_time && k_uptime_get() - press_time > 1000 && button_read()) // Button is being held
 			sys_user_shutdown();
-
-		k_msleep(20);
+		k_msleep(100);
 	}
 }
 #endif
