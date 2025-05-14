@@ -171,7 +171,7 @@ int sensor_init(void)
 		if (imu_id >= 0)
 			sensor_interface_register_sensor_imu_i2c(&sensor_imu_dev);
 	}
-#else
+#elif !SENSOR_IMU_SPI_EXISTS
 	LOG_ERR("IMU node does not exist");
 #endif
 	if (imu_id >= (int)ARRAY_SIZE(dev_imu_names))
@@ -211,9 +211,10 @@ int sensor_init(void)
 		return -1; // no IMU detected! something is very wrong
 	}
 
+	int mag_id = -1;
 #if SENSOR_MAG_EXISTS
 	LOG_INF("Scanning bus for magnetometer");
-	int mag_id = sensor_scan_mag(&sensor_mag_dev, &sensor_mag_dev_reg);
+	mag_id = sensor_scan_mag(&sensor_mag_dev, &sensor_mag_dev_reg);
 	if (mag_id < 0)
 	{
 		// IMU must support passthrough mode if the magnetometer is connected through the IMU
@@ -243,9 +244,8 @@ int sensor_init(void)
 	{
 		use_ext_fifo = false;
 	}
-#else
+#elif !SENSOR_MAG_SPI_EXISTS
 	LOG_WRN("Magnetometer node does not exist");
-	int mag_id = -1;
 #endif
 	if (mag_id >= (int)ARRAY_SIZE(dev_mag_names))
 		LOG_WRN("Found unknown device");
