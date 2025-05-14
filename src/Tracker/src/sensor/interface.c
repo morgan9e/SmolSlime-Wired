@@ -262,7 +262,8 @@ int ssi_reg_read_interval(enum sensor_interface_dev dev, uint8_t start_addr, uin
 //	if (err)
 //		return err;
 #if CONFIG_SOC_NRF52840
-	interval *= 256; // TODO: may be possible for other socs
+	if (sensor_interface_dev_spec[dev] == SENSOR_INTERFACE_SPEC_SPI)
+		interval *= 256; // TODO: may be possible for other socs
 #endif
 	while (num_bytes > 0)
 	{
@@ -294,7 +295,8 @@ int ssi_burst_read_interval(enum sensor_interface_dev dev, uint8_t start_addr, u
 	if (sensor_interface_dev_spec[dev] == SENSOR_INTERFACE_SPEC_SPI)
 		start_addr |= 0x80; // set read bit
 #if CONFIG_SOC_NRF52840
-	interval *= 256; // TODO: may be possible for other socs
+	if (sensor_interface_dev_spec[dev] == SENSOR_INTERFACE_SPEC_SPI)
+		interval *= 256; // TODO: may be possible for other socs
 #endif
 	while (num_bytes > 0)
 	{
