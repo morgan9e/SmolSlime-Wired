@@ -327,6 +327,7 @@ static int sensor_wait_mag(float m[3], k_timeout_t timeout)
 	return 0;
 }
 
+// TODO: directly modifying gyroBias/accelBias while sensor is running
 static void sensor_calibrate_imu()
 {
 	float last_accelBias[3], last_gyroBias[3];
