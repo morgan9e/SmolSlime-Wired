@@ -385,6 +385,8 @@ int sys_user_shutdown(void)
 	}
 #if USER_SHUTDOWN_ENABLED
 	sys_request_system_off();
+#else
+	sys_request_system_reboot();
 #endif
 	return 0;
 }
