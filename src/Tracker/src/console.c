@@ -307,7 +307,7 @@ static void console_thread(void)
 #if SENSOR_MAG_EXISTS
 		else if (memcmp(line, command_mag, sizeof(command_mag)) == 0)
 		{
-			sensor_calibration_clear_mag(true);
+			sensor_calibration_clear_mag(NULL, true);
 		}
 #endif
 		else if (memcmp(line, command_pair, sizeof(command_pair)) == 0) 
