@@ -290,7 +290,9 @@ static void button_thread(void)
 			last_press = 0;
 			if (num_presses == 1)
 				sys_request_system_reboot();
+#if CONFIG_USER_EXTRA_ACTIONS // TODO: extra actions are default until server can send commands to trackers
 			sys_reset_mode(num_presses - 1);
+#endif
 			num_presses = 0;
 			set_led(SYS_LED_PATTERN_OFF, SYS_LED_PRIORITY_HIGHEST);
 		}
@@ -395,10 +397,12 @@ void sys_reset_mode(uint8_t mode)
 {
 	switch (mode)
 	{
+#if CONFIG_USER_EXTRA_ACTIONS
 	case 1:
 		LOG_INF("IMU calibration requested");
 		sensor_request_calibration();
 		break;
+#endif
 	case 2: // Reset mode pairing reset
 		LOG_INF("Pairing reset requested");
 		esb_reset_pair();
