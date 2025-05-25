@@ -26,6 +26,8 @@
 
 #include <ctype.h>
 
+#include "connection/connection.h"
+
 LOG_MODULE_REGISTER(console, LOG_LEVEL_INF);
 
 static void usb_init_thread(void);
@@ -33,7 +35,7 @@ K_THREAD_DEFINE(usb_init_thread_id, 256, usb_init_thread, NULL, NULL, NULL, 6, 0
 
 static void console_thread(void);
 static struct k_thread console_thread_id;
-static K_THREAD_STACK_DEFINE(console_thread_id_stack, 512);
+static K_THREAD_STACK_DEFINE(console_thread_id_stack, 4096);
 
 #define DFU_EXISTS CONFIG_BUILD_OUTPUT_UF2 || CONFIG_BOARD_HAS_NRF5_BOOTLOADER
 #define ADAFRUIT_BOOTLOADER CONFIG_BUILD_OUTPUT_UF2
@@ -232,11 +234,13 @@ static void console_thread(void)
 	printk("*** " CONFIG_USB_DEVICE_MANUFACTURER " " CONFIG_USB_DEVICE_PRODUCT " ***\n");
 #endif
 	printk(FW_STRING);
+	printk("debug\n");
 	printk("info                         Get device information\n");
 	printk("uptime                       Get device uptime\n");
 	printk("reboot                       Soft reset the device\n");
 	printk("calibrate                    Calibrate sensor ZRO\n");
 
+	uint8_t command_debug[] = "debug";
 	uint8_t command_info[] = "info";
 	uint8_t command_uptime[] = "uptime";
 	uint8_t command_reboot[] = "reboot";
@@ -280,7 +284,11 @@ static void console_thread(void)
 			*p = tolower(*p);
 		}
 
-		if (memcmp(line, command_info, sizeof(command_info)) == 0)
+		if (memcmp(line, command_debug, sizeof(command_debug)) == 0)
+		{
+			connection_get_errors();
+		}
+		else if (memcmp(line, command_info, sizeof(command_info)) == 0)
 		{
 			print_info();
 		}
