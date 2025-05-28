@@ -74,7 +74,8 @@ int ak_update_odr(float time, float *actual_time)
 	else
 	{
 		MODE = MODE_SMM;
-		time = INFINITY;
+//		time = INFINITY;
+		time = 0; // unsure if SMM is working at the needed rate
 	}
 
 	if (last_odr == MODE)
