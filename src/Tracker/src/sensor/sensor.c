@@ -728,14 +728,24 @@ void main_imu_thread(void)
 
 			if (mag_available && mag_enabled && sensor_mode == SENSOR_SENSOR_MODE_LOW_NOISE)
 			{
+				bool mag_calibrated = true;
+				float uncalibrated_m[3] = {0};
+				memcpy(uncalibrated_m, raw_m, sizeof(uncalibrated_m)); // copy raw magnetometer data
 				sensor_calibration_process_mag(raw_m);
+				float zero_m[3] = {0};
+				if (v_epsilon(raw_m, zero_m, 1e-6)) // if the magnetometer is not calibrated, skip and send raw data
+				{
+					memcpy(raw_m, uncalibrated_m, sizeof(uncalibrated_m));
+					mag_calibrated = false;
+				}
 				float mx = raw_m[0];
 				float my = raw_m[1];
 				float mz = raw_m[2];
 				float m[] = {SENSOR_MAGNETOMETER_AXES_ALIGNMENT};
 
 				// Process fusion
-				sensor_fusion->update_mag(m, sensor_update_time_ms / 1000.0); // TODO: use actual time?
+				if (mag_calibrated)
+					sensor_fusion->update_mag(m, sensor_update_time_ms / 1000.0); // TODO: use actual time?
 
 				v_rotate(m, q3, m); // magnetic field in local device frame, no other transformation will be done
 				connection_update_sensor_mag(m);
