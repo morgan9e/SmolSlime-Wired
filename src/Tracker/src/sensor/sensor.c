@@ -377,7 +377,7 @@ void sensor_retained_write(void) // TODO: move to sys?
 void sensor_shutdown(void) // Communicate all imus to shut down
 {
 	sys_interface_resume();
-	int err = sensor_init(); // try initialization if possible
+	int err = sensor_init(); // try initialization if possible // TODO: run in sensor thread, large stack usage
 	if (mag_available) // try to shutdown magnetometer first (in case of passthrough)
 		sensor_mag->shutdown();
 	if (!err)
@@ -390,7 +390,7 @@ void sensor_shutdown(void) // Communicate all imus to shut down
 uint8_t sensor_setup_WOM(void)
 {
 	sys_interface_resume();
-	int err = sensor_init(); // try initialization if possible
+	int err = sensor_init(); // try initialization if possible // TODO: run in sensor thread, large stack usage
 	if (!err)
 		return sensor_imu->setup_WOM();
 	sys_interface_suspend(); // TODO: not suspending after WOM setup
