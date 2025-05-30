@@ -317,6 +317,9 @@ inline void esb_set_addr_paired(void)
 
 void esb_pair(void)
 {
+	if (tx_errors >= 100)
+		set_status(SYS_STATUS_CONNECTION_ERROR, false);
+	tx_errors = 0;
 	if (!paired_addr[0]) // zero, no receiver paired
 	{
 		LOG_INF("Pairing");
