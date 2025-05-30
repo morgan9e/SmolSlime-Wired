@@ -280,8 +280,18 @@ static void console_thread(void)
 #else
 		uint8_t *line = rtt_console_getline();
 #endif
-		for (uint8_t *p = line; *p; ++p) {
+		uint8_t *arg = NULL;
+		for (uint8_t *p = line; *p; ++p)
+		{
 			*p = tolower(*p);
+			if (*p == ' ' && !arg)
+			{
+				*p = 0;
+				p++;
+				*p = tolower(*p);
+				if (*p)
+					arg = p;
+			}
 		}
 
 		if (memcmp(line, command_debug, sizeof(command_debug)) == 0)
