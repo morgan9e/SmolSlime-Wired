@@ -184,6 +184,7 @@ int sensor_init(void)
 	{
 		if (imu_id >= (int)ARRAY_SIZE(sensor_imus) || sensor_imus[imu_id] == NULL || sensor_imus[imu_id] == &sensor_imu_none)
 		{
+			sensor_scan_clear(); // clear invalid sensor data
 			sensor_imu = &sensor_imu_none;
 			sensor_sensor_scanning = false; // done
 //			if (sensor_imu_dev.addr < 0xFF) // If for some reason there actually is a valid IMU but we found some unsupported device first
@@ -205,6 +206,7 @@ int sensor_init(void)
 	}
 	else
 	{
+		sensor_scan_clear(); // clear invalid sensor data
 		sensor_imu = &sensor_imu_none;
 		sensor_sensor_scanning = false; // done
 		set_status(SYS_STATUS_SENSOR_ERROR, true);
