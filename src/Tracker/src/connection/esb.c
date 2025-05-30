@@ -335,6 +335,11 @@ void esb_pair(void)
 		set_led(SYS_LED_PATTERN_SHORT, SYS_LED_PRIORITY_CONNECTION);
 		while (paired_addr[0] != checksum)
 		{
+			if (!esb_initialized)
+			{
+				esb_set_addr_discovery();
+				esb_initialize(true);
+			}
 			if (!clock_status)
 				clocks_start();
 			if (paired_addr[0])
