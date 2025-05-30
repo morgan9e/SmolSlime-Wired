@@ -371,10 +371,13 @@ void esb_pair(void)
 
 void esb_reset_pair(void)
 {
-	esb_deinitialize(); // make sure esb is off
-	esb_paired = false;
-	memset(paired_addr, 0, sizeof(paired_addr));
-	LOG_INF("Pairing requested");
+	if (paired_addr[0] || esb_paired)
+	{
+		esb_deinitialize(); // make sure esb is off
+		esb_paired = false;
+		memset(paired_addr, 0, sizeof(paired_addr));
+		LOG_INF("Pairing requested");
+	}
 }
 
 void esb_clear_pair(void)
