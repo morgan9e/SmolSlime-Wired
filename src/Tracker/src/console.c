@@ -25,6 +25,7 @@
 #include <zephyr/pm/device.h>
 
 #include <ctype.h>
+#include <stdlib.h>
 
 #include "connection/connection.h"
 
@@ -258,9 +259,11 @@ static void console_thread(void)
 	uint8_t command_mag[] = "mag";
 #endif
 
+	printk("set <address>                Manually set receiver\n");
 	printk("pair                         Enter pairing mode\n");
 	printk("clear                        Clear pairing data\n");
 
+	uint8_t command_set[] = "set";
 	uint8_t command_pair[] = "pair";
 	uint8_t command_clear[] = "clear";
 
@@ -328,6 +331,16 @@ static void console_thread(void)
 			sensor_calibration_clear_mag(NULL, true);
 		}
 #endif
+		else if (memcmp(line, command_set, sizeof(command_set)) == 0) 
+		{
+			uint64_t addr = strtoull(arg, NULL, 16);
+			uint8_t buf[17];
+			snprintk(buf, 17, "%016llx", addr);
+			if (addr != 0 && memcmp(buf, arg, 17) == 0)
+				esb_set_pair(addr);
+			else
+				printk("Invalid address\n");
+		}
 		else if (memcmp(line, command_pair, sizeof(command_pair)) == 0) 
 		{
 			esb_reset_pair();

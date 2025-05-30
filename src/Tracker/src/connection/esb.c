@@ -315,6 +315,25 @@ inline void esb_set_addr_paired(void)
 	memcpy(addr_prefix, addr_buffer + 8, sizeof(addr_prefix));
 }
 
+void esb_set_pair(uint64_t addr)
+{
+	uint64_t *device_addr = (uint64_t *)NRF_FICR->DEVICEADDR; // Use device address as unique identifier (although it is not actually guaranteed, see datasheet)
+	uint8_t buf[6] = {0};
+	memcpy(buf, device_addr, 6);
+	uint8_t checksum = crc8_ccitt(0x07, buf, 6);
+	if (checksum == 0)
+		checksum = 8;
+	if ((addr & 0xFF) != checksum)
+	{
+		LOG_INF("Incorrect checksum");
+		return;
+	}
+	esb_reset_pair();
+	memcpy(paired_addr, &addr, sizeof(paired_addr));
+	LOG_INF("Paired");
+	sys_write(PAIRED_ID, retained->paired_addr, paired_addr, sizeof(paired_addr)); // Write new address and tracker id
+}
+
 void esb_pair(void)
 {
 	if (tx_errors >= 100)
@@ -357,9 +376,12 @@ void esb_pair(void)
 			k_msleep(1000);
 		}
 		set_led(SYS_LED_PATTERN_ONESHOT_COMPLETE, SYS_LED_PRIORITY_CONNECTION);
-		LOG_INF("Paired");
-		sys_write(PAIRED_ID, retained->paired_addr, paired_addr, sizeof(paired_addr)); // Write new address and tracker id
-		esb_disable();
+		if (esb_initialized)
+		{
+			LOG_INF("Paired");
+			sys_write(PAIRED_ID, retained->paired_addr, paired_addr, sizeof(paired_addr)); // Write new address and tracker id
+			esb_deinitialize();
+		}
 		k_msleep(1600); // wait for led pattern
 	}
 	LOG_INF("Tracker ID: %u", paired_addr[1]);
