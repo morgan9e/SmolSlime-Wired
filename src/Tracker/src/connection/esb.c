@@ -376,12 +376,9 @@ void esb_pair(void)
 			k_msleep(1000);
 		}
 		set_led(SYS_LED_PATTERN_ONESHOT_COMPLETE, SYS_LED_PRIORITY_CONNECTION);
-		if (esb_initialized)
-		{
-			LOG_INF("Paired");
-			sys_write(PAIRED_ID, retained->paired_addr, paired_addr, sizeof(paired_addr)); // Write new address and tracker id
-			esb_deinitialize();
-		}
+		LOG_INF("Paired");
+		sys_write(PAIRED_ID, retained->paired_addr, paired_addr, sizeof(paired_addr)); // Write new address and tracker id
+		esb_deinitialize();
 		k_msleep(1600); // wait for led pattern
 	}
 	LOG_INF("Tracker ID: %u", paired_addr[1]);
