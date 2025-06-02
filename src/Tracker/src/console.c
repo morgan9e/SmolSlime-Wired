@@ -298,11 +298,15 @@ static void console_thread(void)
 			}
 		}
 
+#if CONFIG_SOC_NRF52840
 		if (memcmp(line, command_debug, sizeof(command_debug)) == 0)
 		{
 			connection_get_errors();
 		}
 		else if (memcmp(line, command_info, sizeof(command_info)) == 0)
+#else
+		if (memcmp(line, command_info, sizeof(command_info)) == 0)
+#endif
 		{
 			print_info();
 		}
