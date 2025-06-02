@@ -46,7 +46,7 @@ static K_THREAD_STACK_DEFINE(console_thread_id_stack, 1024);
 static const struct device *gpio_dev = DEVICE_DT_GET(DT_NODELABEL(gpio0));
 #endif
 
-#if DT_NODE_EXISTS(DT_NODELABEL(mag))
+#if DT_NODE_HAS_STATUS(DT_NODELABEL(mag), okay)
 #define SENSOR_MAG_EXISTS true
 #endif
 
