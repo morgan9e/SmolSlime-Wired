@@ -261,10 +261,14 @@ int ssi_reg_read_interval(enum sensor_interface_dev dev, uint8_t start_addr, uin
 	int err = ssi_write(dev, &start_addr, 1); // Start read buffer
 //	if (err)
 //		return err;
-#if CONFIG_SOC_NRF52840
-	if (sensor_interface_dev_spec[dev] == SENSOR_INTERFACE_SPEC_SPI)
-		interval *= 256; // TODO: may be possible for other socs
+#if CONFIG_SOC_NRF52832
+	uint32_t maxcnt = 255; // easyeda-maxcnt-bits = <8>
+#elif CONFIG_SOC_NRF52810
+	uint32_t maxcnt = 1023; // easyeda-maxcnt-bits = <10>
+#else
+	uint32_t maxcnt = 2048; // all other SOC have >11 bits
 #endif
+	interval *= maxcnt / interval; // maximum interval below maxcnt
 	while (num_bytes > 0)
 	{
 #if DEBUG || DEBUG_RATE
