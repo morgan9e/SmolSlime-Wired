@@ -26,7 +26,6 @@
 #include <zephyr/kernel.h>
 
 #include "sensor_none.h"
-#include "sensor_ext.h"
 
 #include "imu/BMI270.h"
 #include "imu/ICM42688.h"
