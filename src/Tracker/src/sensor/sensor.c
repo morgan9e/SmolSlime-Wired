@@ -199,14 +199,6 @@ int sensor_init(void)
 			sensor_scan_clear(); // clear invalid sensor data
 			sensor_imu = &sensor_imu_none;
 			sensor_sensor_scanning = false; // done
-//			if (sensor_imu_dev.addr < 0xFF) // If for some reason there actually is a valid IMU but we found some unsupported device first
-//			{
-//				LOG_WRN("IMU not supported");
-//				sensor_imu_dev.addr++;
-//				sensor_imu_dev_reg = 0xFF;
-//				sensor_scan_clear(); // clear the invalid data
-//				return sensor_init(); // try again
-//			}
 			LOG_ERR("IMU not supported");
 			set_status(SYS_STATUS_SENSOR_ERROR, true);
 			return -1; // an IMU was detected but not supported
@@ -310,14 +302,6 @@ int sensor_init(void)
 		{
 			sensor_mag = &sensor_mag_none; 
 			mag_available = false;
-//			if (sensor_imu_dev.addr < 0xFF) // If for some reason there actually is a valid magnetometer but we found some unsupported device first
-//			{
-//				LOG_WRN("Magnetometer not supported");
-//				sensor_mag_dev.addr++;
-//				sensor_mag_dev_reg = 0xFF;
-//				sensor_scan_clear(); // clear the invalid data
-//				return sensor_init(); // try again
-//			}
 			LOG_ERR("Magnetometer not supported");
 		}
 		else
