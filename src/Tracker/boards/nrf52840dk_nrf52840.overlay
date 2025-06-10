@@ -16,6 +16,18 @@
 	};
 };
 
+&i2c0_default {
+	group1 {
+		bias-disable;
+	};
+};
+
+&i2c0_sleep {
+	group1 {
+		bias-disable;
+	};
+};
+
 / {
 	chosen {
 		zephyr,console = &cdc_acm_uart0;
