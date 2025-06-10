@@ -77,7 +77,7 @@
 
 };
 
-arduino_spi: &spi3 {
+&spi3 {
 	imu_spi: imu_spi@0 {
 		compatible = "vnd,spi-device";
 		spi-max-frequency = <DT_FREQ_M(32)>;
@@ -86,7 +86,7 @@ arduino_spi: &spi3 {
 	};
 };
 
-zephyr_udc0: &usbd {
+&usbd {
 	cdc_acm_uart0: cdc_acm_uart0 {
 		compatible = "zephyr,cdc-acm-uart";
 	};
