@@ -641,7 +641,7 @@ void main_imu_thread(void)
 
 			// Read magnetometer
 			float raw_m[3];
-			if (mag_available && mag_enabled && sensor_mode == SENSOR_SENSOR_MODE_LOW_NOISE)
+			if (mag_available && mag_enabled)
 				sensor_mag->mag_read(raw_m); // reading mag last, and it will be processed last
 
 			if (reconfig) // TODO: get rid of reconfig?
@@ -655,14 +655,10 @@ void main_imu_thread(void)
 				case SENSOR_SENSOR_MODE_LOW_POWER:
 					set_update_time_ms(33);
 					LOG_INF("Switching sensors to low power");
-					if (mag_available && mag_enabled)
-						sensor_mag->update_odr(INFINITY, &mag_actual_time); // standby/oneshot
 					break;
 				case SENSOR_SENSOR_MODE_LOW_POWER_2:
 					set_update_time_ms(100);
 					LOG_INF("Switching sensors to low power 2");
-					if (mag_available && mag_enabled)
-						sensor_mag->update_odr(INFINITY, &mag_actual_time); // standby/oneshot
 					break;
 				};
 			}
@@ -744,7 +740,7 @@ void main_imu_thread(void)
 				total_processed_packets += processed_packets;
 #endif
 
-			if (mag_available && mag_enabled && sensor_mode == SENSOR_SENSOR_MODE_LOW_NOISE)
+			if (mag_available && mag_enabled)
 			{
 				bool mag_calibrated = true;
 				float uncalibrated_m[3] = {0};
@@ -877,7 +873,7 @@ void main_imu_thread(void)
 			}
 
 			// Update magnetometer mode
-			if (mag_available && mag_enabled && sensor_mode == SENSOR_SENSOR_MODE_LOW_NOISE)
+			if (mag_available && mag_enabled)
 			{
 				float gyro_speed = sqrtf(max_gyro_speed_square);
 				float mag_target_time = 1.0f / (4 * gyro_speed); // target mag ODR for ~0.25 deg error
