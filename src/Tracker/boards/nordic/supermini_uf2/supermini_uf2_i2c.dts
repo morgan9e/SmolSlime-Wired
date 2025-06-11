@@ -5,4 +5,3 @@
 #include "supermini_uf2.dts"
 
 /delete-node/ &spi3;
-/delete-node/ &imu_spi;

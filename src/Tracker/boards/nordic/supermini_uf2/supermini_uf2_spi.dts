@@ -5,5 +5,3 @@
 #include "supermini_uf2.dts"
 
 /delete-node/ &i2c0;
-/delete-node/ &imu;
-/delete-node/ &mag;
