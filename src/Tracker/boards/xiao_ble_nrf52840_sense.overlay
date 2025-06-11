@@ -92,8 +92,14 @@
 /delete-node/ &i2c1;
 /delete-node/ &spi2;
 /delete-node/ &qspi;
-/delete-node/ &cryptocell;
-/delete-node/ &nfct;
+
+&cryptocell {
+	status = "disabled";
+};
+
+&nfct {
+	status = "disabled";
+};
 
 &lsm6ds3tr_c {
 	status = "disabled";

@@ -114,5 +114,10 @@
 	};
 };
 
-/delete-node/ &cryptocell;
-/delete-node/ &nfct;
+&cryptocell {
+	status = "disabled";
+};
+
+&nfct {
+	status = "disabled";
+};
