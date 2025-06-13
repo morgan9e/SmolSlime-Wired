@@ -183,7 +183,8 @@ int sensor_init(void)
 		if (imu_id >= 0)
 			sensor_interface_register_sensor_imu_i2c(&sensor_imu_dev);
 	}
-#elif !SENSOR_IMU_SPI_EXISTS
+#endif
+#if !SENSOR_IMU_SPI_EXISTS && !SENSOR_IMU_EXISTS
 	LOG_ERR("IMU node does not exist");
 #endif
 	if (imu_id >= (int)ARRAY_SIZE(dev_imu_names))
@@ -258,6 +259,8 @@ int sensor_init(void)
 			}
 		}
 	}
+#endif
+#if SENSOR_MAG_EXT_EXISTS
 	if (mag_id < 0 && (sensor_imu_dev.addr & 0x80)) // SPI IMU
 	{
 		// IMU may support I2CM if the magnetometer is connected through the IMU
@@ -287,7 +290,8 @@ int sensor_init(void)
 			}
 		}
 	}
-#elif !SENSOR_MAG_SPI_EXISTS
+#endif
+#if !SENSOR_MAG_SPI_EXISTS && !SENSOR_MAG_EXISTS && !SENSOR_MAG_EXT_EXISTS
 	LOG_WRN("Magnetometer node does not exist");
 #endif
 	if (mag_id >= (int)ARRAY_SIZE(dev_mag_names))
@@ -484,7 +488,9 @@ int main_imu_init(void)
 	float gyro_initial_time = 1.0 / CONFIG_SENSOR_GYRO_ODR; // configure with ~1000Hz ODR
 	float mag_initial_time = sensor_update_time_ms / 1000.0; // configure with ~200Hz ODR
 	err = sensor_imu->init(clock_actual_rate, accel_initial_time, gyro_initial_time, &accel_actual_time, &gyro_actual_time);
+#if SENSOR_IMU_SPI_EXISTS
 	LOG_INF("Requested SPI frequency: %.2fMHz", (double)sensor_imu_spi_dev.config.frequency / 1000000.0);
+#endif
 	LOG_INF("Accelerometer initial rate: %.2fHz", 1.0 / (double)accel_actual_time);
 	LOG_INF("Gyrometer initial rate: %.2fHz", 1.0 / (double)gyro_actual_time);
 	if (err < 0)
@@ -495,6 +501,9 @@ int main_imu_init(void)
 		// TODO: need to flag passthrough enabled
 //			sensor_imu->ext_passthrough(true); // reenable passthrough
 		err = sensor_mag->init(mag_initial_time, &mag_actual_time); // configure with ~200Hz ODR
+#if SENSOR_MAG_SPI_EXISTS
+		LOG_INF("Requested SPI frequency: %.2fMHz", (double)sensor_mag_spi_dev.config.frequency / 1000000.0);
+#endif
 		LOG_INF("Magnetometer initial rate: %.2fHz", 1.0 / (double)mag_actual_time);
 		if (err < 0)
 			return err;
