@@ -251,4 +251,9 @@ int sensor_scan_imu_spi(struct spi_dt_spec *bus, uint8_t *spi_dev_reg)
 	return sensor_scan_spi(bus, spi_dev_reg, i2c_dev_imu_addr_count, i2c_dev_imu_reg, i2c_dev_imu_id, i2c_dev_imu);
 }
 
+int sensor_scan_mag_spi(struct spi_dt_spec *bus, uint8_t *spi_dev_reg)
+{
+	return sensor_scan_spi(bus, spi_dev_reg, i2c_dev_mag_addr_count, i2c_dev_mag_reg, i2c_dev_mag_id, i2c_dev_mag);
+}
+
 #endif
