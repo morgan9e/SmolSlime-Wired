@@ -55,6 +55,7 @@ int sensor_interface_register_sensor_mag_ext(uint8_t addr, uint8_t min_burst, ui
 
 int sensor_interface_spi_configure(enum sensor_interface_dev dev, uint32_t frequency, uint32_t dummy_reads);
 void sensor_interface_ext_configure(const sensor_ext_ssi_t *ext);
+const sensor_ext_ssi_t *sensor_interface_ext_get(void);
 
 int ssi_write(enum sensor_interface_dev dev, const uint8_t *buf, uint32_t num_bytes);
 int ssi_read(enum sensor_interface_dev dev, uint8_t *buf, uint32_t num_bytes);

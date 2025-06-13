@@ -277,7 +277,7 @@ int sensor_init(void)
 				sensor_mag_dev.addr = 0x00; // reset magnetometer data
 				sensor_mag_dev_reg = 0xFF;
 			}
-			mag_id = sensor_scan_mag_ext(&sensor_mag_dev, &sensor_mag_dev_reg);
+			mag_id = sensor_scan_mag_ext(sensor_interface_ext_get(), &sensor_mag_dev.addr, &sensor_mag_dev_reg);
 			if (mag_id >= 0 && mag_id < (int)ARRAY_SIZE(sensor_mags) && sensor_mags[mag_id] != NULL && sensor_mags[mag_id] != &sensor_mag_none)
 			{
 				err = sensor_interface_register_sensor_mag_ext(sensor_mag_dev.addr, sensor_mags[mag_id]->ext_min_burst, sensor_mags[mag_id]->ext_burst);

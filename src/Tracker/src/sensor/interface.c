@@ -109,6 +109,11 @@ void sensor_interface_ext_configure(const sensor_ext_ssi_t *ext)
 	ext_ssi = ext;
 }
 
+const sensor_ext_ssi_t *sensor_interface_ext_get(void)
+{
+	return ext_ssi;
+}
+
 // TODO: spi config by device
 
 int ssi_write(enum sensor_interface_dev dev, const uint8_t *buf, uint32_t num_bytes)
