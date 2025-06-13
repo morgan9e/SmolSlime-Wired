@@ -38,8 +38,6 @@
 #define SENSOR_IMU_SPI_NODE DT_NODELABEL(imu_spi)
 #define SPI_OP SPI_MODE_CPOL | SPI_MODE_CPHA | SPI_WORD_SET(8)
 static struct spi_dt_spec sensor_imu_spi_dev = SPI_DT_SPEC_GET(SENSOR_IMU_SPI_NODE, SPI_OP, 0);
-#else
-static struct spi_dt_spec sensor_imu_spi_dev = {0};
 #endif
 #if DT_NODE_HAS_STATUS(DT_NODELABEL(imu), okay)
 #define SENSOR_IMU_EXISTS true
@@ -58,8 +56,6 @@ static uint8_t sensor_imu_dev_reg = 0xFF;
 #define SENSOR_MAG_SPI_NODE DT_NODELABEL(mag_spi)
 #define SPI_OP SPI_MODE_CPOL | SPI_MODE_CPHA | SPI_WORD_SET(8)
 static struct spi_dt_spec sensor_mag_spi_dev = SPI_DT_SPEC_GET(SENSOR_MAG_SPI_NODE, SPI_OP, 0);
-#else
-static struct spi_dt_spec sensor_mag_spi_dev = {0};
 #endif
 #if DT_NODE_HAS_STATUS(DT_NODELABEL(mag), okay)
 #define SENSOR_MAG_EXISTS true
