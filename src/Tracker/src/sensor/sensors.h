@@ -239,12 +239,12 @@ const int i2c_dev_mag[] = {
 
 int sensor_scan_imu(struct i2c_dt_spec *i2c_dev, uint8_t *i2c_dev_reg)
 {
-	return sensor_scan(i2c_dev, i2c_dev_reg, i2c_dev_imu_addr_count, i2c_dev_imu_addr, i2c_dev_imu_reg, i2c_dev_imu_id, i2c_dev_imu);
+	return sensor_scan_i2c(i2c_dev, i2c_dev_reg, i2c_dev_imu_addr_count, i2c_dev_imu_addr, i2c_dev_imu_reg, i2c_dev_imu_id, i2c_dev_imu);
 }
 
 int sensor_scan_mag(struct i2c_dt_spec *i2c_dev, uint8_t *i2c_dev_reg)
 {
-	return sensor_scan(i2c_dev, i2c_dev_reg, i2c_dev_mag_addr_count, i2c_dev_mag_addr, i2c_dev_mag_reg, i2c_dev_mag_id, i2c_dev_mag);
+	return sensor_scan_i2c(i2c_dev, i2c_dev_reg, i2c_dev_mag_addr_count, i2c_dev_mag_addr, i2c_dev_mag_reg, i2c_dev_mag_id, i2c_dev_mag);
 }
 
 int sensor_scan_imu_spi(struct spi_dt_spec *bus, uint8_t *spi_dev_reg)
