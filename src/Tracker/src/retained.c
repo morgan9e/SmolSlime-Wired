@@ -30,6 +30,8 @@ struct retained_data *retained = (struct retained_data *)DT_REG_ADDR(MEMORY_REGI
 
 bool retained_validate(void)
 {
+	NRF_STATIC_ASSERT((RETAINED_CHECKED_SIZE <= 1024), "Retained data size exceeds 1 KB limit");
+
 	/* The residue of a CRC is what you get from the CRC over the
 	 * message catenated with its CRC.  This is the post-final-xor
 	 * residue for CRC-32 (CRC-32/ISO-HDLC) which Zephyr calls
