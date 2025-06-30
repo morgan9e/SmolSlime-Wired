@@ -79,8 +79,12 @@ static void update_tracker(int16_t pptt)
 	{
 		if (pptt <= retained->battery_pptt_saved - 500) // new interval
 		{
+			LOG_INF("New interval: %.2f%%", (double)pptt / 100.0);
 			if (pptt <= retained->max_battery_pptt - 800) // valid interval
+			{
+				LOG_INF("Update interval: %.2f%%", (double)pptt / 100.0);
 				update_interval(pptt);
+			}
 			retained->battery_runtime_saved = retained->battery_runtime_sum;
 			retained->battery_pptt_saved -= 500;
 		}
