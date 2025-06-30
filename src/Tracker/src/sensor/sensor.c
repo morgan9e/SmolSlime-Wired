@@ -881,7 +881,7 @@ void sensor_loop(void)
 			if (!calibrating && resting)
 			{
 				int64_t last_data_delta = k_uptime_get() - last_data_time;
-				if (sensor_mode < SENSOR_SENSOR_MODE_LOW_POWER && last_data_delta > 500) // No motion in lp timeout
+				if (sensor_mode < SENSOR_SENSOR_MODE_LOW_POWER && last_data_delta > CONFIG_SENSOR_LP_TIMEOUT) // No motion in lp timeout
 				{
 					LOG_INF("No motion from sensors in %dms", CONFIG_SENSOR_LP_TIMEOUT);
 					sensor_mode = SENSOR_SENSOR_MODE_LOW_POWER;
