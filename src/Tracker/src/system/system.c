@@ -239,6 +239,25 @@ void sys_read(uint16_t id, void *data, size_t len)
 	}
 }
 
+void sys_clear(void)
+{
+	
+	static bool reset_confirm = false;
+	if (!reset_confirm)
+	{
+		printk("Resetting NVS and retained will clear all pairing and sensor calibration data. Are you sure?\n");
+		reset_confirm = true;
+		return;
+	}
+	printk("Resetting NVS and retained\n");
+
+	memset(retained, 0, sizeof(*retained));
+	nvs_clear(&fs);
+	nvs_init = false;
+	reset_confirm = false;
+	LOG_INF("NVS and retained reset");
+}
+
 // return 0 if clock applied, -1 if failed (because there is no clk_en or clk_out)
 int set_sensor_clock(bool enable, float rate, float *actual_rate)
 {
