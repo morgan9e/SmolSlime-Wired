@@ -236,14 +236,12 @@ static void console_thread(void)
 	printk("*** " CONFIG_USB_DEVICE_MANUFACTURER " " CONFIG_USB_DEVICE_PRODUCT " ***\n");
 #endif
 	printk(FW_STRING);
-	printk("debug\n");
 	printk("info                         Get device information\n");
 	printk("uptime                       Get device uptime\n");
 	printk("reboot                       Soft reset the device\n");
 	printk("scan                         Restart sensor scan\n");
 	printk("calibrate                    Calibrate sensor ZRO\n");
 
-	uint8_t command_debug[] = "debug";
 	uint8_t command_info[] = "info";
 	uint8_t command_uptime[] = "uptime";
 	uint8_t command_reboot[] = "reboot";
@@ -279,6 +277,18 @@ static void console_thread(void)
 	printk("meow                         Meow!\n");
 
 	uint8_t command_meow[] = "meow";
+
+	// debug
+	uint8_t command_debug[] = "debug";
+	uint8_t command_reset[] = "reset";
+	uint8_t command_reset_arg_zro[] = "zro";
+#if CONFIG_SENSOR_USE_6_SIDE_CALIBRATION
+	uint8_t command_reset_arg_acc[] = "acc";
+#endif
+#if SENSOR_MAG_EXISTS
+	uint8_t command_reset_arg_mag[] = "mag";
+#endif
+	uint8_t command_reset_arg_all[] = "all";
 
 	while (1) {
 #if USB_EXISTS
@@ -375,6 +385,33 @@ static void console_thread(void)
 		else if (memcmp(line, command_meow, sizeof(command_meow)) == 0) 
 		{
 			print_meow();
+		}
+		else if (memcmp(line, command_reset, sizeof(command_reset)) == 0)
+		{
+			if (arg && memcmp(arg, command_reset_arg_zro, sizeof(command_reset_arg_zro)) == 0)
+			{
+				sensor_calibration_clear(NULL, NULL, true);
+			}
+#if CONFIG_SENSOR_USE_6_SIDE_CALIBRATION
+			else if (arg && memcmp(arg, command_reset_arg_acc, sizeof(command_reset_arg_acc)) == 0)
+			{
+				sensor_calibration_clear_6_side(NULL, true);
+			}
+#endif
+#if SENSOR_MAG_EXISTS
+			else if (arg && memcmp(arg, command_reset_arg_mag, sizeof(command_reset_arg_mag)) == 0)
+			{
+				sensor_calibration_clear_mag(NULL, true);
+			}
+#endif
+			else if (arg && memcmp(arg, command_reset_arg_all, sizeof(command_reset_arg_all)) == 0)
+			{
+				sys_clear();
+			}
+			else
+			{
+				printk("Invalid argument\n");
+			}
 		}
 		else
 		{
