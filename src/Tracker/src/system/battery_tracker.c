@@ -158,7 +158,7 @@ static int16_t apply_curve(int16_t pptt)
 	pb = pb ? pb : interval_id * 500;
 	int16_t pa = (interval_id < 18) ? retained->battery_pptt_curve[interval_id] : 0;
 	pa = pa ? pa : (interval_id + 1) * 500;
-	if (pb < 0 || pa < 0 || pb > 10000 || pa > 10000 || pa < pb)
+	if (pb < 0 || pa < 0 || pb > 10000 || pa > 10500 || pa < pb)
 	{
 		LOG_ERR("Invalid curve");
 		return pptt;
