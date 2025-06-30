@@ -271,11 +271,11 @@ static void print_battery(void)
 	uint64_t runtime = sys_get_battery_runtime_estimate();
 	uint64_t remaining = sys_get_battery_remaining_time_estimate();
 	if (remaining > 0)
-		print_uptime(remaining, "Remaining runtime");
+		print_uptime(remaining, "\nRemaining runtime");
 	else
 		printk("Remaining runtime: Not available\n");
 	if (runtime > 0)
-		print_uptime(runtime, "\nFully charged runtime");
+		print_uptime(runtime, "Fully charged runtime");
 	else
 		printk("Fully charged runtime: Not available\n");
 

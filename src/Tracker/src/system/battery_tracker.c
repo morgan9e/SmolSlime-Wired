@@ -290,7 +290,7 @@ uint64_t sys_get_battery_runtime_estimate(void)
 		return 0; // no valid intervals
 
 	runtime += runtime * (20 - valid_intervals) / valid_intervals; // extrapolate missing intervals
-	LOG_DBG("Estimated runtime %llu us, %u%% coverage", runtime, valid_intervals * 100 / 20);
+	LOG_DBG("Estimated runtime %llu us, %u%% coverage", k_ticks_to_us_floor64(runtime), valid_intervals * 100 / 20);
 
 	return runtime;
 }
