@@ -167,6 +167,7 @@ static int sys_retained_init(void)
 		sys_read(MAIN_GYRO_BIAS_ID, &retained->gyroBias, sizeof(retained->gyroBias));
 		sys_read(MAIN_MAG_BIAS_ID, &retained->magBAinv, sizeof(retained->magBAinv));
 		sys_read(MAIN_ACC_6_BIAS_ID, &retained->accBAinv, sizeof(retained->accBAinv));
+		sys_read(BATT_STATS_CURVE_ID, &retained->battery_pptt_curve, sizeof(retained->battery_pptt_curve));
 		retained_update();
 	}
 	else
@@ -245,7 +246,7 @@ void sys_clear(void)
 	static bool reset_confirm = false;
 	if (!reset_confirm)
 	{
-		printk("Resetting NVS and retained will clear all pairing and sensor calibration data. Are you sure?\n");
+		printk("Resetting NVS and retained will clear all pairing, sensor calibration data, and battery calibration data. Are you sure?\n");
 		reset_confirm = true;
 		return;
 	}

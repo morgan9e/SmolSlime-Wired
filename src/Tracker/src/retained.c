@@ -71,6 +71,7 @@ bool retained_validate(void)
 
 	/* Reset to accrue runtime from this session. */
 	retained->uptime_latest = now;
+	retained->battery_uptime_latest = now;
 
 	return valid;
 }
