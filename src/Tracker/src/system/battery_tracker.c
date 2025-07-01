@@ -18,6 +18,8 @@ struct battery_tracker_interval
 {
 	uint16_t cycles;
 	uint64_t runtime;
+	uint64_t runtime_min;
+	uint64_t runtime_max;
 };
 
 static void update_statistics(void)
@@ -59,15 +61,20 @@ static void update_interval(int16_t pptt)
 	update_runtime(); // update battery_runtime_sum before saving
 
 	uint8_t interval_id = (pptt + 499) / 500;
+	uint64_t runtime = retained->battery_runtime_sum - retained->battery_runtime_saved;
 
 	struct battery_tracker_interval interval;
 	sys_read(BATT_STATS_INTERVAL_0 + interval_id, &interval, sizeof(interval));
 
 	// TODO: can use nvs_read_hist
 	interval.cycles++;
-	interval.runtime += retained->battery_runtime_sum - retained->battery_runtime_saved;
+	interval.runtime += runtime;
+	if (runtime < interval.runtime_min || interval.runtime_min == 0)
+		interval.runtime_min = runtime;
+	if (runtime > interval.runtime_max)
+		interval.runtime_max = runtime;
 	sys_write(BATT_STATS_INTERVAL_0 + interval_id, NULL, &interval, sizeof(interval));
-	LOG_DBG("Interval %u: %u cycles, %llu us", interval_id, interval.cycles, k_ticks_to_us_floor64(interval.runtime));
+	LOG_DBG("Interval %u: %u cycles, %llu us (current: %llu us, min: %llu us, max: %llu us)", interval_id, interval.cycles, k_ticks_to_us_floor64(interval.runtime), k_ticks_to_us_floor64(interval.runtime_min), k_ticks_to_us_floor64(interval.runtime_max));
 }
 
 static void update_tracker(int16_t pptt)
@@ -292,6 +299,58 @@ uint64_t sys_get_battery_runtime_estimate(void)
 
 	runtime += runtime * (20 - valid_intervals) / valid_intervals; // extrapolate missing intervals
 	LOG_DBG("Estimated runtime %llu us, %u%% coverage", k_ticks_to_us_floor64(runtime), valid_intervals * 100 / 20);
+
+	return runtime;
+}
+
+uint64_t sys_get_battery_runtime_min_estimate(void)
+{
+	uint64_t runtime = 0;
+	uint8_t valid_intervals = 0;
+
+	for (uint8_t i = 0; i < 19; i++)
+	{
+		struct battery_tracker_interval interval;
+		sys_read(BATT_STATS_INTERVAL_0 + i, &interval, sizeof(interval));
+		LOG_DBG("Interval %u min: %llu us", i, k_ticks_to_us_floor64(interval.runtime_min));
+		if (interval.cycles > 0)
+		{
+			runtime += interval.runtime_min;
+			valid_intervals++;
+		}
+	}
+
+	if (valid_intervals == 0)
+		return 0; // no valid intervals
+
+	runtime += runtime * (20 - valid_intervals) / valid_intervals; // extrapolate missing intervals
+	LOG_DBG("Estimated runtime min %llu us, %u%% coverage", k_ticks_to_us_floor64(runtime), valid_intervals * 100 / 20);
+
+	return runtime;
+}
+
+uint64_t sys_get_battery_runtime_max_estimate(void)
+{
+	uint64_t runtime = 0;
+	uint8_t valid_intervals = 0;
+
+	for (uint8_t i = 0; i < 19; i++)
+	{
+		struct battery_tracker_interval interval;
+		sys_read(BATT_STATS_INTERVAL_0 + i, &interval, sizeof(interval));
+		LOG_DBG("Interval %u max: %llu us", i, k_ticks_to_us_floor64(interval.runtime_max));
+		if (interval.cycles > 0)
+		{
+			runtime += interval.runtime_max;
+			valid_intervals++;
+		}
+	}
+
+	if (valid_intervals == 0)
+		return 0; // no valid intervals
+
+	runtime += runtime * (20 - valid_intervals) / valid_intervals; // extrapolate missing intervals
+	LOG_DBG("Estimated runtime max %llu us, %u%% coverage", k_ticks_to_us_floor64(runtime), valid_intervals * 100 / 20);
 
 	return runtime;
 }
