@@ -218,6 +218,7 @@ void sys_update_battery_tracker(int16_t pptt, bool plugged)
 			LOG_ERR("Abnormal change to battery SOC: %5.2f%% (min) -> %5.2f%% ", (double)retained->min_battery_pptt / 100.0, (double)pptt / 100.0);
 			update_statistics();
 			reset_tracker(pptt);
+			update_curve(); // it is also possible for a device to have no usable charge indicators
 		}
 		else if (pptt > retained->max_battery_pptt + 100) // charge (should not happen!) event // TODO: what is a good threshold
 		{
