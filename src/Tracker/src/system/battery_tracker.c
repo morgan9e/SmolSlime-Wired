@@ -343,7 +343,7 @@ int16_t sys_get_calibrated_battery_range_max_pptt(void)
 	for (uint8_t i = 17; i >= 0; i--)
 	{
 		if (retained->battery_pptt_curve[i] > 0)
-			return (i + 1) * 500;
+			return (i + 2) * 500;
 	}
 	return -1;
 }
