@@ -182,6 +182,9 @@ static int last_unplugged_mV = -1;
 static int16_t last_unplugged_pptt = -1;
 static uint64_t last_unplugged_time = 0;
 
+static int16_t last_saved_pptt = -1;
+static uint64_t last_saved_time = 0;
+
 void sys_update_battery_tracker_voltage(int mV, bool plugged)
 {
 	last_mV = mV;
@@ -198,6 +201,11 @@ void sys_update_battery_tracker(int16_t pptt, bool plugged)
 	{
 		last_unplugged_pptt = pptt;
 		last_unplugged_time = k_uptime_ticks();
+		if (last_saved_pptt == -1)
+		{
+			last_saved_pptt = pptt;
+			last_saved_time = k_uptime_ticks();
+		}
 	}
 
 	if (plugged && retained->min_battery_pptt >= 0) // reset tracker while plugged
@@ -232,6 +240,16 @@ void sys_update_battery_tracker(int16_t pptt, bool plugged)
 			LOG_ERR("Abnormal change to battery SOC: %5.2f%% (max) -> %6.2f%% ", (double)retained->max_battery_pptt / 100.0, (double)pptt / 100.0);
 			update_statistics();
 			reset_tracker(pptt);
+		}
+		else if (last_saved_pptt != -1 && pptt < last_saved_pptt - 100 && k_uptime_ticks() - last_saved_time < CONFIG_SYS_CLOCK_TICKS_PER_SEC * 60) // rapid "discharge" (ex. after unplugging)
+		{
+			uint64_t now = k_uptime_ticks();
+			uint64_t delta = k_ticks_to_us_floor64(now - last_saved_time);
+			LOG_INF("Abnormal change to battery SOC: %5.2f%%/min (%5.2f%% -> %5.2f%% in %llu us)", (double)(pptt - last_saved_pptt) / 100.0 / ((double)delta / 60000000), (double)last_saved_pptt / 100.0, (double)pptt / 100.0, delta);
+			update_statistics();
+			reset_tracker(pptt);
+			last_saved_pptt = pptt; // reset saved pptt
+			last_saved_time = now;
 		}
 		else
 		{
