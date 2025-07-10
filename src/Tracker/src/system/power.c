@@ -343,7 +343,7 @@ static void power_thread(void)
 		else if (!battery_available || (battery_low && battery_pptt > 1500)) // hysteresis
 			battery_low = false;
 
-		// Average battery readings across 16 samples (last reading is first sample)
+		// Average battery readings across 16 samples (last reading is first sample) // TODO: need to add sanity checking to the sample
 		int32_t average_battery_pptt = battery_pptt;
 		for (uint8_t i = 0; i < 15; i++)
 		{

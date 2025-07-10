@@ -101,7 +101,7 @@ static int divider_setup(void)
 		.channels = BIT(0),
 		.buffer = &ddp->raw,
 		.buffer_size = sizeof(ddp->raw),
-		.oversampling = 4,
+		.oversampling = 8,
 		.calibrate = true,
 	};
 
