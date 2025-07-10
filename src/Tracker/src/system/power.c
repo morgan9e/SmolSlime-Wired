@@ -365,6 +365,7 @@ static void power_thread(void)
 		else if (average_battery_pptt > current_battery_pptt) // Upper bound +0pptt
 			current_battery_pptt = average_battery_pptt;
 
+		// TODO: 0% to battery tracker will reset it, as >1% to 0% is invalid change
 		sys_update_battery_tracker_voltage(battery_mV, device_plugged);
 		sys_update_battery_tracker(current_battery_pptt, device_plugged);
 		calibrated_battery_pptt = sys_get_calibrated_battery_pptt(current_battery_pptt);

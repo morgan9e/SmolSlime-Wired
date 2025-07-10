@@ -53,7 +53,10 @@ static void reset_tracker(int16_t pptt)
 	retained->battery_runtime_sum = 0;
 	retained->battery_runtime_saved = 0;
 	retained->battery_pptt_saved = (pptt + 499) / 500 * 500;
-	LOG_DBG("Reset battery tracker, start tracking below %.2f%% (valid below %.2f%%)", (double)(retained->battery_pptt_saved - 500) / 100.0, (double)(pptt - 300) / 100.0);
+	if (pptt >= 0)
+		LOG_DBG("Reset battery tracker, start tracking below %.2f%% (valid below %.2f%%)", (double)(retained->battery_pptt_saved - 500) / 100.0, (double)(pptt - 300) / 100.0);
+	else
+		LOG_DBG("Reset battery tracker");
 }
 
 static void update_interval(int16_t pptt)
