@@ -74,7 +74,7 @@ static void update_interval(int16_t pptt)
 	if (runtime > interval.runtime_max)
 		interval.runtime_max = runtime;
 	sys_write(BATT_STATS_INTERVAL_0 + interval_id, NULL, &interval, sizeof(interval));
-	LOG_DBG("Interval %u: %u cycles, %llu us (current: %llu us, min: %llu us, max: %llu us)", interval_id, interval.cycles, k_ticks_to_us_floor64(interval.runtime), k_ticks_to_us_floor64(interval.runtime_min), k_ticks_to_us_floor64(interval.runtime_max));
+	LOG_DBG("Interval %u: %u cycles, %llu us (current: %llu us, min: %llu us, max: %llu us)", interval_id, interval.cycles, k_ticks_to_us_floor64(interval.runtime), k_ticks_to_us_floor64(runtime), k_ticks_to_us_floor64(interval.runtime_min), k_ticks_to_us_floor64(interval.runtime_max));
 }
 
 static void update_tracker(int16_t pptt)
