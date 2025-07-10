@@ -62,6 +62,11 @@ static void update_interval(int16_t pptt)
 
 	uint8_t interval_id = (pptt + 499) / 500;
 	uint64_t runtime = retained->battery_runtime_sum - retained->battery_runtime_saved;
+	if (runtime < CONFIG_SYS_CLOCK_TICKS_PER_SEC * 300)
+	{
+		LOG_ERR("Interval %u: %llu us is too short", interval_id, k_ticks_to_us_floor64(runtime));
+		return;
+	}
 
 	struct battery_tracker_interval interval;
 	sys_read(BATT_STATS_INTERVAL_0 + interval_id, &interval, sizeof(interval));
