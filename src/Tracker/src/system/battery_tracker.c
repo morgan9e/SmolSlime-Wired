@@ -5,6 +5,8 @@
 
 #include "battery_tracker.h"
 
+//#define DEBUG true
+
 LOG_MODULE_REGISTER(battery_tracker, LOG_LEVEL_INF);
 
 struct battery_tracker
@@ -120,7 +122,9 @@ static void update_curve(void)
 	{
 		struct battery_tracker_interval interval;
 		sys_read(BATT_STATS_INTERVAL_0 + i, &interval, sizeof(interval));
+#if DEBUG
 		LOG_DBG("Interval %u: %u cycles, %llu us", i, interval.cycles, k_ticks_to_us_floor64(interval.runtime));
+#endif
 		if (interval.cycles > 0)
 		{
 			uint64_t interval_runtime = interval.runtime / interval.cycles;
@@ -162,7 +166,9 @@ static void update_curve(void)
 	{
 		runtime += intervals[i] ? intervals[i] : average_runtime;
 		curve[i] = runtime * curve_size / curve_runtime + curve_start;
+#if DEBUG
 		LOG_DBG("Map %5.2f%% -> %5.2f%%, %llu us", (i + 1) * 5.0, (double)curve[i] / 100.0, k_ticks_to_us_floor64(intervals[i]));
+#endif
 	}
 	k_free(intervals);
 
@@ -312,7 +318,9 @@ uint64_t sys_get_battery_runtime_estimate(void)
 	{
 		struct battery_tracker_interval interval;
 		sys_read(BATT_STATS_INTERVAL_0 + i, &interval, sizeof(interval));
+#if DEBUG
 		LOG_DBG("Interval %u: %u cycles, %llu us", i, interval.cycles, k_ticks_to_us_floor64(interval.runtime));
+#endif
 		if (interval.cycles > 0)
 		{
 			runtime += interval.runtime / interval.cycles;
@@ -338,7 +346,9 @@ uint64_t sys_get_battery_runtime_min_estimate(void)
 	{
 		struct battery_tracker_interval interval;
 		sys_read(BATT_STATS_INTERVAL_0 + i, &interval, sizeof(interval));
+#if DEBUG
 		LOG_DBG("Interval %u min: %llu us", i, k_ticks_to_us_floor64(interval.runtime_min));
+#endif
 		if (interval.cycles > 0)
 		{
 			runtime += interval.runtime_min;
@@ -364,7 +374,9 @@ uint64_t sys_get_battery_runtime_max_estimate(void)
 	{
 		struct battery_tracker_interval interval;
 		sys_read(BATT_STATS_INTERVAL_0 + i, &interval, sizeof(interval));
+#if DEBUG
 		LOG_DBG("Interval %u max: %llu us", i, k_ticks_to_us_floor64(interval.runtime_max));
+#endif
 		if (interval.cycles > 0)
 		{
 			runtime += interval.runtime_max;
@@ -406,7 +418,9 @@ float sys_get_battery_cycles(void)
 	{
 		struct battery_tracker_interval interval;
 		sys_read(BATT_STATS_INTERVAL_0 + i, &interval, sizeof(interval));
+#if DEBUG
 		LOG_DBG("Interval %u: %u cycles, %llu us", i, interval.cycles, k_ticks_to_us_floor64(interval.runtime));
+#endif
 		cycles += interval.cycles;
 	}
 
