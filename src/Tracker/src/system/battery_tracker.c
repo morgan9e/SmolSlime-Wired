@@ -154,7 +154,7 @@ static void update_curve(void)
 	{
 		runtime += intervals[i] ? intervals[i] : average_runtime;
 		curve[i] = runtime * curve_size / curve_runtime + curve_start;
-		LOG_DBG("Map %5.2f%% -> %5.2f%%, %llu us", (i + 1) * 0.5, (double)curve[i] / 100.0, k_ticks_to_us_floor64(intervals[i]));
+		LOG_DBG("Map %5.2f%% -> %5.2f%%, %llu us", (i + 1) * 5.0, (double)curve[i] / 100.0, k_ticks_to_us_floor64(intervals[i]));
 	}
 	k_free(intervals);
 
