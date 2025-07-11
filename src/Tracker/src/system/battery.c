@@ -137,6 +137,11 @@ static int divider_setup(void)
 		accp->input_positive = 9; // SAADC_CH_PSELP_PSELP_VDD
 	}
 
+	if (iocp->channel == 12) { // VDDHDIV5
+		asp->oversampling = 2;
+		accp->acquisition_time = ADC_ACQ_TIME(ADC_ACQ_TIME_MICROSECONDS, 10);
+	}
+
 	asp->resolution = 14;
 #else /* CONFIG_ADC_var */
 #error Unsupported ADC
