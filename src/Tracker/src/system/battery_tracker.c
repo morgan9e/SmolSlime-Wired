@@ -211,7 +211,11 @@ void sys_update_battery_tracker_voltage(int mV, bool plugged)
 
 void sys_update_battery_tracker(int16_t pptt, bool plugged)
 {
-	if (!plugged)
+	if (plugged)
+	{
+		last_saved_pptt = -1; // reset saved pptt
+	}
+	else
 	{
 		last_unplugged_pptt = pptt;
 		last_unplugged_time = k_uptime_ticks();
