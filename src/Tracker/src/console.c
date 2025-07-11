@@ -137,7 +137,7 @@ static void usb_init_thread(void)
 #endif
 }
 
-static void print_info(void)
+static void print_board(void)
 {
 #if USB_EXISTS
 	printk(CONFIG_USB_DEVICE_MANUFACTURER " " CONFIG_USB_DEVICE_PRODUCT "\n");
@@ -147,8 +147,11 @@ static void print_info(void)
 	printk("\nBoard: " CONFIG_BOARD "\n");
 	printk("SOC: " CONFIG_SOC "\n");
 	printk("Target: " CONFIG_BOARD_TARGET "\n");
+}
 
-	printk("\nIMU: %s\n", (retained->imu_addr & 0x7F) != 0x7F ? sensor_get_sensor_imu_name() : "Not searching");
+static void print_sensor(void)
+{
+	printk("IMU: %s\n", (retained->imu_addr & 0x7F) != 0x7F ? sensor_get_sensor_imu_name() : "Not searching");
 	if (retained->imu_reg != 0xFF)
 		printk("Interface: %s\n", (retained->imu_reg & 0x80) ? "SPI" : "I2C");
 	printk("Address: 0x%02X%02X\n", retained->imu_addr, retained->imu_reg);
@@ -176,12 +179,18 @@ static void print_info(void)
 #endif
 
 	printk("\nFusion: %s\n", sensor_get_sensor_fusion_name());
+}
 
+static void print_connection(void)
+{
 	bool paired = retained->paired_addr[0];
-	printk(paired ? "\nTracker ID: %u\n" : "\nTracker ID: None\n", retained->paired_addr[1]);
+	printk(paired ? "Tracker ID: %u\n" : "\nTracker ID: None\n", retained->paired_addr[1]);
 	printk("Device address: %012llX\n", *(uint64_t *)NRF_FICR->DEVICEADDR & 0xFFFFFFFFFFFF);
 	printk(paired ? "Receiver address: %012llX\n" : "Receiver address: None\n", (*(uint64_t *)&retained->paired_addr[0] >> 16) & 0xFFFFFFFFFFFF);
+}
 
+static void print_battery(void)
+{
 	int battery_mV = sys_get_valid_battery_mV();
 	int16_t calibrated_pptt = sys_get_calibrated_battery_pptt(sys_get_valid_battery_pptt());
 	uint64_t unplugged_time = sys_get_last_unplugged_time();
@@ -194,17 +203,17 @@ static void print_info(void)
 		unplugged_time %= 3600000000;
 		uint8_t minutes = unplugged_time / 60000000;
 		if (hours > 0 || minutes > 0)
-			printk("\nBattery: %.0f%% (Read %uh %umin ago)\n", (double)calibrated_pptt / 100.0, hours, minutes);
+			printk("Battery: %.0f%% (Read %uh %umin ago)\n", (double)calibrated_pptt / 100.0, hours, minutes);
 		else
-			printk("\nBattery: %.0f%%\n", (double)calibrated_pptt / 100.0);
+			printk("Battery: %.0f%%\n", (double)calibrated_pptt / 100.0);
 	}
 	else if (unplugged_time == 0)
 	{
-		printk("\nBattery: Waiting for valid reading\n");
+		printk("Battery: Waiting for valid reading\n");
 	}
 	else
 	{
-		printk("\nBattery: None\n");
+		printk("Battery: None\n");
 	}
 	if (remaining > 0)
 	{
@@ -232,6 +241,17 @@ static void print_info(void)
 	}
 }
 
+static void print_info(void)
+{
+	print_board();
+	printk("\n");
+	print_sensor();
+	printk("\n");
+	print_connection();
+	printk("\n");
+	print_battery();
+}
+
 static void print_uptime(const uint64_t ticks, const char *name)
 {
 	uint64_t uptime = k_ticks_to_us_floor64(ticks);
@@ -248,7 +268,7 @@ static void print_uptime(const uint64_t ticks, const char *name)
 	printk("%s: %02u:%02u:%02u.%03u,%03u\n", name, hours, minutes, seconds, milliseconds, microseconds);
 }
 
-static void print_battery(void)
+static void print_battery_tracker(void)
 {
 	int adc_mV = sys_get_battery_mV();
 	printk("ADC: %d mV\n", adc_mV);
@@ -440,7 +460,7 @@ static void console_thread(void)
 		}
 		else if (memcmp(line, command_battery, sizeof(command_battery)) == 0)
 		{
-			print_battery();
+			print_battery_tracker();
 		}
 		else if (memcmp(line, command_scan, sizeof(command_scan)) == 0)
 		{
