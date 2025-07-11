@@ -195,6 +195,7 @@ static int last_mV = -1;
 static int last_unplugged_mV = -1;
 static int16_t last_unplugged_pptt = -1;
 static uint64_t last_unplugged_time = 0;
+static uint64_t last_unplugged_runtime = 0;
 
 static int16_t last_saved_pptt = -1;
 static uint64_t last_saved_time = 0;
@@ -219,6 +220,7 @@ void sys_update_battery_tracker(int16_t pptt, bool plugged)
 	{
 		last_unplugged_pptt = pptt;
 		last_unplugged_time = k_uptime_ticks();
+		last_unplugged_runtime = retained->battery_runtime_sum;
 		if (last_saved_pptt == -1)
 		{
 			last_saved_pptt = pptt;
@@ -259,7 +261,7 @@ void sys_update_battery_tracker(int16_t pptt, bool plugged)
 			update_statistics();
 			reset_tracker(pptt);
 		}
-		else if (last_saved_pptt != -1 && pptt < last_saved_pptt - 100 && k_uptime_ticks() - last_saved_time < CONFIG_SYS_CLOCK_TICKS_PER_SEC * 60) // rapid "discharge" (ex. after unplugging)
+		else if (last_saved_pptt != -1 && pptt < last_saved_pptt - 100 && k_uptime_ticks() - last_saved_time <= CONFIG_SYS_CLOCK_TICKS_PER_SEC * 60) // rapid "discharge" (ex. after unplugging)
 		{
 			uint64_t now = k_uptime_ticks();
 			uint64_t delta = k_ticks_to_us_floor64(now - last_saved_time);
@@ -279,14 +281,14 @@ void sys_update_battery_tracker(int16_t pptt, bool plugged)
 	retained_update();
 }
 
-static int16_t last_battery_pptt = -1;
+static int16_t last_pptt = -1;
 static int16_t last_calibrated_battery_pptt = -1;
 
 int16_t sys_get_calibrated_battery_pptt(int16_t pptt)
 {
-	if (pptt == last_battery_pptt)
+	if (pptt == last_pptt)
 		return last_calibrated_battery_pptt;
-	last_battery_pptt = pptt;
+	last_pptt = pptt;
 	last_calibrated_battery_pptt = apply_curve(pptt);
 	return last_calibrated_battery_pptt;
 }
@@ -399,6 +401,9 @@ uint64_t sys_get_battery_runtime_max_estimate(void)
 
 uint64_t sys_get_battery_remaining_time_estimate(void)
 {
+	if (last_unplugged_runtime <= CONFIG_SYS_CLOCK_TICKS_PER_SEC * 60) // pptt may not be valid yet
+		return 0; // no valid pptt
+
 	uint64_t runtime = sys_get_battery_runtime_estimate();
 	if (runtime == 0)
 		return 0; // no valid runtime
