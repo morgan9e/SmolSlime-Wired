@@ -68,11 +68,6 @@ static const struct gpio_dt_spec ldo_en = GPIO_DT_SPEC_GET(ZEPHYR_USER_NODE, ldo
 #else
 #pragma message "LDO enable GPIO does not exist"
 #endif
-#if DT_NODE_HAS_PROP(ZEPHYR_USER_NODE, vcc_gpios)
-static const struct gpio_dt_spec pwr = GPIO_DT_SPEC_GET(ZEPHYR_USER_NODE, vcc_gpios);
-#else
-#pragma message "VCC GPIO does not exist"
-#endif
 
 #define ADAFRUIT_BOOTLOADER CONFIG_BUILD_OUTPUT_UF2
 
