@@ -65,3 +65,5 @@
 		/delete-property/ led-gpios;
 	};
 };
+
+/delete-node/ &i2c0;
