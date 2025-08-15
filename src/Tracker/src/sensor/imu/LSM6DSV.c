@@ -426,6 +426,10 @@ uint8_t lsm_setup_WOM(void)
 
 int lsm_ext_setup(void)
 {
+	// enable internal pull-up for auxiliary I2C
+	int err = ssi_reg_write_byte(SENSOR_INTERFACE_DEV_IMU, LSM6DSV_IF_CFG, 0x58); // SHUB_PU_EN, INT H_LACTIVE active low, PP_OD open-drain
+	if (err)
+		LOG_ERR("Communication error");
 	sensor_interface_ext_configure(&sensor_ext_lsm6dsv);
 	return 0;
 }
