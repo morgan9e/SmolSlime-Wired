@@ -749,7 +749,7 @@ void sensor_loop(void)
 					float gx = raw_g[0];
 					float gy = raw_g[1];
 					float gz = raw_g[2];
-					float g[] = {SENSOR_GYROSCOPE_AXES_ALIGNMENT};
+					float g[] = {gx, gy, gz};
 
 					// Process fusion
 					sensor_fusion->update_gyro(g, gyro_actual_time);
@@ -779,7 +779,7 @@ void sensor_loop(void)
 					float ax = raw_a[0];
 					float ay = raw_a[1];
 					float az = raw_a[2];
-					float a[] = {SENSOR_ACCELEROMETER_AXES_ALIGNMENT};
+					float a[] = {ax, ay, az};
 
 					// Process fusion
 					sensor_fusion->update_accel(a, accel_actual_time);
