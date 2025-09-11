@@ -969,7 +969,7 @@ void sensor_loop(void)
 				sys_interface_suspend();
 			}
 
-			// Check if last status is outdated
+			// Check if last status is outdated TODO: move logic to connection
 			if (!send_info && (k_uptime_get() - last_info_time > 100))
 			{
 				send_info = true;
@@ -988,12 +988,12 @@ void sensor_loop(void)
 				q_multiply(q, q3, q_offset); // quaternion in device orientation, connection will change format from wxyz to xyzw
 				v_rotate(lin_a, q3, lin_a); // linear acceleration in local device frame, no other transformation will be done
 				connection_update_sensor_data(q_offset, lin_a);
-				if (send_info && !send_precise_quat) // prioritize quat precision
+				if (send_info && !send_precise_quat) // prioritize quat precision TODO: move logic to connection
 				{
 					connection_write_packet_2();
 					send_info = false;
 				}
-				else if (mag_available && mag_enabled && k_uptime_get() - last_mag_time > 200) // try to send mag data every 200ms
+				else if (mag_available && mag_enabled && k_uptime_get() - last_mag_time > 200) // try to send mag data every 200ms TODO: move logic to connection
 				{
 					connection_write_packet_4();
 					last_mag_time = k_uptime_get();
@@ -1005,12 +1005,7 @@ void sensor_loop(void)
 			}
 			else if (send_info)
 			{
-//				connection_write_packet_0();
 				send_info = false;
-			}
-			else
-			{
-//				connection_clocks_request_stop();
 			}
 
 			// Handle magnetometer calibration
