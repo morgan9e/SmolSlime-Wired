@@ -25,11 +25,13 @@
 #include "esb.h"
 #include "build_defines.h"
 
+#include <zephyr/kernel.h>
+
 static uint8_t tracker_id, batt, batt_v, sensor_temp, imu_id, mag_id, tracker_status;
 static uint8_t tracker_svr_status = SVR_STATUS_OK;
 static float sensor_q[4], sensor_a[3], sensor_m[3];
 
-static uint8_t data[16] = {0};
+static uint8_t data_buffer[16] = {0};
 static int64_t last_data_time = 0;
 
 LOG_MODULE_REGISTER(connection, LOG_LEVEL_INF);
@@ -153,6 +155,7 @@ void connection_write_packet_0() // device info
 	data[13] = FW_VERSION_MINOR & 255; // fw_minor
 	data[14] = FW_VERSION_PATCH & 255; // fw_patch
 	data[15] = 0; // rssi (supplied by receiver)
+	memcpy(data_buffer, data, sizeof(data));
 	last_data_time = k_uptime_get(); // TODO: use ticks
 //	esb_write(data); // TODO: schedule in thread
 }
@@ -170,6 +173,7 @@ void connection_write_packet_1() // full precision quat and accel
 	buf[4] = TO_FIXED_7(sensor_a[0]); // range is ±256m/s² or ±26.1g 
 	buf[5] = TO_FIXED_7(sensor_a[1]);
 	buf[6] = TO_FIXED_7(sensor_a[2]);
+	memcpy(data_buffer, data, sizeof(data));
 	last_data_time = k_uptime_get(); // TODO: use ticks
 //	esb_write(data); // TODO: schedule in thread
 }
@@ -203,6 +207,7 @@ void connection_write_packet_2() // reduced precision quat and accel with batter
 	buf[1] = TO_FIXED_7(sensor_a[1]);
 	buf[2] = TO_FIXED_7(sensor_a[2]);
 	data[15] = 0; // rssi (supplied by receiver)
+	memcpy(data_buffer, data, sizeof(data));
 	last_data_time = k_uptime_get(); // TODO: use ticks
 //	esb_write(data); // TODO: schedule in thread
 }
@@ -215,6 +220,7 @@ void connection_write_packet_3() // status
 	data[2] = tracker_svr_status;
 	data[3] = tracker_status;
 	data[15] = 0; // rssi (supplied by receiver)
+	memcpy(data_buffer, data, sizeof(data));
 	last_data_time = k_uptime_get(); // TODO: use ticks
 //	esb_write(data); // TODO: schedule in thread
 }
@@ -232,6 +238,7 @@ void connection_write_packet_4() // full precision quat and magnetometer
 	buf[4] = TO_FIXED_10(sensor_m[0]); // range is ±32G
 	buf[5] = TO_FIXED_10(sensor_m[1]);
 	buf[6] = TO_FIXED_10(sensor_m[2]);
+	memcpy(data_buffer, data, sizeof(data));
 	last_data_time = k_uptime_get(); // TODO: use ticks
 //	esb_write(data); // TODO: schedule in thread
 }
@@ -249,8 +256,8 @@ void connection_write_packet_4() // full precision quat and magnetometer
 // TODO: queuing, status is lowest priority, info low priority, existing data highest priority (from sensor loop)
 // TODO: handle connection_clocks_request_stop
 
-static int64_t last_info_time;
-static int64_t last_status_time;
+static int64_t last_info_time = 0;
+static int64_t last_status_time = 0;
 
 void connection_thread(void)
 {
@@ -260,19 +267,19 @@ void connection_thread(void)
 		if (last_data_time != 0) // have valid data
 		{
 			last_data_time = 0;
-			esb_write(data);
+			esb_write(data_buffer);
 		}
 		else if (k_uptime_get() - last_info_time > 100)
 		{
 			last_info_time = k_uptime_get();
 			connection_write_packet_0();
-			esb_write(data);
+			continue;
 		}
 		else if (k_uptime_get() - last_status_time > 1000)
 		{
 			last_status_time = k_uptime_get();
 			connection_write_packet_3();
-			esb_write(data);
+			continue;
 		}
 		else
 		{
