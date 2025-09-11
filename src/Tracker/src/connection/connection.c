@@ -75,15 +75,21 @@ void connection_update_sensor_ids(int imu, int mag)
 	mag_id = get_server_constant_mag_id(mag);
 }
 
+static int64_t last_quat_time = 0;
+
 void connection_update_sensor_data(float *q, float *a)
 {
 	memcpy(sensor_q, q, sizeof(sensor_q));
 	memcpy(sensor_a, a, sizeof(sensor_a));
+	last_quat_time = k_uptime_get();
 }
+
+static int64_t last_mag_time = 0;
 
 void connection_update_sensor_mag(float *m)
 {
 	memcpy(sensor_m, m, sizeof(sensor_m));
+	last_mag_time = k_uptime_get();
 }
 
 void connection_update_sensor_temp(float temp)
