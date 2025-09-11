@@ -29,7 +29,13 @@ static uint8_t tracker_id, batt, batt_v, sensor_temp, imu_id, mag_id, tracker_st
 static uint8_t tracker_svr_status = SVR_STATUS_OK;
 static float sensor_q[4], sensor_a[3], sensor_m[3];
 
+static uint8_t data[16] = {0};
+static int64_t last_data_time = 0;
+
 LOG_MODULE_REGISTER(connection, LOG_LEVEL_INF);
+
+static void connection_thread(void);
+K_THREAD_DEFINE(connection_thread_id, 512, connection_thread, NULL, NULL, NULL, 8, 0, 0);
 
 void connection_clocks_request_start(void)
 {
@@ -147,7 +153,8 @@ void connection_write_packet_0() // device info
 	data[13] = FW_VERSION_MINOR & 255; // fw_minor
 	data[14] = FW_VERSION_PATCH & 255; // fw_patch
 	data[15] = 0; // rssi (supplied by receiver)
-	esb_write(data);
+	last_data_time = k_uptime_get(); // TODO: use ticks
+//	esb_write(data); // TODO: schedule in thread
 }
 
 void connection_write_packet_1() // full precision quat and accel
@@ -163,7 +170,8 @@ void connection_write_packet_1() // full precision quat and accel
 	buf[4] = TO_FIXED_7(sensor_a[0]); // range is ±256m/s² or ±26.1g 
 	buf[5] = TO_FIXED_7(sensor_a[1]);
 	buf[6] = TO_FIXED_7(sensor_a[2]);
-	esb_write(data);
+	last_data_time = k_uptime_get(); // TODO: use ticks
+//	esb_write(data); // TODO: schedule in thread
 }
 
 void connection_write_packet_2() // reduced precision quat and accel with battery, temp, and rssi
@@ -195,7 +203,8 @@ void connection_write_packet_2() // reduced precision quat and accel with batter
 	buf[1] = TO_FIXED_7(sensor_a[1]);
 	buf[2] = TO_FIXED_7(sensor_a[2]);
 	data[15] = 0; // rssi (supplied by receiver)
-	esb_write(data);
+	last_data_time = k_uptime_get(); // TODO: use ticks
+//	esb_write(data); // TODO: schedule in thread
 }
 
 void connection_write_packet_3() // status
@@ -206,7 +215,8 @@ void connection_write_packet_3() // status
 	data[2] = tracker_svr_status;
 	data[3] = tracker_status;
 	data[15] = 0; // rssi (supplied by receiver)
-	esb_write(data);
+	last_data_time = k_uptime_get(); // TODO: use ticks
+//	esb_write(data); // TODO: schedule in thread
 }
 
 void connection_write_packet_4() // full precision quat and magnetometer
@@ -222,5 +232,52 @@ void connection_write_packet_4() // full precision quat and magnetometer
 	buf[4] = TO_FIXED_10(sensor_m[0]); // range is ±32G
 	buf[5] = TO_FIXED_10(sensor_m[1]);
 	buf[6] = TO_FIXED_10(sensor_m[2]);
-	esb_write(data);
+	last_data_time = k_uptime_get(); // TODO: use ticks
+//	esb_write(data); // TODO: schedule in thread
+}
+
+// TODO: get radio channel from receiver
+// TODO: new packet format
+
+// TODO: get timing from IMU to get actual delay in tracking
+// TODO: aware of sensor state? error status, timing/phase, maybe "send_precise_quat"
+// TODO: move send_info from sensor_loop to here
+
+// TODO: try to send info every 100ms
+// TODO: try to send status every 1000ms 
+
+// TODO: queuing, status is lowest priority, info low priority, existing data highest priority (from sensor loop)
+// TODO: handle connection_clocks_request_stop
+
+static int64_t last_info_time;
+static int64_t last_status_time;
+
+void connection_thread(void)
+{
+	// TODO: checking for connection_update and connection_write events from sensor_loop, here we will time and send them out
+	while (1)
+	{
+		if (last_data_time != 0) // have valid data
+		{
+			last_data_time = 0;
+			esb_write(data);
+		}
+		else if (k_uptime_get() - last_info_time > 100)
+		{
+			last_info_time = k_uptime_get();
+			connection_write_packet_0();
+			esb_write(data);
+		}
+		else if (k_uptime_get() - last_status_time > 1000)
+		{
+			last_status_time = k_uptime_get();
+			connection_write_packet_3();
+			esb_write(data);
+		}
+		else
+		{
+			connection_clocks_request_stop();
+		}
+		k_msleep(1); // TODO: should be getting timing from receiver, for now just send asap
+	}
 }

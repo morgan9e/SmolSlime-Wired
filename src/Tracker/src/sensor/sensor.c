@@ -935,6 +935,7 @@ void sensor_loop(void)
 			// Update magnetometer mode
 			if (mag_available && mag_enabled)
 			{
+				// TODO: magnetometer might be better to limit to a lower rate
 				float gyro_speed = sqrtf(max_gyro_speed_square);
 				float mag_target_time = 1.0f / (4 * gyro_speed); // target mag ODR for ~0.25 deg error
 				if (mag_target_time < 0.005f && mag_skip_oneshot) // only use continuous modes if oneshot is not available
@@ -1004,12 +1005,12 @@ void sensor_loop(void)
 			}
 			else if (send_info)
 			{
-				connection_write_packet_0();
+//				connection_write_packet_0();
 				send_info = false;
 			}
 			else
 			{
-				connection_clocks_request_stop();
+//				connection_clocks_request_stop();
 			}
 
 			// Handle magnetometer calibration
@@ -1037,6 +1038,7 @@ void sensor_loop(void)
 #endif
 		}
 
+		// TODO: sensor loop timing should depend on sensor interrupt/dataready
 //		led_clock_offset += time_delta;
 		if (time_delta > sensor_update_time_ms)
 			k_yield();
