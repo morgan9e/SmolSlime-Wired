@@ -875,7 +875,7 @@ void sensor_loop(void)
 					lin_a[i] = (a[i] - vec_gravity[i]) * CONST_EARTH_GRAVITY; // vector to m/s^2
 			}
 
-			// Check the IMU gyroscope // TODO: gyro sanity not used
+			// Check the IMU gyroscope // TODO: gyro sanity not used // TODO: timeouts and power management should be outside sensor! (ie. sleeping/shutdown even if the imu completely errored out)
 			bool calibrating = get_status(SYS_STATUS_CALIBRATION_RUNNING);
 			bool resting = sensor_fusion->get_gyro_sanity() == 0 ? q_epsilon(q, last_q, 0.005) : q_epsilon(q, last_q, 0.05); // TODO: Probably okay to use the constantly updating last_q?
 			if (!calibrating && resting)
