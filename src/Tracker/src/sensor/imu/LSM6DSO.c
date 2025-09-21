@@ -441,8 +441,8 @@ const sensor_imu_t sensor_imu_lsm6dso = {
 	*lsm6dso_setup_DRDY,
 	*lsm6dso_setup_WOM,
 	
-	*lsm6dso_ext_passthrough,
-	*lsm_ext_passthrough
+	*lsm6dso_ext_setup,
+	*lsm6dso_ext_passthrough
 };
 
 const sensor_ext_ssi_t sensor_ext_lsm6dso = {
