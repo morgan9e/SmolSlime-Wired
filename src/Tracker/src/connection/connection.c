@@ -24,6 +24,7 @@
 #include "util.h"
 #include "esb.h"
 #include "build_defines.h"
+#include "hid.h"
 
 #include <zephyr/kernel.h>
 
@@ -164,6 +165,7 @@ void connection_write_packet_0() // device info
 	memcpy(data_buffer, data, sizeof(data));
 	last_data_time = k_uptime_get(); // TODO: use ticks
 //	esb_write(data); // TODO: schedule in thread
+	hid_write_packet_n(data); // TODO:
 }
 
 void connection_write_packet_1() // full precision quat and accel
@@ -182,6 +184,7 @@ void connection_write_packet_1() // full precision quat and accel
 	memcpy(data_buffer, data, sizeof(data));
 	last_data_time = k_uptime_get(); // TODO: use ticks
 //	esb_write(data); // TODO: schedule in thread
+	hid_write_packet_n(data); // TODO:
 }
 
 void connection_write_packet_2() // reduced precision quat and accel with battery, temp, and rssi
@@ -216,6 +219,7 @@ void connection_write_packet_2() // reduced precision quat and accel with batter
 	memcpy(data_buffer, data, sizeof(data));
 	last_data_time = k_uptime_get(); // TODO: use ticks
 //	esb_write(data); // TODO: schedule in thread
+	hid_write_packet_n(data); // TODO:
 }
 
 void connection_write_packet_3() // status
@@ -229,6 +233,7 @@ void connection_write_packet_3() // status
 	memcpy(data_buffer, data, sizeof(data));
 	last_data_time = k_uptime_get(); // TODO: use ticks
 //	esb_write(data); // TODO: schedule in thread
+	hid_write_packet_n(data); // TODO:
 }
 
 void connection_write_packet_4() // full precision quat and magnetometer
@@ -247,6 +252,7 @@ void connection_write_packet_4() // full precision quat and magnetometer
 	memcpy(data_buffer, data, sizeof(data));
 	last_data_time = k_uptime_get(); // TODO: use ticks
 //	esb_write(data); // TODO: schedule in thread
+	hid_write_packet_n(data); // TODO:
 }
 
 // TODO: get radio channel from receiver
