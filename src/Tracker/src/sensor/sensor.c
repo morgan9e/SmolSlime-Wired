@@ -969,7 +969,7 @@ void sensor_loop(void)
 				sys_interface_suspend();
 			}
 
-			// Check if last status is outdated TODO: move logic to connection
+			// Check if last status is outdated // TODO: move logic to connection // TODO: make consolidated function at connection
 			if (!send_info && (k_uptime_get() - last_info_time > 100))
 			{
 				send_info = true;
@@ -990,17 +990,17 @@ void sensor_loop(void)
 				connection_update_sensor_data(q_offset, lin_a);
 				if (send_info && !send_precise_quat) // prioritize quat precision TODO: move logic to connection
 				{
-					connection_write_packet_2();
+					connection_write_packet_2(); // TODO: make consolidated function at connection
 					send_info = false;
 				}
 				else if (mag_available && mag_enabled && k_uptime_get() - last_mag_time > 200) // try to send mag data every 200ms TODO: move logic to connection
 				{
-					connection_write_packet_4();
+					connection_write_packet_4(); // TODO: make consolidated function at connection
 					last_mag_time = k_uptime_get();
 				}
 				else
 				{
-					connection_write_packet_1();
+					connection_write_packet_1(); // TODO: make consolidated function at connection
 				}
 			}
 			else if (send_info)

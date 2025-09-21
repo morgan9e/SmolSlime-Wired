@@ -262,6 +262,8 @@ void connection_write_packet_4() // full precision quat and magnetometer
 // TODO: queuing, status is lowest priority, info low priority, existing data highest priority (from sensor loop)
 // TODO: handle connection_clocks_request_stop
 
+// TODO: queue packets directly for HID, or maintain separate loop while connected by USB
+
 static int64_t last_info_time = 0;
 static int64_t last_status_time = 0;
 
