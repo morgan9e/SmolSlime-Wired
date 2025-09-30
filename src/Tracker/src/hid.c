@@ -227,7 +227,7 @@ SYS_INIT(composite_pre_init, APPLICATION, CONFIG_KERNEL_INIT_PRIORITY_DEVICE);
 
 void hid_write_packet_n(uint8_t *data)
 {
-#if USB_EXISTS
+#if USB_EXISTS && CONFIG_CONNECTION_OVER_HID
 	memcpy(&report.data, data, 16); // all data can be passed through
 	if (data[0] != 1 && data[0] != 4) // packet 1 and 4 are full precision quat and accel/mag, no room for rssi
 		report.data[15] = 0; // rssi is always -0dBm for hid from tracker

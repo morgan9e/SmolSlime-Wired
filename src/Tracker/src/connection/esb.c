@@ -449,14 +449,22 @@ static void esb_thread(void)
 
 	while (1)
 	{
+#if CONFIG_CONNECTION_OVER_HID
 		if (!esb_paired && get_status(SYS_STATUS_USB_CONNECTED) == false && k_uptime_get() - 750 > start_time) // only automatically enter pairing while not potentially communicating by usb
+#else
+		if (!esb_paired)
+#endif
 		{
 			esb_pair();
 			esb_initialize(true);
 		}
 		if (tx_errors >= TX_ERROR_THRESHOLD)
 		{
+#if CONFIG_CONNECTION_OVER_HID
 			if (get_status(SYS_STATUS_CONNECTION_ERROR) == false && get_status(SYS_STATUS_USB_CONNECTED) == false) // only raise error while not potentially communicating by usb
+#else
+			if (get_status(SYS_STATUS_CONNECTION_ERROR) == false)
+#endif
 				set_status(SYS_STATUS_CONNECTION_ERROR, true);
 #if USER_SHUTDOWN_ENABLED
 			if (k_uptime_get() - last_tx_success > CONFIG_CONNECTION_TIMEOUT_DELAY) // shutdown if receiver is not detected // TODO: is shutdown necessary if usb is connected at the time?
