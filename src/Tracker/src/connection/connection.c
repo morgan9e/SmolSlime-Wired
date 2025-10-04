@@ -80,21 +80,27 @@ void connection_update_sensor_ids(int imu, int mag)
 	mag_id = get_server_constant_mag_id(mag);
 }
 
+static int64_t quat_update_time = 0;
 static int64_t last_quat_time = 0;
+static bool send_precise_quat;
 
-void connection_update_sensor_data(float *q, float *a)
+void connection_update_sensor_data(float *q, float *a, int64_t data_time)
 {
+	// data_time is in system ticks, nonzero means valid measurement
+	// TODO: use data_time to measure latency! the latency should be calculated up to before radio sent data
+	bool send_precise_quat = q_epsilon(q, sensor_q, 0.005);
 	memcpy(sensor_q, q, sizeof(sensor_q));
 	memcpy(sensor_a, a, sizeof(sensor_a));
-	last_quat_time = k_uptime_get();
+	quat_update_time = k_uptime_get();
 }
 
+static int64_t mag_update_time = 0;
 static int64_t last_mag_time = 0;
 
 void connection_update_sensor_mag(float *m)
 {
 	memcpy(sensor_m, m, sizeof(sensor_m));
-	last_mag_time = k_uptime_get();
+	mag_update_time = k_uptime_get();
 }
 
 void connection_update_sensor_temp(float temp)
@@ -272,15 +278,10 @@ void connection_write_packet_4() // full precision quat and magnetometer
 // TODO: get radio channel from receiver
 // TODO: new packet format
 
-// TODO: get timing from IMU to get actual delay in tracking
+// TODO: use timing from IMU to get actual delay in tracking
 // TODO: aware of sensor state? error status, timing/phase, maybe "send_precise_quat"
-// TODO: move send_info from sensor_loop to here
-
-// TODO: try to send info every 100ms
-// TODO: try to send status every 1000ms 
 
 // TODO: queuing, status is lowest priority, info low priority, existing data highest priority (from sensor loop)
-// TODO: handle connection_clocks_request_stop
 
 // TODO: queue packets directly for HID, or maintain separate loop while connected by USB
 
@@ -290,7 +291,7 @@ static int64_t last_status_time = 0;
 void connection_thread(void)
 {
 	uint8_t data_copy[21];
-	// TODO: checking for connection_update and connection_write events from sensor_loop, here we will time and send them out
+	// TODO: checking for connection_update events from sensor_loop, here we will time and send them out
 	while (1)
 	{
 		if (last_data_time != 0) // have valid data
@@ -303,6 +304,31 @@ void connection_thread(void)
 			uint32_t *crc_ptr = (uint32_t *)&data_copy[16];
 			*crc_ptr = crc32_k_4_2_update(0x93a409eb, data_copy, 16);
 			esb_write(data_copy);
+		}
+		// mag is higher priority (skip accel, quat is full precision)
+		else if (mag_update_time && k_uptime_get() - last_mag_time > 200)
+		{
+			mag_update_time = 0; // data has been sent
+			last_mag_time = k_uptime_get();
+			connection_write_packet_4();
+			continue;
+		}
+		// if time for info and precise quat not needed
+		else if (quat_update_time && !send_precise_quat && k_uptime_get() - last_info_time > 100)
+		{
+			quat_update_time = 0;
+			last_quat_time = k_uptime_get();
+			last_info_time = k_uptime_get();
+			connection_write_packet_2();
+			continue;
+		}
+		// send quat otherwise
+		else if (quat_update_time)
+		{
+			quat_update_time = 0;
+			last_quat_time = k_uptime_get();
+			connection_write_packet_1();
+			continue;
 		}
 		else if (k_uptime_get() - last_info_time > 100)
 		{
