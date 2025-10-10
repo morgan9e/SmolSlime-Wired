@@ -664,7 +664,6 @@ enum sensor_sensor_timeout {
 static enum sensor_sensor_timeout sensor_timeout = SENSOR_SENSOR_TIMEOUT_IMU;
 
 static bool main_ok = false;
-static bool send_info = false;
 
 static int packet_errors = 0;
 
