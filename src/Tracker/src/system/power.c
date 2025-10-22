@@ -71,6 +71,12 @@ static const struct gpio_dt_spec ldo_en = GPIO_DT_SPEC_GET(ZEPHYR_USER_NODE, ldo
 
 #define ADAFRUIT_BOOTLOADER CONFIG_BUILD_OUTPUT_UF2
 
+void sys_disconnect_interface_pins(void)
+{
+	// interface pins are disconnected according to devicetree
+	// so only need to disconnect any cs pins, and int pins
+}
+
 void sys_interface_suspend(void)
 {
 #if DT_NODE_HAS_STATUS_OKAY(DT_PARENT(DT_NODELABEL(imu_spi)))
@@ -237,6 +243,11 @@ void sys_request_system_off(void) // TODO: add timeout
 //	sensor_retained_write();
 	set_regulator(SYS_REGULATOR_LDO); // Switch to LDO
 	// Set system off
+	// Disconnect interrupt
+	uint32_t int0_gpios = NRF_DT_GPIOS_TO_PSEL(ZEPHYR_USER_NODE, int0_gpios);
+	LOG_INF("Wake up GPIO pin: %u", int0_gpios);
+	nrf_gpio_cfg(int0_gpios, NRF_GPIO_PIN_DIR_INPUT, NRF_GPIO_PIN_INPUT_DISCONNECT, NRF_GPIO_PIN_NOPULL, NRF_GPIO_PIN_D0S1, NRF_GPIO_PIN_NOSENSE);
+	LOG_INF("Disconnected IMU wake up GPIO");
 	LOG_INF("Powering off nRF");
 	sys_update_battery_tracker(current_battery_pptt, device_plugged);
 //	retained_update();
