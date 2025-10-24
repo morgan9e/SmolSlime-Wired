@@ -40,7 +40,7 @@ static uint8_t packet_sequence = 0;
 LOG_MODULE_REGISTER(connection, LOG_LEVEL_INF);
 
 static void connection_thread(void);
-K_THREAD_DEFINE(connection_thread_id, 512, connection_thread, NULL, NULL, NULL, 8, 0, 0);
+K_THREAD_DEFINE(connection_thread_id, 512, connection_thread, NULL, NULL, NULL, CONNECTION_THREAD_PRIORITY, K_FP_REGS, 0);
 
 K_MUTEX_DEFINE(data_buffer_mutex);
 

@@ -26,6 +26,7 @@
 #include <zephyr/logging/log.h>
 
 #include "retained.h"
+#include "thread_priority.h"
 
 #define USER_SHUTDOWN_ENABLED CONFIG_USER_SHUTDOWN // Allow user to use reset or sw0 to shutdown
 #define MAG_ENABLED CONFIG_SENSOR_USE_MAG // Use magnetometer if it is present

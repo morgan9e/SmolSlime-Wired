@@ -70,7 +70,7 @@ static const uint8_t hid_report_desc[] = {
 
 void hid_thread_create(void)
 {
-	k_thread_create(&hid_thread_id, hid_thread_id_stack, K_THREAD_STACK_SIZEOF(hid_thread_id_stack), (k_thread_entry_t)hid_thread, NULL, NULL, NULL, 6, 0, K_NO_WAIT);
+	k_thread_create(&hid_thread_id, hid_thread_id_stack, K_THREAD_STACK_SIZEOF(hid_thread_id_stack), (k_thread_entry_t)hid_thread, NULL, NULL, NULL, HID_THREAD_PRIORITY, 0, K_NO_WAIT);
 }
 
 void hid_thread_abort(void)
