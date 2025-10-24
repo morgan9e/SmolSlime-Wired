@@ -63,6 +63,8 @@ bool v_epsilon(const float *a, const float *b, float eps);
 // TODO: does this need to be moved?
 void apply_BAinv(float xyz[3], float BAinv[4][3]);
 
+void a_to_lin_a(const float *q, const float *a, float *lin_a);
+
 void q_fem(const float *q, float *out);
 void q_iem(const float *v, float *out);
 
