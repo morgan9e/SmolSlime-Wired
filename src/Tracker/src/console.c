@@ -21,6 +21,7 @@
 #endif
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/sys/reboot.h>
+#include <zephyr/sys/base64.h>
 
 #include <ctype.h>
 #include <stdlib.h>
@@ -396,23 +397,37 @@ static void console_thread(void)
 	uint8_t command_reset_arg_bat[] = "bat";
 	uint8_t command_reset_arg_all[] = "all";
 
+	// settings
+	uint8_t command_write[] = "write";
+	uint8_t command_read[] = "read";
+	uint8_t command_wr_arg_byte[] = "byte";
+	uint8_t command_wr_arg_word[] = "word";
+	uint8_t command_wr_arg_all[] = "all";
+
 	while (1) {
 #if USB_EXISTS
 		uint8_t *line = console_getline();
 #else
 		uint8_t *line = rtt_console_getline();
 #endif
-		uint8_t *arg = NULL;
+		// TODO: currently allow up to 4 args
+		uint8_t *arg[4] = {NULL};
+		uint8_t args = 0;
 		for (uint8_t *p = line; *p; ++p)
 		{
-			*p = tolower(*p);
-			if (*p == ' ' && !arg)
+			if (args < 2) // only care that the first words are matchable
+				*p = tolower(*p);
+			if (*p == ' ' && args < 4)
 			{
 				*p = 0;
 				p++;
-				*p = tolower(*p);
+				if (args < 1)
+					*p = tolower(*p);
 				if (*p)
-					arg = p;
+				{
+					arg[args] = p;
+					args++;
+				}
 			}
 		}
 
@@ -456,10 +471,15 @@ static void console_thread(void)
 #endif
 		else if (memcmp(line, command_set, sizeof(command_set)) == 0) 
 		{
-			uint64_t addr = strtoull(arg, NULL, 16);
+			if (args != 1)
+			{
+				printk("Invalid number of arguments\n");
+				continue;
+			}
+			uint64_t addr = strtoull(arg[0], NULL, 16);
 			uint8_t buf[17];
 			snprintk(buf, 17, "%016llx", addr);
-			if (addr != 0 && memcmp(buf, arg, 17) == 0)
+			if (addr != 0 && memcmp(buf, arg[0], 17) == 0)
 				esb_set_pair(addr);
 			else
 				printk("Invalid address\n");
@@ -490,33 +510,180 @@ static void console_thread(void)
 		}
 		else if (memcmp(line, command_reset, sizeof(command_reset)) == 0)
 		{
-			if (arg && memcmp(arg, command_reset_arg_zro, sizeof(command_reset_arg_zro)) == 0)
+			if (args != 1)
+			{
+				printk("Invalid number of arguments\n");
+			}
+			else if (memcmp(arg[0], command_reset_arg_zro, sizeof(command_reset_arg_zro)) == 0)
 			{
 				sensor_calibration_clear(NULL, NULL, true);
 			}
 #if CONFIG_SENSOR_USE_6_SIDE_CALIBRATION
-			else if (arg && memcmp(arg, command_reset_arg_acc, sizeof(command_reset_arg_acc)) == 0)
+			else if (memcmp(arg[0], command_reset_arg_acc, sizeof(command_reset_arg_acc)) == 0)
 			{
 				sensor_calibration_clear_6_side(NULL, true);
 			}
 #endif
 #if SENSOR_MAG_EXISTS
-			else if (arg && memcmp(arg, command_reset_arg_mag, sizeof(command_reset_arg_mag)) == 0)
+			else if (memcmp(arg[0], command_reset_arg_mag, sizeof(command_reset_arg_mag)) == 0)
 			{
 				sensor_calibration_clear_mag(NULL, true);
 			}
 #endif
-			else if (arg && memcmp(arg, command_reset_arg_bat, sizeof(command_reset_arg_bat)) == 0)
+			else if (memcmp(arg[0], command_reset_arg_bat, sizeof(command_reset_arg_bat)) == 0)
 			{
 				sys_reset_battery_tracker();
 			}
-			else if (arg && memcmp(arg, command_reset_arg_all, sizeof(command_reset_arg_all)) == 0)
+			else if (memcmp(arg[0], command_reset_arg_all, sizeof(command_reset_arg_all)) == 0)
 			{
 				sys_clear();
 			}
 			else
 			{
 				printk("Invalid argument\n");
+			}
+		}
+		else if (memcmp(line, command_write, sizeof(command_write)) == 0) 
+		{
+			if (args == 0)
+			{
+				printk("Invalid number of arguments\n");
+			}
+			else if (memcmp(arg[0], command_wr_arg_all, sizeof(command_wr_arg_all)) == 0)
+			{
+				if (args != 2)
+				{
+					printk("Invalid number of arguments\n");
+				}
+				else
+				{
+					uint8_t *tmp = k_malloc(128);
+					uint16_t len = 0;
+					int err = base64_decode(tmp, 128, (size_t *)&len, arg[1], 172);
+					printk("decode: %d, len %d\n", err, len);
+					memcpy(retained->settings, tmp, sizeof(retained->settings));
+					sys_write(SETTINGS_ID, NULL, retained->settings, sizeof(retained->settings));
+					k_free(tmp);
+				}
+			}
+			else if (args != 3)
+			{
+				printk("Invalid number of arguments\n");
+			}
+			else
+			{
+				uint64_t addr = strtoull(arg[1], NULL, 16);
+				uint64_t val = strtoull(arg[2], NULL, 10);
+				if (memcmp(arg[0], command_wr_arg_byte, sizeof(command_wr_arg_byte)) == 0)
+				{
+					if (addr < 128)
+					{
+						if (val < (1 << 8))
+						{
+							printk("write byte: %lld to %lld\n", val, addr);
+							memcpy(retained->settings + addr, &val, 1);
+							sys_write(SETTINGS_ID, NULL, retained->settings, sizeof(retained->settings));
+						}
+						else
+						{
+							printk("Invalid value\n");
+						}
+					}
+					else
+					{
+						printk("Invalid address\n");
+					}
+				}
+				else if (memcmp(arg[0], command_wr_arg_word, sizeof(command_wr_arg_word)) == 0)
+				{
+					if (addr < 127)
+					{
+						if (val < (1 << 16))
+						{
+							printk("write word: %lld to %lld\n", val, addr);
+							memcpy(retained->settings + addr, &val, 2);
+							sys_write(SETTINGS_ID, NULL, retained->settings, sizeof(retained->settings));
+						}
+						else
+						{
+							printk("Invalid value\n");
+						}
+					}
+					else
+					{
+						printk("Invalid address\n");
+					}
+				}
+			}
+		}
+		else if (memcmp(line, command_read, sizeof(command_read)) == 0) 
+		{
+			if (args == 0)
+			{
+				printk("Invalid number of arguments\n");
+			}
+			else if (memcmp(arg[0], command_wr_arg_all, sizeof(command_wr_arg_all)) == 0)
+			{
+				if (args != 1)
+				{
+					printk("Invalid number of arguments\n");
+				}
+				else
+				{
+					uint8_t *tmp = k_malloc(173);
+					uint16_t len = 0;
+					int err = base64_encode(tmp, 173, (size_t *)&len, retained->settings, 128);
+					printk("encode: %d, len %d\n", err, len);
+					printk("%s\n", tmp);
+					k_free(tmp);
+				}
+			}
+			else if (args != 2)
+			{
+				printk("Invalid number of arguments\n");
+			}
+			else
+			{
+				uint64_t addr = strtoull(arg[1], NULL, 16);
+				uint64_t val = 0;
+				if (memcmp(arg[0], command_wr_arg_byte, sizeof(command_wr_arg_byte)) == 0)
+				{
+					if (addr < 128)
+					{
+						if (val < (1 << 8))
+						{
+							memcpy(&val, retained->settings + addr, 1);
+							printk("read byte: %lld from %lld\n", val, addr);
+						}
+						else
+						{
+							printk("Invalid value\n");
+						}
+					}
+					else
+					{
+						printk("Invalid address\n");
+					}
+				}
+				else if (memcmp(arg[0], command_wr_arg_word, sizeof(command_wr_arg_word)) == 0)
+				{
+					if (addr < 127)
+					{
+						if (val < (1 << 16))
+						{
+							memcpy(&val, retained->settings + addr, 2);
+							printk("read word: %lld from %lld\n", val, addr);
+						}
+						else
+						{
+							printk("Invalid value\n");
+						}
+					}
+					else
+					{
+						printk("Invalid address\n");
+					}
+				}
 			}
 		}
 		else

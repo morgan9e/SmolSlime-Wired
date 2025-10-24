@@ -17,6 +17,8 @@
 #define BATT_STATS_INTERVAL_0 9 // ID 9 to 28
 #define BATT_STATS_CURVE_ID 29
 
+#define SETTINGS_ID 30
+
 void configure_sense_pins(void);
 
 uint8_t reboot_counter_read(void);
