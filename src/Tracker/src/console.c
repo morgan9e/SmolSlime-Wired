@@ -25,7 +25,6 @@
 #include <zephyr/sys/base64.h>
 
 #include <ctype.h>
-//#include <stdlib.h>
 
 LOG_MODULE_REGISTER(console, LOG_LEVEL_INF);
 
