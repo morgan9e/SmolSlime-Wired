@@ -219,7 +219,7 @@ base_addr_p1: Base address for pipe 1-7, in big endian.
 pipe_prefixes: Address prefix for pipe 0 to 7.
 */
 static const uint8_t discovery_base_addr_0[4] = {0x62, 0x39, 0x8A, 0xF2};
-static const uint8_t discovery_base_addr_1[4] = {0x28, 0xFF, 0x50, 0xB8};
+static const uint8_t discovery_base_addr_1[4] = {0x28, 0xFF, 0x50, 0xB8}; // TODO: not used
 static const uint8_t discovery_addr_prefix[8] = {0xFE, 0xFF, 0x29, 0x27, 0x09, 0x02, 0xB2, 0xD6};
 
 static uint8_t base_addr_0[4], base_addr_1[4], addr_prefix[8] = {0};
@@ -317,9 +317,11 @@ inline void esb_set_addr_paired(void)
 		if (addr_buffer[i] == 0x00 || addr_buffer[i] == 0x55 || addr_buffer[i] == 0xAA) // Avoid invalid addresses (see nrf datasheet)
 			addr_buffer[i] += 8;
 	}
-	memcpy(base_addr_0, addr_buffer, sizeof(base_addr_0));
+//	memcpy(base_addr_0, addr_buffer, sizeof(base_addr_0));
 	memcpy(base_addr_1, addr_buffer + 4, sizeof(base_addr_1));
-	memcpy(addr_prefix, addr_buffer + 8, sizeof(addr_prefix));
+//	memcpy(addr_prefix, addr_buffer + 8, sizeof(addr_prefix));
+	memcpy(base_addr_0, discovery_base_addr_0, sizeof(base_addr_0));
+	memcpy(addr_prefix, discovery_addr_prefix, sizeof(addr_prefix));
 }
 
 void esb_set_pair(uint64_t addr)
@@ -352,6 +354,7 @@ void esb_pair(void)
 		esb_set_addr_discovery();
 		esb_initialize(true);
 //		timer_init(); // TODO: shouldn't be here!!!
+		tx_payload_pair.pipe = 0;
 		tx_payload_pair.noack = false;
 		uint64_t *addr = (uint64_t *)NRF_FICR->DEVICEADDR; // Use device address as unique identifier (although it is not actually guaranteed, see datasheet)
 		memcpy(&tx_payload_pair.data[2], addr, 6);
@@ -431,6 +434,7 @@ void esb_write(uint8_t *data)
 		return;
 	if (!clock_status)
 		clocks_start(); 
+	tx_payload.pipe = 1; // using base address 1
 #if defined(NRF54L15_XXAA) // TODO: esb halts with ack and tx fail
 	tx_payload.noack = true;
 #else
