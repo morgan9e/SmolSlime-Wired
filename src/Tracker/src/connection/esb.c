@@ -61,12 +61,17 @@ LOG_MODULE_REGISTER(esb_event, LOG_LEVEL_INF);
 static void esb_thread(void);
 K_THREAD_DEFINE(esb_thread_id, 512, esb_thread, NULL, NULL, NULL, ESB_THREAD_PRIORITY, 0, 0);
 
+uint64_t pairing_packets = 0;
+
 void event_handler(struct esb_evt const *event)
 {
 	switch (event->evt_id)
 	{
 	case ESB_EVENT_TX_SUCCESS:
+		if (!paired_addr[0]) // zero, not paired
+			pairing_packets++; // keep track of pairing state
 		tx_errors = 0;
+		LOG_DBG("TX SUCCESS");
 		if (esb_paired)
 			clocks_stop();
 		break;
@@ -83,6 +88,7 @@ void event_handler(struct esb_evt const *event)
 		// TODO: have to read rx until -ENODATA (or -EACCES/-EINVAL)
 		if (!esb_read_rx_payload(&rx_payload)) // zero, rx success
 		{
+			LOG_DBG("rx len: %d, pipe: %d", rx_payload.length, rx_payload.pipe);
 			if (!paired_addr[0]) // zero, not paired
 			{
 				LOG_DBG("tx: %16llX rx: %16llX", *(uint64_t *)tx_payload_pair.data, *(uint64_t *)rx_payload.data);
@@ -367,32 +373,54 @@ void esb_pair(void)
 		set_led(SYS_LED_PATTERN_SHORT, SYS_LED_PRIORITY_CONNECTION);
 		while (paired_addr[0] != checksum)
 		{
+			int64_t time_begin = k_uptime_get();
+
 			if (!esb_initialized)
 			{
 				esb_set_addr_discovery();
 				esb_initialize(true);
 			}
+
 			if (!clock_status)
 				clocks_start();
+
 			if (paired_addr[0])
 			{
 				LOG_INF("Incorrect checksum: %02X", paired_addr[0]);
 				paired_addr[0] = 0; // Packet not for this device
 			}
-			esb_flush_rx();
-			esb_flush_tx();
-			tx_payload_pair.data[1] = 0; // send pairing request
+
+//			esb_flush_rx();
+//			esb_flush_tx();
+
+			pairing_packets = 0;
+
+			// send pairing request
+			tx_payload_pair.data[1] = 0;
 			esb_write_payload(&tx_payload_pair);
-			esb_start_tx();
-			k_msleep(2);
-			tx_payload_pair.data[1] = 1; // receive ack data
-			esb_write_payload(&tx_payload_pair);
-			esb_start_tx();
-			k_msleep(2);
-			tx_payload_pair.data[1] = 2; // "acknowledge" pairing from receiver
-			esb_write_payload(&tx_payload_pair);
-			esb_start_tx();
-			k_msleep(996);
+			k_usleep(100);
+			while (!esb_is_idle() && (k_uptime_get() < (time_begin + 10)))
+				k_usleep(1);
+			
+			// receive ack data
+			tx_payload_pair.data[1] = 1;
+			if ((pairing_packets == 1) && (k_uptime_get() < (time_begin + 10)))
+				esb_write_payload(&tx_payload_pair);
+			k_usleep(100);
+			while (!esb_is_idle() && (k_uptime_get() < (time_begin + 10)))
+				k_usleep(1);
+
+			if (pairing_packets == 2)
+				LOG_INF("Pairing request received");
+
+			if (clock_status)
+				clocks_stop();
+
+			int64_t time_delta = k_uptime_get() - time_begin;
+			if (time_delta > 1000)
+				k_yield();
+			else
+				k_msleep(1000 - time_delta);
 		}
 		set_led(SYS_LED_PATTERN_ONESHOT_COMPLETE, SYS_LED_PRIORITY_CONNECTION);
 		LOG_INF("Paired");
