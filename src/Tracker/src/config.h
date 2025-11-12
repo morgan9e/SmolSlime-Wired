@@ -1,5 +1,222 @@
-//the only consideration right now is just everything in kconfig, and possibly some way to export/import a full configuration
-//i do not want a json parser though
+#include "globals.h"
+
+// wrap nvs/retain read/write
+// nvs SETTINGS_ID
+// retain retained->settings
+// config_settings_id is the word offset
+
+// ops: read/write/reset
+
+// config 0 and 1 are boolean flags
+// config 2 is word array
+
+// read bool (config 0): id, read OVRD_0 from retain, read CONFIG_0_DEVICE_CONFIG from retain if needed, return
+// read bool (config 1): id
+// read int16 (config 2): id
+// read int32 (config 3): id
+
+// w
+//memcpy(retained->settings + addr, &val, 2);
+//sys_write(SETTINGS_ID, NULL, retained->settings, sizeof(retained->settings));
+// r
+//memcpy(&val, retained->settings + addr * 2, 2);
+
+// map of settings area
+struct config_settings_data {
+    uint16_t config_0_ovrd; // Override enable flags
+    uint16_t config_0_settings;
+    uint16_t config_1_ovrd;
+    uint16_t config_1_settings;
+    uint16_t config_2_ovrd;
+    int16_t config_2_settings[16];
+    uint16_t config_3_ovrd;
+    int32_t config_3_settings[16];
+};
+#define RETAINED_SIZE (sizeof(struct config_settings_data))
+
+static struct config_settings_data *config_settings = retained->settings;
+
+// device settings
+enum config_0_settings_id {
+    CONFIG_0_SENSOR_USE_LOW_POWER_2,
+    CONFIG_0_USE_IMU_TIMEOUT,
+    CONFIG_0_USE_ACTIVE_TIMEOUT,
+    CONFIG_0_SENSOR_USE_MAG,
+    CONFIG_0_USE_SENSOR_CLOCK,
+    CONFIG_0_SENSOR_USE_6_SIDE_CALIBRATION,
+    CONFIG_0_SETTINGS_END
+};
+
+#define CONFIG_SETTINGS_COUNT_0 CONFIG_0_SETTINGS_END
+
+// sensor settings
+enum config_1_settings_id {
+    CONFIG_1_USER_EXTRA_ACTIONS,
+    CONFIG_1_IGNORE_RESET,
+    CONFIG_1_USER_SHUTDOWN,
+    CONFIG_1_USE_IMU_WAKEUP,
+    CONFIG_1_DELAY_SLEEP_ON_STATUS,
+    CONFIG_1_CONNECTION_OVER_HID,
+    CONFIG_1_SETTINGS_END
+};
+
+#define CONFIG_SETTINGS_COUNT_1 CONFIG_1_SETTINGS_END
+
+enum config_2_settings_id {
+    CONFIG_2_LED_DEFAULT_COLOR_R,
+    CONFIG_2_LED_DEFAULT_COLOR_G,
+    CONFIG_2_LED_DEFAULT_COLOR_B,
+    CONFIG_2_ACTIVE_TIMEOUT_MODE, // 0: Sleep, 1: Shutdown
+    CONFIG_2_SENSOR_ACCEL_ODR,
+    CONFIG_2_SENSOR_GYRO_ODR,
+    CONFIG_2_SENSOR_ACCEL_FS,
+    CONFIG_2_SENSOR_GYRO_FS,
+    CONFIG_2_SENSOR_FUSION, // 1: XIO, 3: VQF
+    CONFIG_2_RADIO_TX_POWER,
+    CONFIG_2_SETTINGS_END
+};
+
+#define CONFIG_SETTINGS_COUNT_2 CONFIG_2_SETTINGS_END
+
+enum config_3_settings_id {
+    CONFIG_3_CONNECTION_TIMEOUT_DELAY,
+    CONFIG_3_SENSOR_LP_TIMEOUT,
+    CONFIG_3_IMU_TIMEOUT_RAMP_MIN,
+    CONFIG_3_IMU_TIMEOUT_RAMP_MAX,
+    CONFIG_3_ACTIVE_TIMEOUT_THRESHOLD,
+    CONFIG_3_ACTIVE_TIMEOUT_DELAY,
+    CONFIG_3_SETTINGS_END
+};
+
+#define CONFIG_SETTINGS_COUNT_3 CONFIG_3_SETTINGS_END
+
+const char *config_0_settings_names[] = {
+    "SENSOR_USE_LOW_POWER_2",
+    "USE_IMU_TIMEOUT",
+    "USE_ACTIVE_TIMEOUT",
+    "SENSOR_USE_MAG",
+    "USE_SENSOR_CLOCK",
+    "SENSOR_USE_6_SIDE_CALIBRATION"
+};
+
+const char *config_1_settings_names[] = {
+    "USER_EXTRA_ACTIONS",
+    "IGNORE_RESET",
+    "USER_SHUTDOWN",
+    "USE_IMU_WAKEUP",
+    "DELAY_SLEEP_ON_STATUS",
+    "CONNECTION_OVER_HID"
+};
+
+const char *config_2_settings_names[] = {
+    "LED_DEFAULT_COLOR_R",
+    "LED_DEFAULT_COLOR_G",
+    "LED_DEFAULT_COLOR_B",
+    "ACTIVE_TIMEOUT_MODE",
+    "SENSOR_ACCEL_ODR",
+    "SENSOR_GYRO_ODR",
+    "SENSOR_ACCEL_FS",
+    "SENSOR_GYRO_FS",
+    "SENSOR_FUSION",
+    "RADIO_TX_POWER",
+};
+
+const char *config_3_settings_names[] = {
+    "CONNECTION_TIMEOUT_DELAY",
+    "SENSOR_LP_TIMEOUT",
+    "IMU_TIMEOUT_RAMP_MIN",
+    "IMU_TIMEOUT_RAMP_MAX",
+    "ACTIVE_TIMEOUT_THRESHOLD",
+    "ACTIVE_TIMEOUT_DELAY",
+};
+
+#if CONFIG_USE_IMU_TIMEOUT
+uint16_t test = 0;
+#endif
+
+const bool config_0_settings_defaults[] {
+    IS_ENABLED(CONFIG_SENSOR_USE_LOW_POWER_2),
+    IS_ENABLED(CONFIG_USE_IMU_TIMEOUT),
+    IS_ENABLED(CONFIG_USE_ACTIVE_TIMEOUT),
+    IS_ENABLED(CONFIG_SENSOR_USE_MAG),
+    IS_ENABLED(CONFIG_USE_SENSOR_CLOCK),
+    IS_ENABLED(CONFIG_SENSOR_USE_6_SIDE_CALIBRATION),
+};
+
+const bool config_1_settings_defaults[] {
+    IS_ENABLED(CONFIG_USER_EXTRA_ACTIONS),
+    IS_ENABLED(CONFIG_IGNORE_RESET),
+    IS_ENABLED(CONFIG_USER_SHUTDOWN),
+    IS_ENABLED(CONFIG_USE_IMU_WAKEUP),
+    IS_ENABLED(CONFIG_DELAY_SLEEP_ON_STATUS),
+    IS_ENABLED(CONFIG_CONNECTION_OVER_HID),
+};
+
+const int16_t config_2_settings_defaults[] {
+    CONFIG_LED_DEFAULT_COLOR_R, // 0-10000
+    CONFIG_LED_DEFAULT_COLOR_G, // 0-10000
+    CONFIG_LED_DEFAULT_COLOR_B, // 0-10000
+    CONFIG_ACTIVE_TIMEOUT_MODE, // 0-1
+    CONFIG_SENSOR_ACCEL_ODR, // 0-3200 (ex.)
+    CONFIG_SENSOR_GYRO_ODR, // 0-3200 (ex.)
+    CONFIG_SENSOR_ACCEL_FS, // 0-32000 (ex.)
+    CONFIG_SENSOR_GYRO_FS, // 0-32000 (ex.)
+    CONFIG_SENSOR_FUSION, // 1-3
+    CONFIG_RADIO_TX_POWER, // -128-127
+};
+
+const int32_t config_3_settings_defaults[] {
+    CONFIG_CONNECTION_TIMEOUT_DELAY, // 0-inf (!)
+    CONFIG_SENSOR_LP_TIMEOUT, // 0-inf (!)
+    CONFIG_IMU_TIMEOUT_RAMP_MIN, // 0-inf (!)
+    CONFIG_IMU_TIMEOUT_RAMP_MAX, // 0-inf (!)
+    CONFIG_ACTIVE_TIMEOUT_THRESHOLD, // 0-inf (!)
+    CONFIG_ACTIVE_TIMEOUT_DELAY, // 0-inf (!)
+}
+
+bool config_0_settings_read(uint16_t id)
+{
+    uint16_t read_mask = 1 << id;
+
+    if (config_settings->config_0_ovrd & read_mask)
+        return config_settings->config_0_settings & read_mask;
+
+    // Otherwise use default config value
+    return config_0_settings_defaults[id];
+}
+
+bool config_1_settings_read(uint16_t id)
+{
+    uint16_t read_mask = 1 << id;
+
+    if (config_settings->config_1_ovrd & read_mask)
+        return config_settings->config_1_settings & read_mask;
+
+    // Use default config value
+    return config_1_settings_defaults[id];
+}
+
+int16_t config_2_settings_read(uint16_t id)
+{
+    uint16_t read_mask = 1 << id;
+
+    if (config_settings->config_2_ovrd & read_mask)
+        return config_settings->config_2_settings[id];
+
+    // Use default config value
+    return config_2_settings_defaults[id];
+}
+
+int32_t config_3_settings_read(uint16_t id)
+{
+    uint16_t read_mask = 1 << id;
+
+    if (config_settings->config_3_ovrd & read_mask)
+        return config_settings->config_3_settings[id];
+
+    // Use default config value
+    return config_3_settings_defaults[id];
+}
 
 /*
 menu "Status LED default status color"
@@ -346,4 +563,33 @@ write all <base64>
 read byte <hex> -> <int>
 read word <hex> -> <int>
 read all -> <base64>
+*/
+
+/*
+i    led default color r/g/b
+b    user extra actions
+b    ignore reset
+b    user shutdown
+b    use imu wakeup
+b    delay sleep on status
+i    connection timeout delay
+i    lp timeout
+b    use lp2
+b    use imu timeout
+i    imu timeout ramp min
+i    imu timeout ramp max
+b    use active timeout
+i    sleep/shutdown on active timeout
+i    active timeout threshold
+i    active timeout delay
+i    sensor accel odr
+i    sensor gyro odr
+i    sensor accel fs
+i    sensor gyro fs
+b    use mag
+b    ?use sensor clock
+i    xiofusion/vqf
+b    6 side
+i    radio tx power
+b    connection over hid
 */
