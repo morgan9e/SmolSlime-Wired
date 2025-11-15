@@ -1,4 +1,4 @@
-#include "globals.h"
+#include "retained.h"
 
 // wrap nvs/retain read/write
 // nvs SETTINGS_ID
@@ -21,6 +21,8 @@
 // r
 //memcpy(&val, retained->settings + addr * 2, 2);
 
+#define CONFIG_SETTINGS_COUNT 4
+
 // map of settings area
 struct config_settings_data {
     uint16_t config_0_ovrd; // Override enable flags
@@ -32,9 +34,9 @@ struct config_settings_data {
     uint16_t config_3_ovrd;
     int32_t config_3_settings[16];
 };
-#define RETAINED_SIZE (sizeof(struct config_settings_data))
 
-static struct config_settings_data *config_settings = retained->settings;
+// because settings read is a macro, need to expose settings struct and defaults
+extern struct config_settings_data *config_settings;
 
 // device settings
 enum config_0_settings_id {
@@ -47,8 +49,6 @@ enum config_0_settings_id {
     CONFIG_0_SETTINGS_END
 };
 
-#define CONFIG_SETTINGS_COUNT_0 CONFIG_0_SETTINGS_END
-
 // sensor settings
 enum config_1_settings_id {
     CONFIG_1_USER_EXTRA_ACTIONS,
@@ -59,8 +59,6 @@ enum config_1_settings_id {
     CONFIG_1_CONNECTION_OVER_HID,
     CONFIG_1_SETTINGS_END
 };
-
-#define CONFIG_SETTINGS_COUNT_1 CONFIG_1_SETTINGS_END
 
 enum config_2_settings_id {
     CONFIG_2_LED_DEFAULT_COLOR_R,
@@ -76,8 +74,6 @@ enum config_2_settings_id {
     CONFIG_2_SETTINGS_END
 };
 
-#define CONFIG_SETTINGS_COUNT_2 CONFIG_2_SETTINGS_END
-
 enum config_3_settings_id {
     CONFIG_3_CONNECTION_TIMEOUT_DELAY,
     CONFIG_3_SENSOR_LP_TIMEOUT,
@@ -88,135 +84,33 @@ enum config_3_settings_id {
     CONFIG_3_SETTINGS_END
 };
 
-#define CONFIG_SETTINGS_COUNT_3 CONFIG_3_SETTINGS_END
+extern const uint16_t config_settings_count[];
 
-const char *config_0_settings_names[] = {
-    "SENSOR_USE_LOW_POWER_2",
-    "USE_IMU_TIMEOUT",
-    "USE_ACTIVE_TIMEOUT",
-    "SENSOR_USE_MAG",
-    "USE_SENSOR_CLOCK",
-    "SENSOR_USE_6_SIDE_CALIBRATION"
-};
+extern const char *config_settings_names[];
 
-const char *config_1_settings_names[] = {
-    "USER_EXTRA_ACTIONS",
-    "IGNORE_RESET",
-    "USER_SHUTDOWN",
-    "USE_IMU_WAKEUP",
-    "DELAY_SLEEP_ON_STATUS",
-    "CONNECTION_OVER_HID"
-};
+// because settings read is a macro, need to expose settings struct and defaults
+extern const bool config_0_settings_defaults[16];
+extern const bool config_1_settings_defaults[16];
+extern const int16_t config_2_settings_defaults[16];
+extern const int16_t config_3_settings_defaults[16];
 
-const char *config_2_settings_names[] = {
-    "LED_DEFAULT_COLOR_R",
-    "LED_DEFAULT_COLOR_G",
-    "LED_DEFAULT_COLOR_B",
-    "ACTIVE_TIMEOUT_MODE",
-    "SENSOR_ACCEL_ODR",
-    "SENSOR_GYRO_ODR",
-    "SENSOR_ACCEL_FS",
-    "SENSOR_GYRO_FS",
-    "SENSOR_FUSION",
-    "RADIO_TX_POWER",
-};
+#define CONFIG_0_SETTINGS_READ(id) ((config_settings->config_0_ovrd & (1 << id)) ? (config_settings->config_0_settings & (1 << id)) : (config_0_settings_defaults[id]))
+#define CONFIG_1_SETTINGS_READ(id) ((config_settings->config_1_ovrd & (1 << id)) ? (config_settings->config_1_settings & (1 << id)) : (config_1_settings_defaults[id]))
+#define CONFIG_2_SETTINGS_READ(id) ((config_settings->config_2_ovrd & (1 << id)) ? (config_settings->config_2_settings[id]) : (config_2_settings_defaults[id]))
+#define CONFIG_3_SETTINGS_READ(id) ((config_settings->config_3_ovrd & (1 << id)) ? (config_settings->config_3_settings[id]) : (config_3_settings_defaults[id]))
 
-const char *config_3_settings_names[] = {
-    "CONNECTION_TIMEOUT_DELAY",
-    "SENSOR_LP_TIMEOUT",
-    "IMU_TIMEOUT_RAMP_MIN",
-    "IMU_TIMEOUT_RAMP_MAX",
-    "ACTIVE_TIMEOUT_THRESHOLD",
-    "ACTIVE_TIMEOUT_DELAY",
-};
+//bool config_0_settings_read(uint16_t id);
+//bool config_1_settings_read(uint16_t id);
+//int16_t config_2_settings_read(uint16_t id);
+//int32_t config_3_settings_read(uint16_t id);
 
-#if CONFIG_USE_IMU_TIMEOUT
-uint16_t test = 0;
-#endif
+void config_0_settings_write(uint16_t id, bool value);
+void config_1_settings_write(uint16_t id, bool value);
+void config_2_settings_write(uint16_t id, int16_t value);
+void config_3_settings_write(uint16_t id, int32_t value);
 
-const bool config_0_settings_defaults[] {
-    IS_ENABLED(CONFIG_SENSOR_USE_LOW_POWER_2),
-    IS_ENABLED(CONFIG_USE_IMU_TIMEOUT),
-    IS_ENABLED(CONFIG_USE_ACTIVE_TIMEOUT),
-    IS_ENABLED(CONFIG_SENSOR_USE_MAG),
-    IS_ENABLED(CONFIG_USE_SENSOR_CLOCK),
-    IS_ENABLED(CONFIG_SENSOR_USE_6_SIDE_CALIBRATION),
-};
-
-const bool config_1_settings_defaults[] {
-    IS_ENABLED(CONFIG_USER_EXTRA_ACTIONS),
-    IS_ENABLED(CONFIG_IGNORE_RESET),
-    IS_ENABLED(CONFIG_USER_SHUTDOWN),
-    IS_ENABLED(CONFIG_USE_IMU_WAKEUP),
-    IS_ENABLED(CONFIG_DELAY_SLEEP_ON_STATUS),
-    IS_ENABLED(CONFIG_CONNECTION_OVER_HID),
-};
-
-const int16_t config_2_settings_defaults[] {
-    CONFIG_LED_DEFAULT_COLOR_R, // 0-10000
-    CONFIG_LED_DEFAULT_COLOR_G, // 0-10000
-    CONFIG_LED_DEFAULT_COLOR_B, // 0-10000
-    CONFIG_ACTIVE_TIMEOUT_MODE, // 0-1
-    CONFIG_SENSOR_ACCEL_ODR, // 0-3200 (ex.)
-    CONFIG_SENSOR_GYRO_ODR, // 0-3200 (ex.)
-    CONFIG_SENSOR_ACCEL_FS, // 0-32000 (ex.)
-    CONFIG_SENSOR_GYRO_FS, // 0-32000 (ex.)
-    CONFIG_SENSOR_FUSION, // 1-3
-    CONFIG_RADIO_TX_POWER, // -128-127
-};
-
-const int32_t config_3_settings_defaults[] {
-    CONFIG_CONNECTION_TIMEOUT_DELAY, // 0-inf (!)
-    CONFIG_SENSOR_LP_TIMEOUT, // 0-inf (!)
-    CONFIG_IMU_TIMEOUT_RAMP_MIN, // 0-inf (!)
-    CONFIG_IMU_TIMEOUT_RAMP_MAX, // 0-inf (!)
-    CONFIG_ACTIVE_TIMEOUT_THRESHOLD, // 0-inf (!)
-    CONFIG_ACTIVE_TIMEOUT_DELAY, // 0-inf (!)
-}
-
-bool config_0_settings_read(uint16_t id)
-{
-    uint16_t read_mask = 1 << id;
-
-    if (config_settings->config_0_ovrd & read_mask)
-        return config_settings->config_0_settings & read_mask;
-
-    // Otherwise use default config value
-    return config_0_settings_defaults[id];
-}
-
-bool config_1_settings_read(uint16_t id)
-{
-    uint16_t read_mask = 1 << id;
-
-    if (config_settings->config_1_ovrd & read_mask)
-        return config_settings->config_1_settings & read_mask;
-
-    // Use default config value
-    return config_1_settings_defaults[id];
-}
-
-int16_t config_2_settings_read(uint16_t id)
-{
-    uint16_t read_mask = 1 << id;
-
-    if (config_settings->config_2_ovrd & read_mask)
-        return config_settings->config_2_settings[id];
-
-    // Use default config value
-    return config_2_settings_defaults[id];
-}
-
-int32_t config_3_settings_read(uint16_t id)
-{
-    uint16_t read_mask = 1 << id;
-
-    if (config_settings->config_3_ovrd & read_mask)
-        return config_settings->config_3_settings[id];
-
-    // Use default config value
-    return config_3_settings_defaults[id];
-}
+void config_settings_reset(uint16_t config, uint16_t id);
+void config_settings_reset_all(void);
 
 /*
 menu "Status LED default status color"

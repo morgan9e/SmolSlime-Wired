@@ -406,8 +406,8 @@ static void console_thread(void)
 	// settings
 	const char command_write[] = "write";
 	const char command_read[] = "read";
-	const char command_wr_arg_byte[] = "byte";
-	const char command_wr_arg_word[] = "word";
+	const char command_reset[] = "reset";
+	const char command_wr_arg_config[] = "config";
 	const char command_wr_arg_all[] = "all";
 
 	while (1) {
@@ -538,7 +538,7 @@ static void console_thread(void)
 				printk("Invalid argument\n");
 			}
 		}
-		else if (strcmp(argv[0], command_write) == 0) 
+		else if (strcmp(argv[0], command_write) == 0)
 		{
 			if (argc == 1)
 			{
@@ -565,53 +565,49 @@ static void console_thread(void)
 			{
 				printk("Invalid number of arguments\n");
 			}
-			else
+			else if (strcmp(argv[1], command_wr_arg_config) == 0)
 			{
-				uint64_t addr = parse_u64(argv[2], 16);
-				uint64_t val = parse_u64(argv[3], 10);
-				if (strcmp(argv[1], command_wr_arg_byte) == 0)
+				int32_t val = parse_i32(argv[3], 10);
+				uint16_t k = 0;
+				for (int i = 0; i < CONFIG_SETTINGS_COUNT; i++)
 				{
-					if (addr < 128)
+					for (int j = 0; j < config_settings_count[i]; j++)
 					{
-						if (val < (1 << 8))
+						if (strcmp(argv[2], config_settings_names[k]) == 0)
 						{
-							printk("write byte: %lld to %lld\n", val, addr);
-							memcpy(retained->settings + addr, &val, 1);
-							sys_write(SETTINGS_ID, NULL, retained->settings, sizeof(retained->settings));
-						}
-						else
-						{
+							switch (i)
+							{
+							case 0:
+								if (val < 0 || val > 1)
+									break;
+								config_0_settings_write(j, val);
+								return;
+							case 1:
+								if (val < 0 || val > 1)
+									break;
+								config_1_settings_write(j, val);
+								return;
+							case 2:
+								if (val < INT16_MIN || val > INT16_MAX)
+									break;
+								config_2_settings_write(j, val);
+								return;
+							case 3:
+								config_3_settings_write(j, val);
+								return;
+							default:
+								break;
+							}
 							printk("Invalid value\n");
+							return;
 						}
-					}
-					else
-					{
-						printk("Invalid address\n");
+						k++;
 					}
 				}
-				else if (strcmp(argv[1], command_wr_arg_word) == 0)
-				{
-					if (addr < 127)
-					{
-						if (val < (1 << 16))
-						{
-							printk("write word: %lld to %lld\n", val, addr);
-							memcpy(retained->settings + addr, &val, 2);
-							sys_write(SETTINGS_ID, NULL, retained->settings, sizeof(retained->settings));
-						}
-						else
-						{
-							printk("Invalid value\n");
-						}
-					}
-					else
-					{
-						printk("Invalid address\n");
-					}
-				}
+				printk("Invalid config name\n");
 			}
 		}
-		else if (strcmp(line, command_read) == 0) 
+		else if (strcmp(line, command_read) == 0)
 		{
 			if (argc == 1)
 			{
@@ -637,48 +633,75 @@ static void console_thread(void)
 			{
 				printk("Invalid number of arguments\n");
 			}
-			else
+			else if (strcmp(argv[1], command_wr_arg_config) == 0)
 			{
-				uint64_t addr = parse_u64(argv[2], 16);
-				uint64_t val = 0;
-				if (strcmp(argv[1], command_wr_arg_byte) == 0)
+				uint16_t k = 0;
+				for (int i = 0; i < CONFIG_SETTINGS_COUNT; i++)
 				{
-					if (addr < 128)
+					for (int j = 0; j < config_settings_count[i]; j++)
 					{
-						if (val < (1 << 8))
+						if (strcmp(argv[2], config_settings_names[k]) == 0)
 						{
-							memcpy(&val, retained->settings + addr, 1);
-							printk("read byte: %lld from %lld\n", val, addr);
+							int32_t val = -1;
+							switch (i)
+							{
+							case 0:
+								val = CONFIG_0_SETTINGS_READ(j);
+								break;
+							case 1:
+								val = CONFIG_1_SETTINGS_READ(j);
+								break;
+							case 2:
+								val = CONFIG_2_SETTINGS_READ(j);
+								break;
+							case 3:
+								val = CONFIG_3_SETTINGS_READ(j);
+								break;
+							default:
+								break;
+							}
+							printk("%s=%d", config_settings_names[k], val);
+							return;
 						}
-						else
-						{
-							printk("Invalid value\n");
-						}
-					}
-					else
-					{
-						printk("Invalid address\n");
+						k++;
 					}
 				}
-				else if (strcmp(argv[1], command_wr_arg_word) == 0)
+				printk("Invalid config name\n");
+			}
+		}
+		else if (strcmp(line, command_reset) == 0)
+		{
+			if (argc == 1)
+			{
+				printk("Invalid number of arguments\n");
+			}
+			else if (strcmp(argv[1], command_wr_arg_all) == 0)
+			{
+				if (argc != 2)
+					printk("Invalid number of arguments\n");
+				else
+					config_settings_reset_all();
+			}
+			else if (argc != 3)
+			{
+				printk("Invalid number of arguments\n");
+			}
+			else if (strcmp(argv[1], command_wr_arg_config) == 0)
+			{
+				uint16_t k = 0;
+				for (int i = 0; i < CONFIG_SETTINGS_COUNT; i++)
 				{
-					if (addr < 127)
+					for (int j = 0; j < config_settings_count[i]; j++)
 					{
-						if (val < (1 << 16))
+						if (strcmp(argv[2], config_settings_names[k]) == 0)
 						{
-							memcpy(&val, retained->settings + addr, 2);
-							printk("read word: %lld from %lld\n", val, addr);
+							config_settings_reset(i, j);
+							return;
 						}
-						else
-						{
-							printk("Invalid value\n");
-						}
-					}
-					else
-					{
-						printk("Invalid address\n");
+						k++;
 					}
 				}
+				printk("Invalid config name\n");
 			}
 		}
 		else
