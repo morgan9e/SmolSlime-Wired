@@ -1,6 +1,8 @@
+#include "globals.h"
+
 #include "config.h"
 
-#include "system.h"
+#include "system/system.h"
 
 #if DT_NODE_HAS_STATUS_OKAY(DT_ALIAS(retainedmemdevice))
 #define MEMORY_REGION DT_PARENT(DT_ALIAS(retainedmemdevice))
@@ -20,34 +22,34 @@ const uint16_t config_settings_count[] = {
 };
 
 const char *config_settings_names[] = {
-    "SENSOR_USE_LOW_POWER_2", // 0
-    "USE_IMU_TIMEOUT",
-    "USE_ACTIVE_TIMEOUT",
-    "SENSOR_USE_MAG",
-    "USE_SENSOR_CLOCK",
-    "SENSOR_USE_6_SIDE_CALIBRATION",
-    "USER_EXTRA_ACTIONS", // 1
-    "IGNORE_RESET",
-    "USER_SHUTDOWN",
-    "USE_IMU_WAKEUP",
-    "DELAY_SLEEP_ON_STATUS",
-    "CONNECTION_OVER_HID",
-    "LED_DEFAULT_COLOR_R", // 2
-    "LED_DEFAULT_COLOR_G",
-    "LED_DEFAULT_COLOR_B",
-    "ACTIVE_TIMEOUT_MODE",
-    "SENSOR_ACCEL_ODR",
-    "SENSOR_GYRO_ODR",
-    "SENSOR_ACCEL_FS",
-    "SENSOR_GYRO_FS",
-    "SENSOR_FUSION",
-    "RADIO_TX_POWER",
-    "CONNECTION_TIMEOUT_DELAY", // 3
-    "SENSOR_LP_TIMEOUT",
-    "IMU_TIMEOUT_RAMP_MIN",
-    "IMU_TIMEOUT_RAMP_MAX",
-    "ACTIVE_TIMEOUT_THRESHOLD",
-    "ACTIVE_TIMEOUT_DELAY",
+    "sensor_use_low_power_2", // 0
+    "use_imu_timeout",
+    "use_active_timeout",
+    "sensor_use_mag",
+    "use_sensor_clock",
+    "sensor_use_6_side_calibration",
+    "user_extra_actions", // 1
+    "ignore_reset",
+    "user_shutdown",
+    "use_imu_wakeup",
+    "delay_sleep_on_status",
+    "connection_over_hid",
+    "led_default_color_r", // 2
+    "led_default_color_g",
+    "led_default_color_b",
+    "active_timeout_mode",
+    "sensor_accel_odr",
+    "sensor_gyro_odr",
+    "sensor_accel_fs",
+    "sensor_gyro_fs",
+    "sensor_fusion",
+    "radio_tx_power",
+    "connection_timeout_delay", // 3
+    "sensor_lp_timeout",
+    "imu_timeout_ramp_min",
+    "imu_timeout_ramp_max",
+    "active_timeout_threshold",
+    "active_timeout_delay",
 };
 
 const bool config_0_settings_defaults[16] = {
@@ -134,6 +136,8 @@ const int32_t config_3_settings_defaults[16] = {
 #endif
 };
 
+LOG_MODULE_REGISTER(config, LOG_LEVEL_INF);
+
 /*
 bool config_0_settings_read(uint16_t id)
 {
@@ -187,7 +191,7 @@ void config_0_settings_write(uint16_t id, bool value)
     config_settings->config_0_ovrd |= write_mask;
 
     if (value)
-        config_settings->config_0_settings ^= write_mask;
+        config_settings->config_0_settings |= write_mask;
     else
         config_settings->config_0_settings &= ~write_mask;
 

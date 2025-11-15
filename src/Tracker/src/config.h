@@ -1,3 +1,6 @@
+#ifndef SLIMENRF_CONFIG
+#define SLIMENRF_CONFIG
+
 #include "retained.h"
 
 // wrap nvs/retain read/write
@@ -92,7 +95,7 @@ extern const char *config_settings_names[];
 extern const bool config_0_settings_defaults[16];
 extern const bool config_1_settings_defaults[16];
 extern const int16_t config_2_settings_defaults[16];
-extern const int16_t config_3_settings_defaults[16];
+extern const int32_t config_3_settings_defaults[16];
 
 #define CONFIG_0_SETTINGS_READ(id) ((config_settings->config_0_ovrd & (1 << id)) ? (config_settings->config_0_settings & (1 << id)) : (config_0_settings_defaults[id]))
 #define CONFIG_1_SETTINGS_READ(id) ((config_settings->config_1_ovrd & (1 << id)) ? (config_settings->config_1_settings & (1 << id)) : (config_1_settings_defaults[id]))
@@ -111,6 +114,8 @@ void config_3_settings_write(uint16_t id, int32_t value);
 
 void config_settings_reset(uint16_t config, uint16_t id);
 void config_settings_reset_all(void);
+
+#endif
 
 /*
 menu "Status LED default status color"

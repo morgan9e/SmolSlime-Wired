@@ -401,7 +401,7 @@ void esb_pair(void)
 			k_usleep(100);
 			while (!esb_is_idle() && (k_uptime_get() < (time_begin + 10)))
 				k_usleep(1);
-			
+
 			// receive ack data
 			tx_payload_pair.data[1] = 1;
 			if ((pairing_packets == 1) && (k_uptime_get() < (time_begin + 10)))
