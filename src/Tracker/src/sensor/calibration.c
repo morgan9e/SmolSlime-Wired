@@ -843,9 +843,9 @@ static void calibration_thread(void)
 				requested = sensor_calibrate_mag();
 			break;
 		}
-		if (requested < 0)
-			k_msleep(5);
-		else
+		if (requested < 0) // TODO: is this correct behavior?
 			k_msleep(100);
+		else
+			k_msleep(5);
 	}
 }
