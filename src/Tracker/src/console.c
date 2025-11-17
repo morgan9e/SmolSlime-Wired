@@ -136,13 +136,16 @@ static void print_sensor(void)
 	printk("Address: 0x%02X%02X\n", retained->mag_addr, retained->mag_reg);
 #endif
 
-#if CONFIG_SENSOR_USE_6_SIDE_CALIBRATION
-	printk("\nAccelerometer matrix:\n");
-	for (int i = 0; i < 3; i++)
-		printk("%.5f %.5f %.5f %.5f\n", (double)retained->accBAinv[0][i], (double)retained->accBAinv[1][i], (double)retained->accBAinv[2][i], (double)retained->accBAinv[3][i]);
-#else
-	printk("\nAccelerometer bias: %.5f %.5f %.5f\n", (double)retained->accelBias[0], (double)retained->accelBias[1], (double)retained->accelBias[2]);
-#endif
+	if (CONFIG_1_SETTINGS_READ(CONFIG_1_SENSOR_USE_6_SIDE_CALIBRATION))
+	{
+		printk("\nAccelerometer matrix:\n");
+		for (int i = 0; i < 3; i++)
+			printk("%.5f %.5f %.5f %.5f\n", (double)retained->accBAinv[0][i], (double)retained->accBAinv[1][i], (double)retained->accBAinv[2][i], (double)retained->accBAinv[3][i]);
+	}
+	else
+	{
+		printk("\nAccelerometer bias: %.5f %.5f %.5f\n", (double)retained->accelBias[0], (double)retained->accelBias[1], (double)retained->accelBias[2]);
+	}
 	printk("Gyroscope bias: %.5f %.5f %.5f\n", (double)retained->gyroBias[0], (double)retained->gyroBias[1], (double)retained->gyroBias[2]);
 #if SENSOR_MAG_EXISTS
 //	printk("Magnetometer bridge offset: %.5f %.5f %.5f\n", (double)retained->magBias[0], (double)retained->magBias[1], (double)retained->magBias[2]);
@@ -450,6 +453,7 @@ static void console_thread(void)
 	printk("battery                      Get battery information\n");
 	printk("scan                         Restart sensor scan\n");
 	printk("calibrate                    Calibrate sensor ZRO\n");
+	printk("6-side                       Calibrate 6-side accelerometer\n");
 
 	const char command_info[] = "info";
 	const char command_uptime[] = "uptime";
@@ -457,12 +461,7 @@ static void console_thread(void)
 	const char command_battery[] = "battery";
 	const char command_scan[] = "scan";
 	const char command_calibrate[] = "calibrate";
-
-#if CONFIG_SENSOR_USE_6_SIDE_CALIBRATION
-	printk("6-side                       Calibrate 6-side accelerometer\n");
-
 	const char command_6_side[] = "6-side";
-#endif
 
 #if SENSOR_MAG_EXISTS
 	printk("mag                          Clear magnetometer calibration\n");
@@ -491,9 +490,7 @@ static void console_thread(void)
 	// debug
 	const char command_reset_data[] = "reset_data";
 	const char command_reset_arg_zro[] = "zro";
-#if CONFIG_SENSOR_USE_6_SIDE_CALIBRATION
 	const char command_reset_arg_acc[] = "acc";
-#endif
 #if SENSOR_MAG_EXISTS
 	const char command_reset_arg_mag[] = "mag";
 #endif
@@ -549,12 +546,10 @@ static void console_thread(void)
 		{
 			sensor_request_calibration();
 		}
-#if CONFIG_SENSOR_USE_6_SIDE_CALIBRATION
 		else if (strcmp(argv[0], command_6_side) == 0)
 		{
 			sensor_request_calibration_6_side();
 		}
-#endif
 #if SENSOR_MAG_EXISTS
 		else if (strcmp(argv[0], command_mag) == 0)
 		{
@@ -606,10 +601,8 @@ static void console_thread(void)
 				printk("Invalid number of arguments\n");
 			else if (strcmp(argv[1], command_reset_arg_zro) == 0)
 				sensor_calibration_clear(NULL, NULL, true);
-#if CONFIG_SENSOR_USE_6_SIDE_CALIBRATION
 			else if (strcmp(argv[1], command_reset_arg_acc) == 0)
 				sensor_calibration_clear_6_side(NULL, true);
-#endif
 #if SENSOR_MAG_EXISTS
 			else if (strcmp(argv[1], command_reset_arg_mag) == 0)
 				sensor_calibration_clear_mag(NULL, true);
@@ -645,6 +638,11 @@ static void console_thread(void)
 				uint8_t *tmp = k_malloc(128);
 				uint16_t len = 0;
 				int err = base64_decode(tmp, 128, (size_t *)&len, argv[2], 172);
+				if (err)
+				{
+					printk("Unable to decode input");
+					continue;
+				}
 				//printk("decode: %d, len %d\n", err, len);
 				memcpy(retained->settings, tmp, sizeof(retained->settings));
 				sys_write(SETTINGS_ID, NULL, retained->settings, sizeof(retained->settings));
@@ -668,7 +666,7 @@ static void console_thread(void)
 			{
 				uint8_t *tmp = k_malloc(173);
 				uint16_t len = 0;
-				int err = base64_encode(tmp, 173, (size_t *)&len, retained->settings, 128);
+				base64_encode(tmp, 173, (size_t *)&len, retained->settings, 128);
 				//printk("encode: %d, len %d\n", err, len);
 				printk("%s\n", tmp);
 				k_free(tmp);
