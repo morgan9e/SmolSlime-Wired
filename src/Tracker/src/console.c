@@ -321,14 +321,25 @@ static void print_meow(void)
 	printk("%s%s%s\n", meows[meow], meow_punctuations[punctuation], meow_suffixes[suffix]);
 }
 
+static int32_t parse_config_settings_id(char *s)
+{
+	int32_t id = parse_i32(s, 10);
+	uint8_t buf[12];
+	snprintk(buf, 12, "%d", id);
+	if (strcmp(buf, s) != 0)
+		return -1;
+	return id;
+}
+
 static int parse_config_settings_write(char *s, int32_t v)
 {
+	int32_t id = parse_config_settings_id(s);
 	uint16_t k = 0;
 	for (int i = 0; i < CONFIG_SETTINGS_COUNT; i++)
 	{
 		for (int j = 0; j < config_settings_count[i]; j++)
 		{
-			if (strcmp(s, config_settings_names[k]) == 0)
+			if (id < 0 ? strcmp(s, config_settings_names[k]) == 0 : id == k)
 			{
 				switch (i)
 				{
@@ -359,18 +370,19 @@ static int parse_config_settings_write(char *s, int32_t v)
 			k++;
 		}
 	}
-	printk("Invalid config name\n");
+	printk("Invalid config name or id\n");
 	return -1;
 }
 
 static void parse_config_settings_read(char *s)
 {
+	int32_t id = parse_config_settings_id(s);
 	uint16_t k = 0;
 	for (int i = 0; i < CONFIG_SETTINGS_COUNT; i++)
 	{
 		for (int j = 0; j < config_settings_count[i]; j++)
 		{
-			if (strcmp(s, config_settings_names[k]) == 0)
+			if (id < 0 ? strcmp(s, config_settings_names[k]) == 0 : id == k)
 			{
 				int32_t val = -1;
 				switch (i)
@@ -396,17 +408,18 @@ static void parse_config_settings_read(char *s)
 			k++;
 		}
 	}
-	printk("Invalid config name\n");
+	printk("Invalid config name or id\n");
 }
 
 static int parse_config_settings_reset(char *s)
 {
+	int32_t id = parse_config_settings_id(s);
 	uint16_t k = 0;
 	for (int i = 0; i < CONFIG_SETTINGS_COUNT; i++)
 	{
 		for (int j = 0; j < config_settings_count[i]; j++)
 		{
-			if (strcmp(s, config_settings_names[k]) == 0)
+			if (id < 0 ? strcmp(s, config_settings_names[k]) == 0 : id == k)
 			{
 				config_settings_reset(i, j);
 				return 0;
@@ -414,7 +427,7 @@ static int parse_config_settings_reset(char *s)
 			k++;
 		}
 	}
-	printk("Invalid config name\n");
+	printk("Invalid config name or id\n");
 	return -1;
 }
 
@@ -622,7 +635,7 @@ static void console_thread(void)
 				printk("Config %d:\n", i);
 				for (int j = 0; j < config_settings_count[i]; j++)
 				{
-					printk("%s\n", config_settings_names[k]);
+					printk("%u: %s\n", k, config_settings_names[k]);
 					k++;
 				}
 			}
