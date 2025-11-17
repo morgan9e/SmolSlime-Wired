@@ -343,7 +343,7 @@ int sensor_scan(void)
 	{
 		if (mag_id >= (int)ARRAY_SIZE(sensor_mags) || sensor_mags[mag_id] == NULL || sensor_mags[mag_id] == &sensor_mag_none)
 		{
-			sensor_mag = &sensor_mag_none; 
+			sensor_mag = &sensor_mag_none;
 			mag_available = false;
 			LOG_ERR("Magnetometer not supported");
 		}
@@ -355,7 +355,7 @@ int sensor_scan(void)
 	}
 	else
 	{
-		sensor_mag = &sensor_mag_none; 
+		sensor_mag = &sensor_mag_none;
 		mag_available = false; // marked as not available
 	}
 
@@ -392,7 +392,7 @@ int sensor_request_scan(bool force)
 	k_thread_create(&sensor_thread_id, sensor_thread_id_stack, K_THREAD_STACK_SIZEOF(sensor_thread_id_stack), (k_thread_entry_t)sensor_scan_thread, NULL, NULL, NULL, SENSOR_SCAN_THREAD_PRIORITY, 0, K_NO_WAIT);
 	k_thread_join(&sensor_thread_id, K_FOREVER); // wait for the thread to finish
 	if (sensor_sensor_init && force)
-	{		
+	{
 		k_thread_create(&sensor_thread_id, sensor_thread_id_stack, K_THREAD_STACK_SIZEOF(sensor_thread_id_stack), (k_thread_entry_t)sensor_loop, NULL, NULL, NULL, SENSOR_LOOP_THREAD_PRIORITY, K_FP_REGS, K_NO_WAIT);
 		LOG_INF("Started sensor loop");
 	}
@@ -801,25 +801,15 @@ void sensor_loop(void)
 			connection_update_sensor_temp(temp);
 
 			// Read gyroscope (FIFO)
-#if CONFIG_SENSOR_USE_LOW_POWER_2
-			uint8_t* rawData = (uint8_t*)k_malloc(1900);  // Limit FIFO read to 2048 bytes (worst case is ICM 20 byte packet at 1000Hz and 100ms update time)
-			if (rawData == NULL)
+			uint16_t data_size = CONFIG_0_SETTINGS_READ(CONFIG_0_SENSOR_USE_LOW_POWER_2) ? 1900 : 1024; // Limit FIFO read to 2048 bytes (worst case is ICM 20 byte packet at 1000Hz and 100ms update time)
+			uint8_t* raw_data = (uint8_t*)k_malloc(data_size);
+			if (raw_data == NULL)
 			{
 				LOG_ERR("Failed to allocate memory for FIFO buffer");
 				set_status(SYS_STATUS_SENSOR_ERROR, true);
 				main_ok = false;
 			}
-			uint16_t packets = sensor_imu->fifo_read(rawData, 1900); // TODO: name this better?
-#else
-			uint8_t* rawData = (uint8_t*)k_malloc(1024);  // Limit FIFO read to 768 bytes (worst case is ICM 20 byte packet at 1000Hz and 33ms update time)
-			if (rawData == NULL)
-			{
-				LOG_ERR("Failed to allocate memory for FIFO buffer");
-				set_status(SYS_STATUS_SENSOR_ERROR, true);
-				main_ok = false;
-			}
-			uint16_t packets = sensor_imu->fifo_read(rawData, 1024); // TODO: name this better?
-#endif
+			uint16_t packets = sensor_imu->fifo_read(raw_data, data_size); // TODO: name this better?
 
 			// Debug info
 #if DEBUG
@@ -872,7 +862,7 @@ void sensor_loop(void)
 			{
 				float raw_a[3] = {0};
 				float raw_g[3] = {0};
-				if (sensor_imu->fifo_process(i, rawData, raw_a, raw_g))
+				if (sensor_imu->fifo_process(i, raw_data, raw_a, raw_g))
 					continue; // skip on error
 
 				// TODO: split into separate functions
@@ -900,7 +890,7 @@ void sensor_loop(void)
 						sensor_fusion->get_gyro_bias(g_off);
 						for (int i = 0; i < 3; i++)
 							g_off[i] = g[i] - g_off[i];
-	
+
 						// Get the highest gyro speed
 						float gyro_speed_square = g_off[0] * g_off[0] + g_off[1] * g_off[1] + g_off[2] * g_off[2];
 						if (gyro_speed_square > max_gyro_speed_square)
@@ -935,7 +925,7 @@ void sensor_loop(void)
 			int processed_timesteps = MAX(g_count, a_count);
 
 			// Free the FIFO buffer
-			k_free(rawData);
+			k_free(raw_data);
 
 #if DEBUG
 			if (valid_acquisition)
