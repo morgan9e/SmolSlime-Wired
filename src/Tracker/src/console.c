@@ -658,6 +658,7 @@ static void console_thread(void)
 				}
 				//printk("decode: %d, len %d\n", err, len);
 				memcpy(retained->settings, tmp, sizeof(retained->settings));
+				config_settings_init(); // reset any non-overridden values
 				sys_write(SETTINGS_ID, NULL, retained->settings, sizeof(retained->settings));
 				k_free(tmp);
 				printk("Updated config\n");

@@ -138,6 +138,32 @@ const int32_t config_3_settings_defaults[16] = {
 
 LOG_MODULE_REGISTER(config, LOG_LEVEL_INF);
 
+void config_settings_init(void)
+{
+	for (int i = 0; i < 16; i++)
+	{
+		uint16_t write_mask = 1 << i;
+		if (!(config_settings->config_0_ovrd & write_mask))
+		{
+			if (config_0_settings_defaults[i])
+				config_settings->config_0_settings |= write_mask;
+			else
+				config_settings->config_0_settings &= ~write_mask;
+		}
+		if (!(config_settings->config_1_ovrd & write_mask))
+		{
+			if (config_1_settings_defaults[i])
+				config_settings->config_1_settings |= write_mask;
+			else
+				config_settings->config_1_settings &= ~write_mask;
+		}
+		if (!(config_settings->config_2_ovrd & write_mask))
+			config_settings->config_2_settings[i] = config_2_settings_defaults[i];
+		if (!(config_settings->config_3_ovrd & write_mask))
+			config_settings->config_3_settings[i] = config_3_settings_defaults[i];
+	}
+}
+
 /*
 bool config_0_settings_read(uint16_t id)
 {
@@ -255,6 +281,8 @@ void config_settings_reset(uint16_t config, uint16_t id)
 	default:
 	}
 
+	config_settings_init(); // reset non-overridden value
+
 	sys_write(SETTINGS_ID, NULL, retained->settings, sizeof(retained->settings));
 }
 
@@ -273,6 +301,8 @@ void config_settings_reset_all(void)
 	config_settings->config_1_ovrd = 0;
 	config_settings->config_2_ovrd = 0;
 	config_settings->config_3_ovrd = 0;
+
+	config_settings_init(); // reset non-overridden value
 
 	sys_write(SETTINGS_ID, NULL, retained->settings, sizeof(retained->settings));
 	reset_confirm = false;

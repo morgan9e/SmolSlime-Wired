@@ -150,7 +150,7 @@ static int sys_retained_init(void)
 		ram_retention_valid = true;
 	// All contents of NVS was stored in RAM to not need initializing NVS often
 	if (!retained_validate()) // Check ram retention
-	{ 
+	{
 		LOG_WRN("Invalidated RAM");
 		sys_nvs_init();
 		// read from nvs to retained
@@ -162,6 +162,12 @@ static int sys_retained_init(void)
 		sys_read(MAIN_ACC_6_BIAS_ID, &retained->accBAinv, sizeof(retained->accBAinv));
 		sys_read(BATT_STATS_CURVE_ID, &retained->battery_pptt_curve, sizeof(retained->battery_pptt_curve));
 		sys_read(SETTINGS_ID, &retained->settings, sizeof(retained->settings));
+		// restore default settings
+		/* okay to run here, as the only time defaults can change is on newer firmware
+		 * if retain is cleared, defaults are also restored on top of settings stored in nvs (if not overridden by user)
+		 */
+		config_settings_init();
+		// finish retain update
 		retained_update();
 	}
 	else
@@ -236,7 +242,6 @@ void sys_read(uint16_t id, void *data, size_t len)
 
 void sys_clear(void)
 {
-	
 	static bool reset_confirm = false;
 	if (!reset_confirm)
 	{
