@@ -1,8 +1,7 @@
 #include "globals.h"
+#include "system/system.h"
 
 #include "config.h"
-
-#include "system/system.h"
 
 #if DT_NODE_HAS_STATUS_OKAY(DT_ALIAS(retainedmemdevice))
 #define MEMORY_REGION DT_PARENT(DT_ALIAS(retainedmemdevice))
