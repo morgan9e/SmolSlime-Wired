@@ -160,7 +160,7 @@ static void print_sensor(void)
 static void print_connection(void)
 {
 	bool paired = retained->paired_addr[0];
-	printk(paired ? "Tracker ID: %u\n" : "\nTracker ID: None\n", retained->paired_addr[1]);
+	printk(paired ? "Tracker ID: %u\n" : "Tracker ID: None\n", retained->paired_addr[1]);
 	printk("Device address: %012llX\n", *(uint64_t *)NRF_FICR->DEVICEADDR & 0xFFFFFFFFFFFF);
 	printk(paired ? "Receiver address: %012llX\n" : "Receiver address: None\n", (*(uint64_t *)&retained->paired_addr[0] >> 16) & 0xFFFFFFFFFFFF);
 }
@@ -431,10 +431,44 @@ static int parse_config_settings_reset(char *s)
 	return -1;
 }
 
-static inline void strtolower(char *str) {
-	for(int i = 0; str[i]; i++) {
+static inline void strtolower(char *str)
+{
+	for (int i = 0; str[i]; i++)
 		str[i] = tolower(str[i]);
-	}
+}
+
+static void print_help(void)
+{
+	printk("\nhelp                         Display this help text\n");
+
+	printk("\ninfo                         Get device information\n");
+	printk("uptime                       Get device uptime\n");
+	printk("reboot                       Soft reset the device\n");
+	printk("battery                      Get battery information\n");
+	printk("\nscan                         Restart sensor scan\n");
+	printk("calibrate                    Calibrate sensor ZRO\n");
+	printk("6-side                       Calibrate 6-side accelerometer\n");
+#if SENSOR_MAG_EXISTS
+	printk("mag                          Clear magnetometer calibration\n");
+#endif
+	printk("\nset <address>                Manually set receiver\n");
+	printk("pair                         Enter pairing mode\n");
+	printk("clear                        Clear pairing data\n");
+#if DFU_EXISTS
+	printk("\ndfu                          Enter DFU bootloader\n");
+#endif
+	printk("\nmeow                         Meow!\n");
+
+#if SENSOR_MAG_EXISTS
+	printk("\nreset_data (zro|acc|mag|bat|all)\n");
+#else
+	printk("\nreset_data (zro|acc|bat|all)\n");
+#endif
+
+	printk("\nlist_config                  Display available settings\n");
+	printk("write_config (all|<config name>|<config id>) <value>\n");
+	printk("read_config (all|<config name>|<config id>)\n");
+	printk("reset_config (all|<config name>|<config id>)\n");
 }
 
 static void console_thread(void)
@@ -460,13 +494,9 @@ static void console_thread(void)
 	printk("*** " CONFIG_USB_DEVICE_MANUFACTURER " " CONFIG_USB_DEVICE_PRODUCT " ***\n");
 #endif
 	printk(FW_STRING);
-	printk("info                         Get device information\n");
-	printk("uptime                       Get device uptime\n");
-	printk("reboot                       Soft reset the device\n");
-	printk("battery                      Get battery information\n");
-	printk("scan                         Restart sensor scan\n");
-	printk("calibrate                    Calibrate sensor ZRO\n");
-	printk("6-side                       Calibrate 6-side accelerometer\n");
+	print_help();
+
+	const char command_help[] = "help";
 
 	const char command_info[] = "info";
 	const char command_uptime[] = "uptime";
@@ -475,29 +505,15 @@ static void console_thread(void)
 	const char command_scan[] = "scan";
 	const char command_calibrate[] = "calibrate";
 	const char command_6_side[] = "6-side";
-
 #if SENSOR_MAG_EXISTS
-	printk("mag                          Clear magnetometer calibration\n");
-
 	const char command_mag[] = "mag";
 #endif
-
-	printk("set <address>                Manually set receiver\n");
-	printk("pair                         Enter pairing mode\n");
-	printk("clear                        Clear pairing data\n");
-
 	const char command_set[] = "set";
 	const char command_pair[] = "pair";
 	const char command_clear[] = "clear";
-
 #if DFU_EXISTS
-	printk("dfu                          Enter DFU bootloader\n");
-
 	const char command_dfu[] = "dfu";
 #endif
-
-	printk("meow                         Meow!\n");
-
 	const char command_meow[] = "meow";
 
 	// debug
@@ -533,7 +549,11 @@ static void console_thread(void)
 			strtolower(argv[1]); // lower case the first argument
 		// only care that the first words are matchable
 
-		if (strcmp(argv[0], command_info) == 0)
+		if (strcmp(argv[0], command_help) == 0)
+		{
+			print_help();
+		}
+		else if (strcmp(argv[0], command_info) == 0)
 		{
 			print_info();
 		}
