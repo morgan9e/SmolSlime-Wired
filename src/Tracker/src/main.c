@@ -130,7 +130,10 @@ int main(void)
 	}
 
 	if (!booting_from_shutdown) // ONESHOT_POWERON automatically sets LED off
+	{
+		k_usleep(1); // TODO: its possible main is holding exec priority too long and causing stuff to break, very particularly during set_led?
 		set_led(SYS_LED_PATTERN_OFF, SYS_LED_PRIORITY_BOOT);
+	}
 
 	sys_reset_mode(reset_mode);
 
