@@ -411,6 +411,37 @@ static void parse_config_settings_read(char *s)
 	printk("Invalid config name or id\n");
 }
 
+static void parse_config_settings_read_all()
+{
+	uint16_t k = 0;
+	for (int i = 0; i < CONFIG_SETTINGS_COUNT; i++)
+	{
+		for (int j = 0; j < config_settings_count[i]; j++)
+		{
+			int32_t val = -1;
+			switch (i)
+			{
+			case 0:
+				val = CONFIG_0_SETTINGS_READ(j) ? 1 : 0;
+				break;
+			case 1:
+				val = CONFIG_1_SETTINGS_READ(j) ? 1 : 0;
+				break;
+			case 2:
+				val = CONFIG_2_SETTINGS_READ(j);
+				break;
+			case 3:
+				val = CONFIG_3_SETTINGS_READ(j);
+				break;
+			default:
+				break;
+			}
+			printk("Read config: %s=%d\n", config_settings_names[k], val);
+			k++;
+		}
+	}
+}
+
 static int parse_config_settings_reset(char *s)
 {
 	int32_t id = parse_config_settings_id(s);
@@ -466,8 +497,8 @@ static void print_help(void)
 #endif
 
 	printk("\nlist_config                  Display available settings\n");
-	printk("write_config (all|<config name>|<config id>) <value>\n");
-	printk("read_config (all|<config name>|<config id>)\n");
+	printk("write_config (base64|<config name>|<config id>) <value>\n");
+	printk("read_config (all|base64|<config name>|<config id>)\n");
 	printk("reset_config (all|<config name>|<config id>)\n");
 }
 
@@ -532,6 +563,7 @@ static void console_thread(void)
 	const char command_read_config[] = "read_config";
 	const char command_reset_config[] = "reset_config";
 	const char command_wr_arg_all[] = "all";
+	const char command_wr_arg_base64[] = "base64";
 
 	while (1) {
 #if USB_EXISTS
@@ -666,7 +698,7 @@ static void console_thread(void)
 			{
 				printk("Invalid number of arguments\n");
 			}
-			else if (strcmp(argv[1], command_wr_arg_all) == 0)
+			else if (strcmp(argv[1], command_wr_arg_base64) == 0)
 			{
 				uint8_t *tmp = k_malloc(128);
 				uint16_t len = 0;
@@ -697,6 +729,10 @@ static void console_thread(void)
 				printk("Invalid number of arguments\n");
 			}
 			else if (strcmp(argv[1], command_wr_arg_all) == 0)
+			{
+				parse_config_settings_read_all();
+			}
+			else if (strcmp(argv[1], command_wr_arg_base64) == 0)
 			{
 				uint8_t *tmp = k_malloc(173);
 				uint16_t len = 0;
