@@ -335,6 +335,7 @@ static int parse_config_settings_write(char *s, int32_t v)
 {
 	int32_t id = parse_config_settings_id(s);
 	uint16_t k = 0;
+	int err = -1;
 	for (int i = 0; i < CONFIG_SETTINGS_COUNT; i++)
 	{
 		for (int j = 0; j < config_settings_count[i]; j++)
@@ -347,25 +348,32 @@ static int parse_config_settings_write(char *s, int32_t v)
 					if (v < 0 || v > 1)
 						break;
 					config_0_settings_write(j, v);
-					return 0;
+					err = 0;
+					break;
 				case 1:
 					if (v < 0 || v > 1)
 						break;
 					config_1_settings_write(j, v);
-					return 0;
+					err = 0;
+					break;
 				case 2:
 					if (v < INT16_MIN || v > INT16_MAX)
 						break;
 					config_2_settings_write(j, v);
-					return 0;
+					err = 0;
+					break;
 				case 3:
 					config_3_settings_write(j, v);
-					return 0;
+					err = 0;
+					break;
 				default:
 					break;
 				}
-				printk("Invalid value\n");
-				return -1;
+				if (!err)
+					printk("Updated config: %s=%d\n", config_settings_names[k], v);
+				else
+					printk("Invalid value\n");
+				return err;
 			}
 			k++;
 		}
@@ -388,10 +396,10 @@ static void parse_config_settings_read(char *s)
 				switch (i)
 				{
 				case 0:
-					val = CONFIG_0_SETTINGS_READ(j);
+					val = CONFIG_0_SETTINGS_READ(j) ? 1 : 0;
 					break;
 				case 1:
-					val = CONFIG_1_SETTINGS_READ(j);
+					val = CONFIG_1_SETTINGS_READ(j) ? 1 : 0;
 					break;
 				case 2:
 					val = CONFIG_2_SETTINGS_READ(j);
@@ -718,8 +726,7 @@ static void console_thread(void)
 			else
 			{
 				int32_t val = parse_i32(argv[2], 10);
-				if (!parse_config_settings_write(argv[1], val))
-					printk("Updated config: %s=%d\n", argv[1], val);
+				parse_config_settings_write(argv[1], val);
 			}
 		}
 		else if (strcmp(line, command_read_config) == 0)
