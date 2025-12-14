@@ -287,7 +287,7 @@ void connection_write_packet_4() // full precision quat and magnetometer
 void connection_write_packet_5() // runtime
 {
 	uint8_t data[16] = {0};
-	data[0] = 4; // packet 4
+	data[0] = 5; // packet 5
 	data[1] = tracker_id;
 	int64_t *buf = (uint16_t *)&data[2];
 	buf[0] = k_ticks_to_us_floor64(sys_get_battery_remaining_time_estimate());
