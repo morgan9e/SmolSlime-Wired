@@ -415,7 +415,7 @@ void connection_thread(void)
 			quat_update_time = 0;
 			last_quat_time = k_uptime_get();
 			last_info2_time = k_uptime_get();
-			connection_write_packet_6();
+			connection_write_packet_7();
 			continue;
 		}
 		// send quat otherwise
@@ -435,7 +435,7 @@ void connection_thread(void)
 		else if (k_uptime_get() - last_info2_time > 100)
 		{
 			last_info2_time = k_uptime_get();
-			connection_write_packet_7();
+			connection_write_packet_6();
 			continue;
 		}
 		else if (k_uptime_get() - last_status_time > 1000)
