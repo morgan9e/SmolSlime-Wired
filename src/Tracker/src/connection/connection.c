@@ -377,6 +377,7 @@ static int64_t last_status2_time = 0;
 
 void connection_thread(void)
 {
+	bool use_button = !CONFIG_0_SETTINGS_READ(CONFIG_0_USER_EXTRA_ACTIONS); // TODO: until info2 has extra data, it can be disabled for now if extra actions overrides button
 	uint8_t data_copy[21];
 	// TODO: checking for connection_update events from sensor_loop, here we will time and send them out
 	while (1)
@@ -410,7 +411,7 @@ void connection_thread(void)
 			continue;
 		}
 		// if time for info2 and precise quat not needed
-		else if (quat_update_time && !send_precise_quat && k_uptime_get() - last_info2_time > 100)
+		else if (use_button && quat_update_time && !send_precise_quat && k_uptime_get() - last_info2_time > 100)
 		{
 			quat_update_time = 0;
 			last_quat_time = k_uptime_get();
@@ -432,7 +433,7 @@ void connection_thread(void)
 			connection_write_packet_0();
 			continue;
 		}
-		else if (k_uptime_get() - last_info2_time > 100)
+		else if (use_button && k_uptime_get() - last_info2_time > 100)
 		{
 			last_info2_time = k_uptime_get();
 			connection_write_packet_6();
