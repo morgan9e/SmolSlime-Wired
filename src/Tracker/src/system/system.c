@@ -434,16 +434,23 @@ int sys_user_shutdown(void)
 	}
 	if (use_shutdown)
 	{
+		start_time = k_uptime_get();
 		LOG_INF("User shutdown requested");
 		set_led(SYS_LED_PATTERN_ONESHOT_POWEROFF, SYS_LED_PRIORITY_HIGHEST);
-		k_msleep(1500);
-		reboot_counter_write(0);
+		reboot_counter_write(0); // shutdown flag
+		while (!button_read()) // waiting for pattern, if button is pressed again reboot immedately
+		{
+			if (k_uptime_get() - start_time > 1500) // length of pattern elapsed
+			{
+				set_led(SYS_LED_PATTERN_OFF_FORCE, SYS_LED_PRIORITY_HIGHEST);
+				sys_request_system_off(false);
+				return 0;
+			}
+			k_msleep(1);
+		}
 	}
 	set_led(SYS_LED_PATTERN_OFF_FORCE, SYS_LED_PRIORITY_HIGHEST);
-	if (use_shutdown)
-		sys_request_system_off(false);
-	else
-		sys_request_system_reboot(false);
+	sys_request_system_reboot(false);
 	return 0;
 }
 
