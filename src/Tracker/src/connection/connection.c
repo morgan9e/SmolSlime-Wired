@@ -160,7 +160,7 @@ void connection_update_status(int status)
 //|2       |id      |batt    |batt_v  |temp    |q_buf                              |a0               |a1               |a2               |rssi    |
 //|3	   |id      |svr_stat|status  |resv                                                                                              |rssi    |
 //|1       |id      |q0               |q1               |q2               |q3               |m0               |m1               |m2               |
-//|5	   |id      |runtime                            |resv                                                                            |rssi    |
+//|5	   |id      |runtime                                                                |resv                                        |rssi    |
 
 void connection_write_packet_0() // device info
 {
@@ -289,7 +289,7 @@ void connection_write_packet_5() // runtime
 	uint8_t data[16] = {0};
 	data[0] = 5; // packet 5
 	data[1] = tracker_id;
-	int64_t *buf = (uint16_t *)&data[2];
+	int64_t *buf = (int64_t *)&data[2];
 	buf[0] = k_ticks_to_us_floor64(sys_get_battery_remaining_time_estimate());
 	k_mutex_lock(&data_buffer_mutex, K_FOREVER);
 	memcpy(data_buffer, data, sizeof(data));
