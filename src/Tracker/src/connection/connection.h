@@ -37,6 +37,7 @@ void connection_update_sensor_mag(float *m);
 void connection_update_sensor_temp(float temp);
 void connection_update_battery(bool battery_available, bool plugged, uint32_t battery_pptt, int battery_mV);
 void connection_update_status(int status);
+void connection_update_button(int button);
 
 void connection_write_packet_0();
 void connection_write_packet_1();

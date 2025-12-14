@@ -333,6 +333,8 @@ static void button_thread(void)
 		{
 			if (!get_status(SYS_STATUS_BUTTON_PRESSED))
 				set_status(SYS_STATUS_BUTTON_PRESSED, true);
+			if (num_presses == 0 && !CONFIG_0_SETTINGS_READ(CONFIG_0_USER_EXTRA_ACTIONS))
+				connection_update_button(1);
 			num_presses++;
 			LOG_INF("Button pressed %d times", num_presses);
 			last_press_duration = 0;
@@ -343,8 +345,8 @@ static void button_thread(void)
 		{
 			LOG_INF("Button was pressed %d times", num_presses);
 			last_press = 0;
-			if (num_presses == 1)
-				sys_request_system_reboot(false);
+//			if (num_presses == 1)
+//				sys_request_system_reboot(false);
 			if (CONFIG_0_SETTINGS_READ(CONFIG_0_USER_EXTRA_ACTIONS)) // TODO: extra actions are default until server can send commands to trackers
 				sys_reset_mode(num_presses - 1);
 			num_presses = 0;
