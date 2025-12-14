@@ -49,6 +49,7 @@ const char *config_settings_names[] = {
 	"imu_timeout_ramp_max",
 	"active_timeout_threshold",
 	"active_timeout_delay",
+	"battery_low_runtime_threshold"
 };
 
 const bool config_0_settings_defaults[16] = {
@@ -133,6 +134,7 @@ const int32_t config_3_settings_defaults[16] = {
 #else
 	900000,
 #endif
+	CONFIG_BATTERY_LOW_RUNTIME_THRESHOLD,
 };
 
 LOG_MODULE_REGISTER(config, LOG_LEVEL_INF);

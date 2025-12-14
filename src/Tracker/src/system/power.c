@@ -521,9 +521,14 @@ static void power_thread(void)
 		// will update average_pptt, and current_battery_pptt
 		update_battery(battery_pptt);
 
-		if (battery_available && !battery_low && current_battery_pptt < 1000)
+		// use estimated remaining runtime or pptt for battery_low
+		uint64_t runtime = sys_get_battery_remaining_time_estimate();
+		bool runtime_valid = runtime;
+		bool runtime_low = k_ticks_to_us_floor64(runtime) < CONFIG_3_SETTINGS_READ(CONFIG_3_BATTERY_LOW_RUNTIME_THRESHOLD);
+		bool pptt_low = current_battery_pptt < 1000;
+		if (battery_available && !battery_low && (runtime_valid ? runtime_low : pptt_low))
 			battery_low = true;
-		else if (!battery_available || (battery_low && current_battery_pptt > 1000)) // hysteresis alrerady provided
+		else if (!battery_available || (battery_low && (runtime_valid ? !runtime_low : !pptt_low))) // hysteresis already provided
 			battery_low = false;
 
 		sys_update_battery_tracker_voltage(battery_mV, device_plugged);
