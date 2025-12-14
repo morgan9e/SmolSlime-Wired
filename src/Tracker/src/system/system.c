@@ -422,27 +422,24 @@ int sys_user_shutdown(void)
 {
 	int64_t start_time = k_uptime_get();
 	bool use_shutdown = CONFIG_0_SETTINGS_READ(CONFIG_0_USER_SHUTDOWN);
+	set_led(SYS_LED_PATTERN_LONG, SYS_LED_PRIORITY_HIGHEST);
+	while (button_read()) // If alternate button is available and still pressed, wait for the user to stop pressing the button
+	{
+		if (k_uptime_get() - start_time > 4000) // held for over 5 seconds, cancel shutdown
+		{
+			set_led(SYS_LED_PATTERN_OFF, SYS_LED_PRIORITY_HIGHEST);
+			return 1;
+		}
+		k_msleep(1);
+	}
 	if (use_shutdown)
 	{
 		LOG_INF("User shutdown requested");
-		reboot_counter_write(0);
 		set_led(SYS_LED_PATTERN_ONESHOT_POWEROFF, SYS_LED_PRIORITY_HIGHEST);
+		k_msleep(1500);
+		reboot_counter_write(0);
 	}
-	k_msleep(1500);
-	if (button_read()) // If alternate button is available and still pressed, wait for the user to stop pressing the button
-	{
-		set_led(SYS_LED_PATTERN_LONG, SYS_LED_PRIORITY_HIGHEST);
-		while (button_read())
-		{
-			if (k_uptime_get() - start_time > 4000) // held for over 5 seconds, cancel shutdown
-			{
-				set_led(SYS_LED_PATTERN_OFF, SYS_LED_PRIORITY_HIGHEST);
-				return 1;
-			}
-			k_msleep(1);
-		}
-		set_led(SYS_LED_PATTERN_OFF_FORCE, SYS_LED_PRIORITY_HIGHEST);
-	}
+	set_led(SYS_LED_PATTERN_OFF_FORCE, SYS_LED_PRIORITY_HIGHEST);
 	if (use_shutdown)
 		sys_request_system_off(false);
 	else
