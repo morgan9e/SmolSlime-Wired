@@ -25,6 +25,7 @@
 #include "esb.h"
 #include "build_defines.h"
 #include "hid.h"
+#include "system/battery_tracker.h"
 
 #include <zephyr/kernel.h>
 #include <zephyr/sys/crc.h>
@@ -158,6 +159,8 @@ void connection_update_status(int status)
 //|1       |id      |q0               |q1               |q2               |q3               |a0               |a1               |a2               |
 //|2       |id      |batt    |batt_v  |temp    |q_buf                              |a0               |a1               |a2               |rssi    |
 //|3	   |id      |svr_stat|status  |resv                                                                                              |rssi    |
+//|1       |id      |q0               |q1               |q2               |q3               |m0               |m1               |m2               |
+//|5	   |id      |runtime                            |resv                                                                            |rssi    |
 
 void connection_write_packet_0() // device info
 {
@@ -281,6 +284,21 @@ void connection_write_packet_4() // full precision quat and magnetometer
 	hid_write_packet_n(data); // TODO:
 }
 
+void connection_write_packet_5() // runtime
+{
+	uint8_t data[16] = {0};
+	data[0] = 4; // packet 4
+	data[1] = tracker_id;
+	int64_t *buf = (uint16_t *)&data[2];
+	buf[0] = k_ticks_to_us_floor64(sys_get_battery_remaining_time_estimate());
+	k_mutex_lock(&data_buffer_mutex, K_FOREVER);
+	memcpy(data_buffer, data, sizeof(data));
+	last_data_time = k_uptime_get(); // TODO: use ticks
+//	esb_write(data); // TODO: schedule in thread
+	k_mutex_unlock(&data_buffer_mutex);
+	hid_write_packet_n(data); // TODO:
+}
+
 // TODO: get radio channel from receiver
 // TODO: new packet format
 
@@ -293,6 +311,7 @@ void connection_write_packet_4() // full precision quat and magnetometer
 
 static int64_t last_info_time = 0;
 static int64_t last_status_time = 0;
+static int64_t last_status2_time = 0;
 
 void connection_thread(void)
 {
@@ -346,6 +365,12 @@ void connection_thread(void)
 		{
 			last_status_time = k_uptime_get();
 			connection_write_packet_3();
+			continue;
+		}
+		else if (k_uptime_get() - last_status2_time > 1000)
+		{
+			last_status2_time = k_uptime_get();
+			connection_write_packet_5();
 			continue;
 		}
 		else

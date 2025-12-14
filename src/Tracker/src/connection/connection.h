@@ -43,5 +43,6 @@ void connection_write_packet_1();
 void connection_write_packet_2();
 void connection_write_packet_3();
 void connection_write_packet_4();
+void connection_write_packet_5();
 
 #endif
