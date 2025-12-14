@@ -315,17 +315,6 @@ void connection_write_packet_6() // reduced precision quat and accel with button
 	data[0] = 6; // packet 6
 	data[1] = tracker_id;
 	data[2] = tracker_button;
-	float v[3] = {0};
-	q_fem(sensor_q, v); // exponential map
-	for (int i = 0; i < 3; i++)
-		v[i] = (v[i] + 1) / 2; // map -1-1 to 0-1
-	uint16_t v_buf[3] = {SATURATE_UINT10((1 << 10) * v[0]), SATURATE_UINT11((1 << 11) * v[1]), SATURATE_UINT11((1 << 11) * v[2])}; // fill 32 bits
-	uint32_t *q_buf = (uint32_t *)&data[5];
-	*q_buf = v_buf[0] | (v_buf[1] << 10) | (v_buf[2] << 21);
-	uint16_t *buf = (uint16_t *)&data[9];
-	buf[0] = TO_FIXED_7(sensor_a[0]);
-	buf[1] = TO_FIXED_7(sensor_a[1]);
-	buf[2] = TO_FIXED_7(sensor_a[2]);
 	data[15] = 0; // rssi (supplied by receiver)
 	k_mutex_lock(&data_buffer_mutex, K_FOREVER);
 	memcpy(data_buffer, data, sizeof(data));
@@ -346,6 +335,18 @@ void connection_write_packet_7() // button
 	data[0] = 7; // packet 7
 	data[1] = tracker_id;
 	data[2] = tracker_button;
+	float v[3] = {0};
+	q_fem(sensor_q, v); // exponential map
+	for (int i = 0; i < 3; i++)
+		v[i] = (v[i] + 1) / 2; // map -1-1 to 0-1
+	uint16_t v_buf[3] = {SATURATE_UINT10((1 << 10) * v[0]), SATURATE_UINT11((1 << 11) * v[1]), SATURATE_UINT11((1 << 11) * v[2])}; // fill 32 bits
+	uint32_t *q_buf = (uint32_t *)&data[5];
+	*q_buf = v_buf[0] | (v_buf[1] << 10) | (v_buf[2] << 21);
+	uint16_t *buf = (uint16_t *)&data[9];
+	buf[0] = TO_FIXED_7(sensor_a[0]);
+	buf[1] = TO_FIXED_7(sensor_a[1]);
+	buf[2] = TO_FIXED_7(sensor_a[2]);
+	data[15] = 0; // rssi (supplied by receiver)
 	k_mutex_lock(&data_buffer_mutex, K_FOREVER);
 	memcpy(data_buffer, data, sizeof(data));
 	last_data_time = k_uptime_get(); // TODO: use ticks
