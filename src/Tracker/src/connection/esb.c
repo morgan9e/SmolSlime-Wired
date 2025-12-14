@@ -351,7 +351,7 @@ void esb_set_pair(uint64_t addr)
 
 void esb_pair(void)
 {
-	if (tx_errors >= 100)
+	if (get_status(SYS_STATUS_CONNECTION_ERROR))
 		set_status(SYS_STATUS_CONNECTION_ERROR, false);
 	tx_errors = 0;
 	if (!paired_addr[0]) // zero, no receiver paired
@@ -490,14 +490,14 @@ static void esb_thread(void)
 
 	while (1)
 	{
-		if (!esb_paired && (!use_hid || (get_status(SYS_STATUS_USB_CONNECTED) == false && k_uptime_get() - 750 > start_time))) // only automatically enter pairing while not potentially communicating by usb
+		if (!esb_paired && (!use_hid || (!get_status(SYS_STATUS_USB_CONNECTED) && k_uptime_get() - 750 > start_time))) // only automatically enter pairing while not potentially communicating by usb
 		{
 			esb_pair();
 			esb_initialize(true);
 		}
 		if (tx_errors >= TX_ERROR_THRESHOLD)
 		{
-			if (get_status(SYS_STATUS_CONNECTION_ERROR) == false && (!use_hid || get_status(SYS_STATUS_USB_CONNECTED) == false)) // only raise error while not potentially communicating by usb
+			if (!get_status(SYS_STATUS_CONNECTION_ERROR) && (!use_hid || !get_status(SYS_STATUS_USB_CONNECTED))) // only raise error while not potentially communicating by usb
 				set_status(SYS_STATUS_CONNECTION_ERROR, true);
 			if (use_shutdown && k_uptime_get() - last_tx_success > CONFIG_3_SETTINGS_READ(CONFIG_3_CONNECTION_TIMEOUT_DELAY)) // shutdown if receiver is not detected // TODO: is shutdown necessary if usb is connected at the time?
 			{
@@ -505,7 +505,7 @@ static void esb_thread(void)
 				sys_request_system_off(false);
 			}
 		}
-		else if (tx_errors == 0 && get_status(SYS_STATUS_CONNECTION_ERROR) == true)
+		else if (tx_errors == 0 && get_status(SYS_STATUS_CONNECTION_ERROR))
 		{
 			set_status(SYS_STATUS_CONNECTION_ERROR, false);
 		}
