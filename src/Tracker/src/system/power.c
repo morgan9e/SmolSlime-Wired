@@ -464,6 +464,8 @@ static void power_thread(void)
 
 		int battery_mV;
 		int16_t battery_pptt = read_batt_mV(&battery_mV);
+		if (battery_level_pptt < 0)
+			LOG_ERR("Failed to read battery voltage: %d", battery_pptt);
 		if (samples < BATTERY_SAMPLES)
 			samples++;
 
