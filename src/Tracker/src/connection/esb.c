@@ -42,6 +42,7 @@ uint32_t led_clock_offset = 0;
 
 uint32_t tx_errors = 0;
 int64_t last_tx_success = 0;
+int64_t last_tx_fail = 0;
 
 static struct esb_payload rx_payload;
 static struct esb_payload tx_payload = ESB_CREATE_PAYLOAD(0,
@@ -54,7 +55,7 @@ static uint8_t paired_addr[8] = {0};
 static bool esb_initialized = false;
 static bool esb_paired = false;
 
-#define TX_ERROR_THRESHOLD 100
+#define TX_ERROR_THRESHOLD 30
 
 LOG_MODULE_REGISTER(esb_event, LOG_LEVEL_INF);
 
@@ -70,6 +71,8 @@ void event_handler(struct esb_evt const *event)
 	case ESB_EVENT_TX_SUCCESS:
 		if (!paired_addr[0]) // zero, not paired
 			pairing_packets++; // keep track of pairing state
+		if (tx_errors >= TX_ERROR_THRESHOLD)
+			last_tx_fail = k_uptime_get();
 		tx_errors = 0;
 		LOG_DBG("TX SUCCESS");
 		if (esb_paired)
@@ -505,7 +508,7 @@ static void esb_thread(void)
 				sys_request_system_off(false);
 			}
 		}
-		else if (tx_errors == 0 && get_status(SYS_STATUS_CONNECTION_ERROR))
+		else if (tx_errors < TX_ERROR_THRESHOLD && get_status(SYS_STATUS_CONNECTION_ERROR) && k_uptime_get() - last_tx_fail > 3000) // TODO: there is possibly some race condition causing tx_error to potentially be above zero more often than not, so the check is more lenient; tx_error under threshold and last errors above threshold was not recent
 		{
 			set_status(SYS_STATUS_CONNECTION_ERROR, false);
 		}
