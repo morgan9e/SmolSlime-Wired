@@ -362,6 +362,10 @@ static void button_thread(void)
 				press_time = 0;
 				set_status(SYS_STATUS_BUTTON_PRESSED, false); // TODO: is needed?
 			}
+			else // shutting down or rebooting
+			{
+				k_thread_abort(button_thread_id);
+			}
 		}
 		k_msleep(20);
 	}
@@ -448,9 +452,8 @@ int sys_user_shutdown(void)
 		reboot_counter_write(0); // shutdown flag
 		while (!button_read()) // waiting for pattern, if button is pressed again reboot immedately
 		{
-			if (k_uptime_get() - start_time > 1500) // length of pattern elapsed
+			if (k_uptime_get() - start_time > 1250) // length of pattern elapsed
 			{
-				set_led(SYS_LED_PATTERN_OFF_FORCE, SYS_LED_PRIORITY_HIGHEST);
 				sys_request_system_off(false);
 				return 0;
 			}
