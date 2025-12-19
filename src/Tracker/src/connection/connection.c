@@ -300,7 +300,10 @@ void connection_write_packet_5() // runtime
 	data[0] = 5; // packet 5
 	data[1] = tracker_id;
 	int64_t *buf = (int64_t *)&data[2];
-	buf[0] = k_ticks_to_us_floor64(sys_get_battery_remaining_time_estimate());
+	if (sys_get_valid_battery_pptt() >= 0)
+		buf[0] = k_ticks_to_us_floor64(sys_get_battery_remaining_time_estimate());
+	else
+		buf[0] = -1; // no valid reading yet, but previous estimate may still be valid
 	k_mutex_lock(&data_buffer_mutex, K_FOREVER);
 	memcpy(data_buffer, data, sizeof(data));
 	last_data_time = k_uptime_get(); // TODO: use ticks
