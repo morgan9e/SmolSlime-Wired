@@ -563,7 +563,7 @@ enum sensor_sensor_timeout {
 static enum sensor_sensor_timeout sensor_timeout = SENSOR_SENSOR_TIMEOUT_IMU;
 
 // Check the IMU gyroscope // TODO: gyro sanity not used
- // TODO: timeouts and power management should be outside sensor! (ie. sleeping/shutdown even if the imu completely errored out)
+ // TODO: timeouts and power management should be outside sensor! (e.g. sleeping/shutdown even if the imu completely errored out)
  // all this really means is that this should be called in sensor loop while the sensor is in an error state
 static void sensor_update_sensor_state(void)
 {

@@ -267,7 +267,7 @@ void sys_update_battery_tracker(int16_t pptt, bool plugged)
 			update_statistics();
 			reset_tracker(pptt);
 		}
-		else if (last_saved_pptt != -1 && pptt < last_saved_pptt - 100 && k_uptime_ticks() - last_saved_time <= CONFIG_SYS_CLOCK_TICKS_PER_SEC * 60) // rapid "discharge" (ex. after unplugging)
+		else if (last_saved_pptt != -1 && pptt < last_saved_pptt - 100 && k_uptime_ticks() - last_saved_time <= CONFIG_SYS_CLOCK_TICKS_PER_SEC * 60) // rapid "discharge" (e.g. after unplugging)
 		{
 			uint64_t now = k_uptime_ticks();
 			uint64_t delta = k_ticks_to_us_floor64(now - last_saved_time);
