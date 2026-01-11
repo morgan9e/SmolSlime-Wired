@@ -804,9 +804,12 @@ void sensor_loop(void)
 				sensor_mag->mag_oneshot();
 
 			// Read IMU temperature
-			temp = sensor_imu->temp_read(); // TODO: use as calibration data
-			last_temp_time = k_uptime_get();
-			connection_update_sensor_temp(temp);
+			err = sensor_imu->temp_read(&temp); // TODO: use as calibration data
+			if (!err)
+			{
+				last_temp_time = k_uptime_get();
+				connection_update_sensor_temp(temp);
+			}
 
 			// Read gyroscope (FIFO)
 			uint16_t data_size = CONFIG_1_SETTINGS_READ(CONFIG_1_SENSOR_USE_LOW_POWER_2) ? 1900 : 1024; // Limit FIFO read to 2048 bytes (worst case is ICM 20 byte packet at 1000Hz and 100ms update time)

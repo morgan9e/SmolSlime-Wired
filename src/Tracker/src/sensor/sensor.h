@@ -82,7 +82,7 @@ typedef struct sensor_imu {
 	int (*fifo_process)(uint16_t, uint8_t*, float[3], float[3]); // g, deg/s
 	void (*accel_read)(float[3]); // g
 	void (*gyro_read)(float[3]); // deg/s
-	float (*temp_read)(void); // deg C
+	int (*temp_read)(float*); // deg C, return 0 if success, -1 if error
 
 	uint8_t (*setup_DRDY)(uint16_t);
 	uint8_t (*setup_WOM)(void);
