@@ -432,7 +432,7 @@ static void led_thread(void)
 		case SYS_LED_PATTERN_CRITICAL:
 			led_pattern_state = (led_pattern_state + 1) % 2;
 			led_pin_set(SYS_LED_COLOR_ERROR, 10000, led_pattern_state * 10000);
-			k_msleep(200);
+			k_msleep(100);
 			break;
 
 		default:
