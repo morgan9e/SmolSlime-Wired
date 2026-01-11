@@ -558,6 +558,7 @@ static void power_thread(void)
 
 		device_charged = charged; // TODO: timer on device_plugged could be used to infer charged state
 
+		static bool adc_abnormal = false;
 		if (!power_init)
 		{
 			// log battery state once
@@ -568,7 +569,7 @@ static void power_thread(void)
 			if (abnormal_reading)
 			{
 				LOG_ERR("Battery voltage reading is abnormal");
-				set_status(SYS_STATUS_SYSTEM_ERROR, true);
+				adc_abnormal = true;
 			}
 			set_regulator(SYS_REGULATOR_DCDC); // Switch to DCDC
 			power_init = true;
@@ -603,6 +604,11 @@ static void power_thread(void)
 		calibrated_battery_pptt = sys_get_calibrated_battery_pptt(current_battery_pptt);
 
 		connection_update_battery(battery_available, device_plugged, device_charged, calibrated_battery_pptt, battery_mV);
+
+		if ((adc_abnormal || chg_ret) && !get_status(SYS_STATUS_SYSTEM_ERROR))
+			set_status(SYS_STATUS_SYSTEM_ERROR, true);
+		else if (get_status(SYS_STATUS_SYSTEM_ERROR))
+			set_status(SYS_STATUS_SYSTEM_ERROR, false);
 
 		if (chg_ret)
 			set_led(SYS_LED_PATTERN_CRITICAL, SYS_LED_PRIORITY_CRITICAL);
