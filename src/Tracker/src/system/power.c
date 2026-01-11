@@ -43,7 +43,7 @@ static bool device_plugged = false;
 static bool device_charged = false;
 
 static bool chg_temp_warn = false;
-static int64 last_valid_temp = -1;
+static int64_t last_valid_temp = -1;
 
 LOG_MODULE_REGISTER(power, LOG_LEVEL_INF);
 
