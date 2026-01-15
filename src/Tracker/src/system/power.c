@@ -611,7 +611,7 @@ static void power_thread(void)
 
 		if ((adc_abnormal || chg_ret) && !get_status(SYS_STATUS_SYSTEM_ERROR))
 			set_status(SYS_STATUS_SYSTEM_ERROR, true);
-		else if (get_status(SYS_STATUS_SYSTEM_ERROR))
+		else if ((!adc_abnormal && !chg_ret) && get_status(SYS_STATUS_SYSTEM_ERROR))
 			set_status(SYS_STATUS_SYSTEM_ERROR, false);
 
 		if (chg_ret)
