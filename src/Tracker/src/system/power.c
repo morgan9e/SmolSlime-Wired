@@ -213,11 +213,15 @@ static int set_charger_enable(bool enable, bool plugged)
 #elif CONFIG_BATTERY_CHARGER_HAS_NTC
 	// charger has implemented NTC and does not have enable pin, can ignore
 #else
+	static bool err = false;
 	if (!enable && plugged)
 	{
-		LOG_ERR("Cannot disable charger");
+		if (!err)
+			LOG_ERR("Cannot disable charger");
+		err = true;
 		return -1;
 	}
+	err = false;
 #endif
 	return 0;
 }
