@@ -1,6 +1,66 @@
 menu "Slime Hub"
 
+choice HUB_INPUT
+	prompt "Tracker input"
+	default HUB_INPUT_WIRED if IDF_TARGET_ESP32S3
+	default HUB_INPUT_RECEIVER
+	help
+		Where the tracker data comes from.
+
+	config HUB_INPUT_RECEIVER
+		bool "nRF receiver UART mirror (trackers over radio)"
+
+	config HUB_INPUT_WIRED
+		bool "Wired tracker chains (no receiver, no radio)"
+		help
+			Trackers in wired chain mode send upstream over UART; each chain
+			ends on one RX pin of the hub. Trackers are told apart by the
+			address in their frames, so nothing needs pairing.
+endchoice
+
+menu "Wired chains"
+	depends on HUB_INPUT_WIRED
+
+	config HUB_WIRED_CHAINS
+		int "Number of chains"
+		default 3 if IDF_TARGET_ESP32S3
+		default 2
+		range 1 3
+		help
+			One UART per chain. The ESP32-C6 has two, the ESP32-S3 three.
+
+	config HUB_WIRED_BAUD
+		int "Baud rate"
+		default 460800
+
+	config HUB_WIRED_CHAIN1_RX_GPIO
+		int "Chain 1 RX GPIO"
+		default 44 if IDF_TARGET_ESP32S3
+		default 17 if IDF_TARGET_ESP32C6
+		default 5
+		help
+			XIAO pin D7: GPIO44 on the ESP32-S3, GPIO17 on the ESP32-C6.
+
+	config HUB_WIRED_CHAIN2_RX_GPIO
+		int "Chain 2 RX GPIO"
+		default 7 if IDF_TARGET_ESP32S3
+		default 19 if IDF_TARGET_ESP32C6
+		default 6
+		help
+			XIAO pin D8: GPIO7 on the ESP32-S3, GPIO19 on the ESP32-C6.
+
+	config HUB_WIRED_CHAIN3_RX_GPIO
+		int "Chain 3 RX GPIO"
+		default 8 if IDF_TARGET_ESP32S3
+		default 20 if IDF_TARGET_ESP32C6
+		default 7
+		help
+			XIAO pin D9: GPIO8 on the ESP32-S3. Unused on the ESP32-C6 (two UARTs).
+endmenu
+
 menu "Receiver UART"
+	depends on HUB_INPUT_RECEIVER
+
 	config HUB_UART_PORT
 		int "UART port number"
 		default 1

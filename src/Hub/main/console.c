@@ -10,6 +10,7 @@
 #include "freertos/task.h"
 #include "hub_config.h"
 #include "lwip/inet.h"
+#include "wired_rx.h"
 
 static const char *TAG = "console";
 
@@ -65,6 +66,14 @@ static int cmd_server(int argc, char **argv)
 	return 0;
 }
 
+#if CONFIG_HUB_INPUT_WIRED
+static int cmd_trackers(int argc, char **argv)
+{
+	wired_rx_print();
+	return 0;
+}
+#endif
+
 static int cmd_reboot(int argc, char **argv)
 {
 	esp_restart();
@@ -97,6 +106,9 @@ void console_start(void)
 		{.command = "wifi", .help = "Store Wi-Fi credentials and reboot: wifi <ssid> [password]", .func = cmd_wifi},
 		{.command = "server", .help = "Fix the SlimeVR server IP, or 'auto' to discover: server <ip>|auto", .func = cmd_server},
 		{.command = "reboot", .help = "Restart the hub", .func = cmd_reboot},
+#if CONFIG_HUB_INPUT_WIRED
+		{.command = "trackers", .help = "Show the wired chains and the trackers seen on them", .func = cmd_trackers},
+#endif
 	};
 	for (size_t i = 0; i < sizeof(cmds) / sizeof(cmds[0]); i++)
 		esp_console_cmd_register(&cmds[i]);

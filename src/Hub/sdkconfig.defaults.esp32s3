@@ -1,3 +1,5 @@
 # Seeed XIAO ESP32-S3: 8 MB flash, 8 MB PSRAM (unused).
+# Wired tracker chains on D7, D8, D9 (no receiver).
+CONFIG_HUB_INPUT_WIRED=y
 CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
 CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y

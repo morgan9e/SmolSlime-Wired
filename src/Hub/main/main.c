@@ -1,5 +1,6 @@
-// Slime Hub: reads the SlimeVR nRF receiver's UART mirror and presents each tracker
-// to the SlimeVR Server over Wi-Fi as a stock UDP tracker.
+// Slime Hub: reads the trackers, either from the SlimeVR nRF receiver's UART mirror or
+// straight from wired tracker chains, and presents each tracker to the SlimeVR Server over
+// Wi-Fi as a stock UDP tracker.
 #include "board.h"
 #include "console.h"
 #include "esp_log.h"
@@ -11,6 +12,7 @@
 #include "nvs_flash.h"
 #include "slime.h"
 #include "uart_rx.h"
+#include "wired_rx.h"
 
 void app_main(void)
 {
@@ -30,6 +32,10 @@ void app_main(void)
 	QueueHandle_t q = xQueueCreate(HUB_SAMPLE_QUEUE_LEN, sizeof(hub_sample_t));
 	configASSERT(q);
 	slime_start(q, cfg.server_ip);
+#if CONFIG_HUB_INPUT_WIRED
+	wired_rx_start(q);
+#else
 	uart_rx_start(q);
+#endif
 	console_start();
 }

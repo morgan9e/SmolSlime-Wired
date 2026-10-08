@@ -12,7 +12,17 @@ XIAO ESP32-S3 (see Build). An ESP32-C5 also works with `-D IDF_TARGET=esp32c5`, 
 RX and LED pins set in menuconfig. The C6 is 2.4 GHz only like the S3; the C5 remains the
 5 GHz fallback if Wi-Fi beside the receiver causes loss.
 
-## Wiring
+## Wired chains (XIAO ESP32-S3)
+
+The S3 build reads up to three wired tracker chains instead of the receiver
+(`Slime Hub > Tracker input`, default on the S3): chain 1 on D7 (GPIO44), chain 2 on D8
+(GPIO7), chain 3 on D9 (GPIO8), 460800 baud, plus GND to each chain's ground wire. Each
+tracker in a chain sends ADATA frames (`main/wired_link.h`): its address, the 16-byte tracker
+packet and a CRC-32K over both. Trackers get hub ids in the order they first appear; the
+SlimeVR server knows them by address. The console command `trackers` shows frames, bad frames
+and sequence gaps per chain and per tracker. The C6 build keeps reading the receiver.
+
+## Wiring (receiver)
 
 | Receiver (ProMicro) | XIAO pin | C6 GPIO | S3 GPIO | Notes |
 | --- | --- | --- | --- | --- |

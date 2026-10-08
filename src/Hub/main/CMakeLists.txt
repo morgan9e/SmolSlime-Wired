@@ -9,6 +9,8 @@ idf_component_register(
 		"hub_config.c"
 		"net.c"
 		"uart_rx.c"
+		"wired_link.c"
+		"wired_rx.c"
 		"slime.c"
 		"hub_batt.c"
 		"console.c"

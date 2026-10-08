@@ -9,6 +9,7 @@
 #include "crc16.h"
 #include "decoder.h"
 #include "deframer.h"
+#include "wired_link.h"
 
 static int failures;
 #define CHECK(cond, ...)                                                   \
@@ -283,6 +284,85 @@ static void test_deframer(void)
 	CHECK(ok == 6 && bad == 2, "deframer ok %d bad %d", ok, bad);
 }
 
+// Wired chain frames: CRC-32K/4.2 as the tracker computes it (values from Zephyr's
+// crc32_k_4_2_update(0x93a409eb, ...)), two trackers interleaved on one chain, corruption.
+static void test_wired_link(void)
+{
+	CHECK(wl_crc32k((const uint8_t *)"123456789", 9) == 0x39E26D1Cu, "crc32k check value %08X",
+	      (unsigned)wl_crc32k((const uint8_t *)"123456789", 9));
+	uint8_t pat[22];
+	for (int i = 0; i < 22; i++)
+		pat[i] = (uint8_t)(i * 37 + 5);
+	CHECK(wl_crc32k(pat, 22) == 0xDA0420DEu, "crc32k pattern %08X", (unsigned)wl_crc32k(pat, 22));
+
+	const uint8_t a1[6] = {0x59, 0x47, 0xFA, 0x76, 0xE8, 0xDE}, a2[6] = {0x20, 0xB2, 0x94, 0x4F, 0x1D, 0xD8};
+	const uint8_t fw[3] = {0, 1, 2};
+	uint8_t pkt[HUB_PKT_LEN];
+	memset(pkt, 0, sizeof(pkt));
+	pkt[0] = 1;
+	pkt[1] = 0xFF;
+	for (int i = 2; i < HUB_PKT_LEN; i++)
+		pkt[i] = (uint8_t)(i * 29); // includes a zero byte
+	uint8_t stream[512];
+	size_t n = 0;
+	stream[n++] = 0x42; // partial frame before the first delimiter: not counted
+	stream[n++] = 0;
+	n += wl_encode_hello(a1, fw, stream + n);
+	for (int s = 0; s < 3; s++) {
+		n += wl_encode_adata(a1, pkt, (uint8_t)(10 + s), stream + n);
+		n += wl_encode_adata(a2, pkt, (uint8_t)(200 + s), stream + n);
+	}
+	size_t corrupt_at = n;
+	n += wl_encode_adata(a2, pkt, 9, stream + n);
+	stream[corrupt_at + 8] ^= 0x10; // payload bit flip: CRC must fail
+	if (stream[corrupt_at + 8] == 0)
+		stream[corrupt_at + 8] = 0x10;
+	uint8_t legacy[24] = {3, 0x01, 1, 0xFF, 0}; // a short legacy DATA-like frame: bad, not data
+	memcpy(stream + n, legacy, 4);
+	n += 4;
+	stream[n++] = 0;
+	CHECK(n <= sizeof(stream), "stream overflow");
+
+	wl_deframer_t d;
+	wl_reset(&d);
+	wl_table_t t = {0};
+	int hellos = 0, data1 = 0, data2 = 0, bad = 0, ids[2] = {-1, -1};
+	for (size_t i = 0; i < n; i++) {
+		wl_frame_t f;
+		wl_result_t r = wl_push(&d, stream[i], &f);
+		if (r == WL_BAD) {
+			bad++;
+			continue;
+		}
+		if (r == WL_NONE)
+			continue;
+		bool added;
+		int id = wl_table_id(&t, f.addr, &added);
+		if (r == WL_HELLO) {
+			hellos++;
+			CHECK(memcmp(f.addr, a1, 6) == 0 && f.fw[2] == 2, "hello contents");
+			continue;
+		}
+		CHECK(memcmp(f.pkt, pkt, HUB_PKT_LEN) == 0, "packet changed");
+		if (memcmp(f.addr, a1, 6) == 0) {
+			CHECK(f.seq == 10 + data1, "seq a1 %u", f.seq);
+			ids[0] = id;
+			data1++;
+		} else {
+			CHECK(f.seq == 200 + data2, "seq a2 %u", f.seq);
+			ids[1] = id;
+			data2++;
+		}
+	}
+	CHECK(hellos == 1 && data1 == 3 && data2 == 3 && bad == 2, "wired hellos %d data %d/%d bad %d", hellos, data1,
+	      data2, bad);
+	CHECK(ids[0] == 0 && ids[1] == 1 && t.count == 2, "ids in order of first sight: %d %d", ids[0], ids[1]);
+	bool added;
+	CHECK(wl_table_id(&t, a2, &added) == 1 && !added, "known address keeps its id");
+	uint8_t enc[40];
+	CHECK(wl_encode_adata(a1, pkt, 0, enc) <= 30, "ADATA wire size");
+}
+
 int main(void)
 {
 	srand(1234);
@@ -293,6 +373,7 @@ int main(void)
 	test_misc_types();
 	test_wire_frame();
 	test_deframer();
+	test_wired_link();
 	if (failures) {
 		printf("%d FAILURE(S)\n", failures);
 		return 1;

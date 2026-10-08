@@ -1,5 +1,9 @@
 #include "uart_rx.h"
 
+#include "sdkconfig.h"
+
+#if CONFIG_HUB_INPUT_RECEIVER
+
 #include <string.h>
 
 #include "deframer.h"
@@ -94,3 +98,5 @@ void uart_rx_start(QueueHandle_t sample_q)
 	ESP_LOGI(TAG, "UART%d RX on GPIO%d at %d baud", CONFIG_HUB_UART_PORT, CONFIG_HUB_UART_RX_GPIO,
 		 CONFIG_HUB_UART_BAUD);
 }
+
+#endif // CONFIG_HUB_INPUT_RECEIVER
