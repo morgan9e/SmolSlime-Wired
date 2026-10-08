@@ -24,6 +24,7 @@
 #include "system/system.h"
 #include "hid.h"
 #include "tdma.h"
+#include "packet_log.h"
 
 #include <zephyr/drivers/clock_control/nrf_clock_control.h>
 #include <zephyr/sys/crc.h>
@@ -55,7 +56,7 @@ K_THREAD_DEFINE(esb_packet_filter_thread_id, 256, esb_packet_filter_thread, NULL
 static void esb_thread(void);
 K_THREAD_DEFINE(esb_thread_id, 1024, esb_thread, NULL, NULL, NULL, 6, 0, 0);
 
-static void esb_parse_pair(void);
+static bool esb_parse_pair(uint64_t *new_addr);
 
 //|type    |description
 //|RX  CRC8|pairing
@@ -149,11 +150,19 @@ void event_handler(struct esb_evt const *event)
 				uint8_t tracker_id = rx_payload.data[1];
 				uint8_t next = sequences[tracker_id] + 1; // wrap
 				if(seq != 0 && sequences[tracker_id] != 0 && next != seq) {
+					// The tracker missed our ACK and sent the frame again. The radio's own duplicate
+					// filter only compares with the last packet on the pipe, which all trackers share.
+					if (seq == sequences[tracker_id] && k_uptime_get() - last_seq_time[tracker_id] < 100)
+					{
+						packet_log_drop(tracker_id, PACKET_DROP_DUPLICATE);
+						break;
+					}
 					if (k_uptime_get() - last_seq_time[tracker_id] < 100 && ((next < 128) // reset sequence if last packet was over 100ms old
 						? ((seq < next) || (seq >= next + 128)) // next 0-127: seq is below next or above or equal to next +128
 						: ((seq < next) && (seq >= next - 128)))) // next 128-255: seq is below next and above or equal to next -128
 					{
 						LOG_WRN("Sequence missmatch for tracker %d, expected %d, got %d. Discarding.", tracker_id, next, seq);
+						packet_log_drop(tracker_id, PACKET_DROP_SEQUENCE);
 						break;
 					}
 				}
@@ -167,13 +176,17 @@ void event_handler(struct esb_evt const *event)
 				{
 					LOG_ERR("Incorrect checksum, computed %08X, received %08X", crc_check, *crc_ptr);
 					printk("%08llx%016llX%016llX\n", *(uint64_t *)&rx_payload.data[16] & 0XFFFFFFFF, *(uint64_t *)&rx_payload.data[8], *(uint64_t *)rx_payload.data);
+					packet_log_drop(rx_payload.data[1], PACKET_DROP_CHECKSUM);
 					break;
 				}
 				// Fall-throught
 			case 16:
 				uint8_t imu_id = rx_payload.data[1];
 				if (imu_id >= stored_trackers) // not a stored tracker
+				{
+					packet_log_drop(imu_id, PACKET_DROP_UNKNOWN_ID);
 					continue;
+				}
 				if (discovered_trackers[imu_id] < DETECTION_THRESHOLD) // garbage filtering of nonexistent tracker
 				{
 					discovered_trackers[imu_id]++;
@@ -241,6 +254,20 @@ static const uint8_t discovery_base_addr_1[4] = {0x28, 0xFF, 0x50, 0xB8}; // TOD
 static const uint8_t discovery_addr_prefix[8] = {0xFE, 0xFF, 0x29, 0x27, 0x09, 0x02, 0xB2, 0xD6};
 
 static uint8_t base_addr_0[4], base_addr_1[4], addr_prefix[8] = {0};
+
+// Bumped by "clear". Tracker ids are positions in the stored list, and a tracker keeps its id
+// until it pairs again, so after a clear the old trackers would collide with the renumbered new
+// ones. A new generation gives the receiver a new radio address instead: trackers paired before
+// get no ACKs, and re-pair (the tracker firmware does that by itself) for a fresh id.
+static uint16_t pairing_generation;
+
+uint64_t esb_radio_addr(void)
+{
+	uint64_t addr = *(uint64_t *)NRF_FICR->DEVICEADDR & 0xFFFFFFFFFFFF; // generation 0: as stock
+	if (pairing_generation)
+		addr ^= ((uint64_t)pairing_generation * 0x9E3779B97F4Bull) & 0xFFFFFFFFFFFF;
+	return addr;
+}
 
 static bool esb_initialized = false;
 
@@ -334,10 +361,10 @@ inline void esb_set_addr_discovery(void)
 
 inline void esb_set_addr_paired(void)
 {
-	// Generate addresses from device address
-	uint64_t *addr = (uint64_t *)NRF_FICR->DEVICEADDR; // Use device address as unique identifier (although it is not actually guaranteed, see datasheet)
+	// Generate addresses from the radio address (the device address until the first "clear")
+	uint64_t addr = esb_radio_addr();
 	uint8_t buf[6] = {0};
-	memcpy(buf, addr, 6);
+	memcpy(buf, &addr, 6);
 	uint8_t addr_buffer[16] = {0};
 	for (int i = 0; i < 4; i++)
 	{
@@ -393,8 +420,7 @@ void esb_add_pair(uint64_t addr, bool checksum)
 		uint8_t checksum = crc8_ccitt(0x07, buf, 6);
 		if (checksum == 0)
 			checksum = 8;
-		uint64_t *receiver_addr = (uint64_t *)NRF_FICR->DEVICEADDR; // Use device address as unique identifier (although it is not actually guaranteed, see datasheet
-		addr = (*receiver_addr & 0xFFFFFFFFFFFF) << 16;
+		addr = esb_radio_addr() << 16;
 		addr |= checksum; // Add checksum to the address
 		addr |= (uint64_t)id << 8; // Add tracker id to the address
 		LOG_INF("Pair the device with %016llX", addr);
@@ -415,8 +441,13 @@ void esb_pop_pair(void)
 	}
 }
 
-void esb_parse_pair()
+// Fills tx_payload_pair with the reply for the request in pairing_buf.
+// Returns true if the request came from a new device that still has to be stored.
+// The caller queues the reply before storing: the tracker's second packet arrives a few
+// hundred microseconds after the first, and the two NVS writes in esb_add_pair() would miss it.
+static bool esb_parse_pair(uint64_t *new_addr)
 {
+	bool add = false;
 	uint64_t found_addr = (*(uint64_t *)pairing_buf >> 16) & 0xFFFFFFFFFFFF;
 	uint16_t send_tracker_id = stored_trackers; // Use new tracker id
 	for (int i = 0; i < stored_trackers; i++) // Check if the device is already stored
@@ -432,14 +463,15 @@ void esb_parse_pair()
 		checksum = 8;
 	if (checksum == pairing_buf[0] && found_addr != 0 && send_tracker_id == stored_trackers && stored_trackers < MAX_TRACKERS) // New device, add to NVS
 	{
-		esb_add_pair(found_addr, false);
-		set_led(SYS_LED_PATTERN_ONESHOT_PROGRESS, SYS_LED_PRIORITY_HIGHEST);
+		*new_addr = found_addr;
+		add = true;
 	}
 	if (checksum == pairing_buf[0] && send_tracker_id < MAX_TRACKERS) // Make sure the dongle is not full
 		tx_payload_pair.data[0] = pairing_buf[0]; // Use checksum sent from device to make sure packet is for that device
 	else
 		tx_payload_pair.data[0] = 0; // Invalidate packet
 	tx_payload_pair.data[1] = send_tracker_id; // Add tracker id to packet
+	return add;
 }
 
 void esb_pair(void)
@@ -450,9 +482,9 @@ void esb_pair(void)
 	esb_start_rx();
 	tx_payload_pair.pipe = 0;
 	tx_payload_pair.noack = false;
-	uint64_t *addr = (uint64_t *)NRF_FICR->DEVICEADDR; // Use device address as unique identifier (although it is not actually guaranteed, see datasheet)
-	memcpy(&tx_payload_pair.data[2], addr, 6);
-	LOG_INF("Device address: %012llX", *addr & 0xFFFFFFFFFFFF);
+	uint64_t addr = esb_radio_addr(); // trackers derive their pipe addresses from this
+	memcpy(&tx_payload_pair.data[2], &addr, 6);
+	LOG_INF("Radio address: %012llX (pairing generation %u)", addr, pairing_generation);
 	set_led(SYS_LED_PATTERN_SHORT, SYS_LED_PRIORITY_CONNECTION);
 	esb_pairing = true;
 	pairing_buf[1] = 255; // initialize packet flag
@@ -463,24 +495,33 @@ void esb_pair(void)
 			esb_initialize(false);
 			esb_start_rx();
 		}
+		uint64_t new_addr;
 		switch (pairing_buf[1])
 		{
 		case 0: // first packet in pairing burst
-			esb_parse_pair();
+			pairing_buf[1] = 255; // flag packet processed
+			bool add = esb_parse_pair(&new_addr);
 			LOG_DBG("tx: %16llX", *(uint64_t *)tx_payload_pair.data);
 //			esb_flush_tx();
-			esb_write_payload(&tx_payload_pair); // Add to TX buffer
-			pairing_buf[1] = 255; // flag packet processed
+			esb_write_payload(&tx_payload_pair); // Add to TX buffer, before the slow NVS writes
+			if (add)
+			{
+				esb_add_pair(new_addr, false);
+				set_led(SYS_LED_PATTERN_ONESHOT_PROGRESS, SYS_LED_PRIORITY_HIGHEST);
+			}
 			k_msleep(10);
 			esb_flush_tx(); // Flush TX buffer for next pairing burst
 			continue;
 		case 2:
+			pairing_buf[1] = 255; // flag packet processed
 			esb_flush_tx(); // Flush TX buffer for next pairing burst
+			break;
 		case 255:
 		default:
+			// Nothing to do. Do not reset the flag here: a request that arrived since the
+			// switch would be lost.
 			break;
 		}
-		pairing_buf[1] = 255; // flag packet processed
 		//esb_flush_rx();
 		//esb_flush_tx();
 		//esb_write_payload(&tx_payload_pair); // Add to TX buffer
@@ -501,11 +542,21 @@ void esb_finish_pair(void)
 	esb_pairing = false;
 }
 
+bool esb_pairing_active(void)
+{
+	// True while pairing, and between a pair request and the ESB thread entering pairing.
+	return esb_pairing || !esb_paired;
+}
+
 void esb_clear(void)
 {
 	stored_trackers = 0;
 	sys_write(STORED_TRACKERS, NULL, &stored_trackers, sizeof(stored_trackers));
-	LOG_INF("NVS Reset");
+	pairing_generation++;
+	if (pairing_generation == 0)
+		pairing_generation = 1; // 0 means the stock address
+	sys_write(PAIRING_GENERATION, NULL, &pairing_generation, sizeof(pairing_generation));
+	LOG_INF("NVS Reset, new radio address %012llX: trackers paired before re-pair while pairing mode is on", esb_radio_addr());
 	esb_reset_pair();
 }
 
@@ -543,6 +594,7 @@ static void esb_thread(void)
 {
 	clocks_start();
 
+	sys_read(PAIRING_GENERATION, &pairing_generation, sizeof(pairing_generation));
 	sys_read(STORED_TRACKERS, &stored_trackers, sizeof(stored_trackers));
 	if (stored_trackers)
 		esb_paired = true;

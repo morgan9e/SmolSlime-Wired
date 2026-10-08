@@ -21,6 +21,8 @@
 	THE SOFTWARE.
 */
 #include "globals.h"
+#include "mirror.h"
+#include "packet_log.h"
 
 #include <zephyr/kernel.h>
 #include <zephyr/usb/usb_device.h>
@@ -78,6 +80,7 @@ static const uint8_t hid_report_desc[] = {
 };
 
 uint16_t sent_device_addr = 0;
+static atomic_t reports_on = ATOMIC_INIT(1); // "hid off" clears it until reboot
 bool usb_enabled = false;
 int64_t last_registration_sent = 0;
 
@@ -111,9 +114,22 @@ static void packet_device_addr(uint8_t *report, uint16_t id) // associate id and
 static uint32_t dropped_reports = 0;
 static uint16_t max_dropped_reports = 0;
 
+void hid_set_reports_enabled(bool on)
+{
+	atomic_set(&reports_on, on);
+	if (!on) // drop what is queued, so turning it back on starts fresh
+		atomic_set(&report_read_index, atomic_get(&report_write_index));
+}
+
+bool hid_reports_enabled(void)
+{
+	return atomic_get(&reports_on);
+}
+
 static void send_report(struct k_work *work)
 {
 	if (!usb_enabled) return;
+	if (!atomic_get(&reports_on)) return; // no tracker data and no address packets
 	if (!stored_trackers) return;
 
 	// Get current FIFO status atomically
@@ -357,6 +373,10 @@ void hid_write_packet_n(uint8_t *data, uint8_t rssi)
 	memcpy(&report.data, data, sizeof(report)); // all data can be passed through
 	if (data[0] != 1 && data[0] != 4) // packet 1 and 4 are full precision quat and accel/mag, no room for rssi
 		report.data[15] = rssi;
+	mirror_put(report.data); // every packet goes to the hub UART, before the HID FIFO merges per tracker
+	packet_log_put(report.data, rssi);
+	if (!atomic_get(&reports_on))
+		return;
 	// Get current FIFO status atomically
 	size_t write_idx = (size_t)atomic_get(&report_write_index);
 	size_t read_idx = (size_t)atomic_get(&report_read_index);

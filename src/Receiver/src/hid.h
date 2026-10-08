@@ -23,8 +23,14 @@
 #ifndef SLIMENRF_HID
 #define SLIMENRF_HID
 
+#include <stdbool.h>
 #include <stdint.h>
 
 void hid_write_packet_n(uint8_t *data, uint8_t rssi);
+
+// Tracker reports over USB HID (the "hid" console command). Off: the server sees no trackers
+// from this receiver over USB; the console, the hub mirror and the logs keep working.
+void hid_set_reports_enabled(bool on);
+bool hid_reports_enabled(void);
 
 #endif

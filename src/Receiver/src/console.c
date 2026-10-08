@@ -24,6 +24,8 @@
 #include "system/system.h"
 #include "build_defines.h"
 #include "parse_args.h"
+#include "hid.h"
+#include "mirror.h"
 
 #define USB DT_NODELABEL(usbd)
 #if DT_NODE_HAS_STATUS(USB, okay)
@@ -120,6 +122,7 @@ static void print_info(void)
 	printk("Target: " CONFIG_BOARD_TARGET "\n");
 
 	printk("\nDevice address: %012llX\n", *(uint64_t *)NRF_FICR->DEVICEADDR & 0xFFFFFFFFFFFF);
+	printk("Radio address: %012llX\n", esb_radio_addr());
 }
 
 static void print_uptime(void)
@@ -179,6 +182,10 @@ static void print_help(void)
 	printk("pair                         Enter pairing mode\n");
 	printk("exit                         Exit pairing mode\n");
 	printk("clear                        Clear stored devices\n");
+	printk("\nhid [on|off]                 Send tracker data to the PC over USB (on at boot)\n");
+#if CONFIG_HUB_UART_MIRROR
+	printk("mirror [on|off]              Send tracker data to the ESP32 hub over UART (on at boot)\n");
+#endif
 #if DFU_EXISTS
 	printk("\ndfu                          Enter DFU bootloader\n");
 #endif
@@ -210,6 +217,8 @@ static void console_thread(void)
 	const char command_dfu[] = "dfu";
 #endif
 	const char command_meow[] = "meow";
+	const char command_hid[] = "hid";
+	const char command_mirror[] = "mirror";
 
 	while (1) {
 		char *line = console_getline();
@@ -291,6 +300,27 @@ static void console_thread(void)
 		else if (strcmp(line, command_meow) == 0)
 		{
 			print_meow();
+		}
+		else if (strcmp(argv[0], command_hid) == 0)
+		{
+			if (argc > 1 && (strcmp(argv[1], "on") == 0 || strcmp(argv[1], "off") == 0))
+				hid_set_reports_enabled(strcmp(argv[1], "on") == 0);
+			else if (argc > 1)
+				printk("Usage: hid [on|off]\n");
+			printk("USB HID tracker data %s\n", hid_reports_enabled() ? "on" : "off");
+		}
+		else if (strcmp(argv[0], command_mirror) == 0)
+		{
+			if (!IS_ENABLED(CONFIG_HUB_UART_MIRROR))
+				printk("This build has no hub UART mirror\n");
+			else
+			{
+				if (argc > 1 && (strcmp(argv[1], "on") == 0 || strcmp(argv[1], "off") == 0))
+					mirror_set_enabled(strcmp(argv[1], "on") == 0);
+				else if (argc > 1)
+					printk("Usage: mirror [on|off]\n");
+				printk("Hub UART mirror %s\n", mirror_enabled() ? "on" : "paused");
+			}
 		}
 		else
 		{

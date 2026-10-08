@@ -52,4 +52,58 @@ config LED_DEFAULT_COLOR_B
 
 endmenu
 
+config PACKET_LOG
+    bool "Log received tracker orientations"
+    default y
+    help
+        Logs each tracker's latest orientation (roll, pitch, yaw in degrees)
+        and packet rate once per interval, e.g.
+        "Tracker 2 (3CA1B2C4D5E6): orientation X 12.3 Y -4.5 Z 170.2 deg, 98 pkt/s".
+
+config PACKET_LOG_INTERVAL_MS
+    int "Orientation log interval (ms)"
+    depends on PACKET_LOG
+    range 100 60000
+    default 1000
+
+DT_CHOSEN_HUB_UART := slimenrf,hub-uart
+
+menu "ESP32 hub"
+
+config HUB_UART_MIRROR
+    bool "Mirror tracker packets to the ESP32 hub over UART"
+    depends on $(dt_chosen_enabled,$(DT_CHOSEN_HUB_UART))
+    select SERIAL
+    select UART_ASYNC_API
+    select CRC
+    help
+        Sends every tracker packet passed to the HID path, plus a type 255
+        address packet per stored tracker every 100 ms, as
+        COBS(packet[16] + CRC16 little-endian) + 0x00 on the UART chosen as
+        "slimenrf,hub-uart". CRC16 is crc16_itu_t(0xFFFF, packet, 16).
+        USB HID keeps working unchanged.
+
+config HUB_UART_MIRROR_QUEUE_LEN
+    int "Mirror queue length (packets)"
+    depends on HUB_UART_MIRROR
+    default 64
+    help
+        The HID FIFO merges reports per tracker; the mirror sends every packet,
+        so it is sized for bursts. 64 covers about 50 ms at full rate.
+
+config HUB_UART_MIRROR_ADDR_PERIOD_MS
+    int "Address packet period (ms)"
+    depends on HUB_UART_MIRROR
+    default 100
+
+config PAIRING_BUTTON
+    bool "Toggle pairing mode with the sw0 button"
+    depends on $(dt_alias_enabled,sw0)
+    select GPIO
+    help
+        A short press enters pairing mode, the next press leaves it, the same
+        as the "pair" and "exit" console commands.
+
+endmenu
+
 source "Kconfig.zephyr"

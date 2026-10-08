@@ -38,8 +38,12 @@ void esb_pop_pair(void);
 void esb_pair(void);
 void esb_reset_pair(void);
 void esb_finish_pair(void);
+bool esb_pairing_active(void);
 void esb_clear(void);
 void esb_write_sync(uint16_t led_clock);
 void esb_receive(void);
+
+// Address trackers pair with; changes on every "clear" (see pairing_generation in esb.c).
+uint64_t esb_radio_addr(void);
 
 #endif
