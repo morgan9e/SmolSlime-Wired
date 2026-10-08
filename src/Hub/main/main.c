@@ -12,8 +12,6 @@
 #include "slime.h"
 #include "uart_rx.h"
 
-hub_counters_t g_hub;
-
 void app_main(void)
 {
 	board_init(); // antenna switch etc., before the radio starts

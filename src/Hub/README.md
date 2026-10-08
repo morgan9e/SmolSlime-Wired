@@ -89,7 +89,6 @@ Open the XIAO's USB serial port (115200, any terminal, or `idf.py monitor`) and 
 
 ```
 wifi "MyNetwork" mypassword     # stores credentials and reboots
-status                          # Wi-Fi, server, UART counters, per-tracker table
 server 192.168.0.10             # optional: fixed server IP if broadcast is blocked
 server auto                     # back to discovery
 ```

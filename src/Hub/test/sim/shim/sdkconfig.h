@@ -8,5 +8,4 @@
 #ifndef CONFIG_HUB_DROP_MS
 #define CONFIG_HUB_DROP_MS 30000
 #endif
-#define CONFIG_HUB_GAP_COUNT_MS 20
 #define CONFIG_HUB_LED_GPIO -1

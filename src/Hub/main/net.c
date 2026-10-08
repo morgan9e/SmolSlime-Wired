@@ -95,11 +95,3 @@ bool net_is_up(void)
 {
 	return s_up;
 }
-
-int net_rssi(void)
-{
-	wifi_ap_record_t ap;
-	if (!s_up || esp_wifi_sta_get_ap_info(&ap) != ESP_OK)
-		return 0;
-	return ap.rssi;
-}

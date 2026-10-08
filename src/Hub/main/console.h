@@ -1,4 +1,4 @@
-// USB console: wifi, server, status, reboot.
+// USB console: wifi, server, reboot.
 #pragma once
 
 void console_start(void);

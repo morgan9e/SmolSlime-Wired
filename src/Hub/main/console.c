@@ -10,7 +10,6 @@
 #include "freertos/task.h"
 #include "hub_config.h"
 #include "lwip/inet.h"
-#include "slime.h"
 
 static const char *TAG = "console";
 
@@ -66,12 +65,6 @@ static int cmd_server(int argc, char **argv)
 	return 0;
 }
 
-static int cmd_status(int argc, char **argv)
-{
-	slime_print_status();
-	return 0;
-}
-
 static int cmd_reboot(int argc, char **argv)
 {
 	esp_restart();
@@ -103,7 +96,6 @@ void console_start(void)
 	const esp_console_cmd_t cmds[] = {
 		{.command = "wifi", .help = "Store Wi-Fi credentials and reboot: wifi <ssid> [password]", .func = cmd_wifi},
 		{.command = "server", .help = "Fix the SlimeVR server IP, or 'auto' to discover: server <ip>|auto", .func = cmd_server},
-		{.command = "status", .help = "Show link, UART counters and per-tracker state", .func = cmd_status},
 		{.command = "reboot", .help = "Restart the hub", .func = cmd_reboot},
 	};
 	for (size_t i = 0; i < sizeof(cmds) / sizeof(cmds[0]); i++)

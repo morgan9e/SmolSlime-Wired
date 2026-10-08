@@ -28,19 +28,12 @@ static void feed(const uint8_t *buf, int n)
 	for (int i = 0; i < n; i++) {
 		switch (deframer_push(&s_df, buf[i], pkt)) {
 		case DF_OK:
-			g_hub.uart_ok++;
-			if (!decoder_parse(pkt, &s)) {
-				g_hub.uart_unknown++;
-				break;
-			}
+			if (!decoder_parse(pkt, &s))
+				break; // unknown packet type
 			s.t_us = now;
-			if (xQueueSend(s_sample_q, &s, 0) != pdTRUE)
-				g_hub.q_drop++;
+			xQueueSend(s_sample_q, &s, 0); // dropped if the queue is full
 			break;
-		case DF_BAD:
-			g_hub.uart_bad++;
-			break;
-		default:
+		default: // byte consumed, or a malformed frame
 			break;
 		}
 	}
@@ -63,14 +56,9 @@ static void uart_task(void *arg)
 		}
 		case UART_FIFO_OVF:
 		case UART_BUFFER_FULL:
-			g_hub.uart_ovf++;
 			uart_flush_input(PORT);
 			xQueueReset(s_event_q);
 			deframer_reset(&s_df);
-			break;
-		case UART_FRAME_ERR:
-		case UART_PARITY_ERR:
-			g_hub.uart_line_err++;
 			break;
 		default:
 			break;

@@ -5,7 +5,7 @@
 //   tracker 0: continuous
 //   tracker 1: 300 ms radio gap every 4 s
 //   tracker 2: silent from 8 to 15 s (server should time it out, then recover)
-//   one corrupted frame at 3 s (uart_bad should end at 1)
+//   one corrupted frame at 3 s (the deframer should report 1 bad frame)
 #include <arpa/inet.h>
 #include <math.h>
 #include <stdio.h>
@@ -23,10 +23,7 @@
 #include "net.h"
 #include "slime.h"
 
-hub_counters_t g_hub;
-
 bool net_is_up(void) { return true; }
-int net_rssi(void) { return -42; }
 void hub_batt_init(void) {}
 float hub_batt_volts(void) { return 3.91f; }
 
@@ -37,6 +34,7 @@ float hub_batt_volts(void) { return 3.91f; }
 static QueueHandle_t q;
 static deframer_t df;
 static volatile int corrupt_next;
+static unsigned frames_ok, frames_bad, frames_unknown, q_drops; // the sim's own tally
 
 static void wr16(uint8_t *p, int16_t v)
 {
@@ -59,17 +57,17 @@ static void push_packet(const uint8_t pkt[16])
 	for (size_t i = 0; i < n; i++) {
 		df_result_t r = deframer_push(&df, wire[i], out);
 		if (r == DF_OK) {
-			g_hub.uart_ok++;
+			frames_ok++;
 			hub_sample_t s;
 			if (!decoder_parse(out, &s)) {
-				g_hub.uart_unknown++;
+				frames_unknown++;
 				continue;
 			}
 			s.t_us = now;
 			if (xQueueSend(q, &s, 0) != pdTRUE)
-				g_hub.q_drop++;
+				q_drops++;
 		} else if (r == DF_BAD) {
-			g_hub.uart_bad++;
+			frames_bad++;
 		}
 	}
 }
@@ -145,7 +143,6 @@ int main(int argc, char **argv)
 	int64_t t0 = esp_timer_get_time();
 	int64_t next_rot[N_TRK] = {0}, next_100[N_TRK] = {0}, next_1s[N_TRK] = {0}, next_addr = 0;
 	bool corrupted = false;
-	int64_t next_status = 5000000;
 
 	for (;;) {
 		int64_t now = esp_timer_get_time() - t0;
@@ -193,15 +190,9 @@ int main(int argc, char **argv)
 				push_packet(p);
 			}
 		}
-		if (now >= next_status) {
-			next_status += 5000000;
-			fprintf(stderr, "---- t=%.1f s\n", t);
-			slime_print_status();
-		}
 		usleep(1000);
 	}
 
-	printf("==== final status\n");
-	slime_print_status();
+	printf("frames ok %u bad %u unknown %u, queue drops %u\n", frames_ok, frames_bad, frames_unknown, q_drops);
 	return 0;
 }

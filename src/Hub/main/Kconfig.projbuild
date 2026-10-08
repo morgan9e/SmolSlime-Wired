@@ -77,10 +77,6 @@ menu "SlimeVR"
 		default 30000
 		help
 			After this, the tracker re-handshakes when its data returns.
-
-	config HUB_GAP_COUNT_MS
-		int "Count gaps longer than this in the status table (ms)"
-		default 20
 endmenu
 
 menu "Board"

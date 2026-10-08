@@ -1,6 +1,5 @@
 #include "slime.h"
 
-#include <inttypes.h>
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -76,11 +75,6 @@ typedef struct {
 	int64_t last_srv_rx_us, last_hs_tx_us, last_si_tx_us, last_slow_tx_us;
 	uint8_t si_status;
 	bool si_acked;
-
-	// stats, reset every second
-	uint32_t st_samples, st_gaps, st_gap_max_us;
-	// last completed second, for the console
-	uint32_t pps, gaps, gap_max_ms;
 } trk_t;
 
 static trk_t s_trk[HUB_MAX_TRACKERS];
@@ -88,7 +82,6 @@ static QueueHandle_t s_q;
 static struct sockaddr_in s_server;
 static bool s_server_known, s_server_fixed;
 static int64_t s_last_any_srv_rx_us;
-static float s_hub_v = -1.0f;
 
 // ---------------------------------------------------------------- packet writer
 
@@ -159,8 +152,7 @@ static void send_raw(trk_t *t, const void *buf, size_t len, bool allow_broadcast
 	} else {
 		return;
 	}
-	if (sendto(t->sock, buf, len, 0, (const struct sockaddr *)&dst, sizeof(dst)) < 0)
-		g_hub.udp_tx_err++;
+	sendto(t->sock, buf, len, 0, (const struct sockaddr *)&dst, sizeof(dst));
 }
 
 static void send_pkt(trk_t *t, const pkt_t *p)
@@ -303,13 +295,6 @@ static int open_socket(int id)
 
 static void on_rotation(trk_t *t, const hub_sample_t *s)
 {
-	if (t->have_pose) {
-		int64_t gap = s->t_us - t->last_real_us;
-		if (gap > MS(CONFIG_HUB_GAP_COUNT_MS))
-			t->st_gaps++;
-		if (gap > (int64_t)t->st_gap_max_us)
-			t->st_gap_max_us = (uint32_t)gap;
-	}
 	memcpy(t->q, s->q, sizeof(t->q));
 	if (s->flags & HS_ACCEL) {
 		memcpy(t->a, s->a, sizeof(t->a));
@@ -317,7 +302,6 @@ static void on_rotation(trk_t *t, const hub_sample_t *s)
 	}
 	t->have_pose = true;
 	t->last_real_us = s->t_us;
-	t->st_samples++;
 
 	if (t->link_up)
 		send_pose(t, t->q, (s->flags & HS_ACCEL) != 0);
@@ -325,10 +309,8 @@ static void on_rotation(trk_t *t, const hub_sample_t *s)
 
 static void handle_sample(const hub_sample_t *s)
 {
-	if (s->id >= HUB_MAX_TRACKERS) {
-		g_hub.id_overflow++;
+	if (s->id >= HUB_MAX_TRACKERS)
 		return;
-	}
 	trk_t *t = &s_trk[s->id];
 
 	if (s->flags & HS_ADDR) {
@@ -350,10 +332,8 @@ static void handle_sample(const hub_sample_t *s)
 			 t->addr[3], t->addr[2], t->addr[1], t->addr[0]);
 		return;
 	}
-	if (!t->known || t->sock < 0) {
-		g_hub.no_addr_drop++;
-		return;
-	}
+	if (!t->known || t->sock < 0)
+		return; // data for an id whose address has not arrived yet
 
 	if (s->flags & HS_RSSI) {
 		t->rssi = s->rssi;
@@ -542,24 +522,10 @@ static void led_update(int64_t now)
 #endif
 }
 
-static void roll_stats(int64_t now)
-{
-	for (int i = 0; i < HUB_MAX_TRACKERS; i++) {
-		trk_t *t = &s_trk[i];
-		// A gap still open at the end of the second counts towards the worst gap.
-		if (t->have_pose && t->st_samples == 0 && now - t->last_real_us > (int64_t)t->st_gap_max_us)
-			t->st_gap_max_us = (uint32_t)(now - t->last_real_us);
-		t->pps = t->st_samples;
-		t->gaps = t->st_gaps;
-		t->gap_max_ms = t->st_gap_max_us / 1000;
-		t->st_samples = t->st_gaps = t->st_gap_max_us = 0;
-	}
-}
-
 static void slime_task(void *arg)
 {
 	hub_sample_t s;
-	int64_t last_tick = 0, last_sec = esp_timer_get_time(), last_log = last_sec;
+	int64_t last_tick = 0;
 
 	for (;;) {
 		if (xQueueReceive(s_q, &s, pdMS_TO_TICKS(1)) == pdTRUE) {
@@ -574,21 +540,6 @@ static void slime_task(void *arg)
 			last_tick = now;
 			tick_10ms(now);
 			led_update(now);
-		}
-		if (now - last_sec >= MS(1000)) {
-			last_sec += MS(1000);
-			if (now - last_sec > MS(1000))
-				last_sec = now; // fell behind; do not burst
-			s_hub_v = hub_batt_volts();
-			roll_stats(now);
-		}
-		if (now - last_log >= MS(10000)) {
-			last_log = now;
-			int up = 0;
-			for (int i = 0; i < HUB_MAX_TRACKERS; i++)
-				up += s_trk[i].link_up;
-			ESP_LOGI(TAG, "uart ok %" PRIu32 " bad %" PRIu32 " ovf %" PRIu32 " qdrop %" PRIu32 ", %d tracker(s) up, wifi %d dBm",
-				 g_hub.uart_ok, g_hub.uart_bad, g_hub.uart_ovf, g_hub.q_drop, up, net_rssi());
 		}
 	}
 }
@@ -613,33 +564,4 @@ void slime_start(QueueHandle_t sample_q, uint32_t server_ip)
 	hub_batt_init();
 
 	xTaskCreatePinnedToCore(slime_task, "slime", 6144, NULL, 12, NULL, 0);
-}
-
-void slime_print_status(void)
-{
-	int64_t now = esp_timer_get_time();
-	char ip[16] = "broadcast";
-	if (s_server_known)
-		inet_ntoa_r(s_server.sin_addr, ip, sizeof(ip));
-	printf("wifi %s (%d dBm), server %s%s\n", net_is_up() ? "up" : "down", net_rssi(), ip,
-	       s_server_fixed ? " (fixed)" : "");
-	printf("uart ok %" PRIu32 " bad %" PRIu32 " unknown %" PRIu32 " ovf %" PRIu32 " line %" PRIu32
-	       " | qdrop %" PRIu32 " udp_err %" PRIu32 " no_addr %" PRIu32 " id_ovf %" PRIu32 "\n",
-	       g_hub.uart_ok, g_hub.uart_bad, g_hub.uart_unknown, g_hub.uart_ovf, g_hub.uart_line_err, g_hub.q_drop,
-	       g_hub.udp_tx_err, g_hub.no_addr_drop, g_hub.id_overflow);
-	if (s_hub_v > 0)
-		printf("hub battery %.2f V\n", s_hub_v);
-	printf("id  address            link  imu  fw       pps  gapmax  gaps  rssi  batt  age_ms\n");
-	for (int i = 0; i < HUB_MAX_TRACKERS; i++) {
-		trk_t *t = &s_trk[i];
-		if (!t->known)
-			continue;
-		long age = t->have_pose ? (long)((now - t->last_real_us) / 1000) : -1;
-		int batt = !t->have_batt || t->batt == 128 ? -1 : (t->batt & 127);
-		printf("%2d  %02X:%02X:%02X:%02X:%02X:%02X  %-4s  %3u  %u.%u.%-3u  %4" PRIu32 "  %6" PRIu32
-		       "  %4" PRIu32 "  %4d  %4d  %ld\n",
-		       i, t->addr[5], t->addr[4], t->addr[3], t->addr[2], t->addr[1], t->addr[0],
-		       t->link_up ? "up" : "down", t->imu, t->fw[0], t->fw[1], t->fw[2], t->pps, t->gap_max_ms, t->gaps,
-		       t->have_rssi ? -(int)t->rssi : 0, batt, age);
-	}
 }

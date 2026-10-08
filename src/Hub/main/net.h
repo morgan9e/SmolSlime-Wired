@@ -6,4 +6,3 @@
 
 void net_start(const hub_config_t *cfg);
 bool net_is_up(void);
-int net_rssi(void); // dBm, 0 when not connected

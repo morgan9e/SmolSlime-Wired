@@ -7,6 +7,3 @@
 
 // server_ip in network byte order; 0 = discover by broadcast.
 void slime_start(QueueHandle_t sample_q, uint32_t server_ip);
-
-// Prints a status table to the console. Reads live state without locking; values may be a tick stale.
-void slime_print_status(void);
