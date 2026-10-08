@@ -3,7 +3,7 @@
 //
 // Scenario (seconds from start):
 //   tracker 0: continuous
-//   tracker 1: 300 ms radio gap every 4 s (exercises gap hold and the resume blend)
+//   tracker 1: 300 ms radio gap every 4 s
 //   tracker 2: silent from 8 to 15 s (server should time it out, then recover)
 //   one corrupted frame at 3 s (uart_bad should end at 1)
 #include <arpa/inet.h>

@@ -25,7 +25,6 @@ static const char *TAG = "slime";
 #else
 #define LED_ACTIVE_LOW 0
 #endif
-#define RAD2DEG 57.2957795f
 
 // SlimeVR UDP protocol (big-endian). Hub -> server packet ids.
 enum {
@@ -50,6 +49,10 @@ static const char HANDSHAKE_REPLY[] = "Hey OVR =D 5";
 // Tracker SVR_STATUS_* (build_defines.h) -> UDP SensorInfo status (0 offline, 1 ok, 2 error).
 #define TRK_SVR_STATUS_ERROR 3
 
+// A tracker without real data for this long stops answering the server, so the server marks
+// it timed out (the server's own timeout is 2000 ms).
+#define ACTIVE_MS 2000
+
 typedef struct {
 	// identity, from the receiver's 255 packets and the tracker's type 0 packets
 	bool known;
@@ -67,13 +70,6 @@ typedef struct {
 	uint8_t batt, batt_v, temp, rssi;
 	bool have_batt, have_rssi;
 
-	// output
-	float out_q[4]; // last pose sent
-	int64_t last_out_us;
-	bool blending;
-	float blend_from[4];
-	int64_t blend_start_us, blend_dur_us;
-
 	// server link
 	int sock;
 	bool link_up;
@@ -83,9 +79,9 @@ typedef struct {
 	bool si_acked;
 
 	// stats, reset every second
-	uint32_t st_samples, st_gaps, st_held, st_gap_max_us;
+	uint32_t st_samples, st_gaps, st_gap_max_us;
 	// last completed second, for the console
-	uint32_t pps, gaps, held, gap_max_ms;
+	uint32_t pps, gaps, gap_max_ms;
 } trk_t;
 
 static trk_t s_trk[HUB_MAX_TRACKERS];
@@ -172,50 +168,6 @@ static void send_raw(trk_t *t, const void *buf, size_t len, bool allow_broadcast
 static void send_pkt(trk_t *t, const pkt_t *p)
 {
 	send_raw(t, p->b, p->n, false);
-}
-
-// ---------------------------------------------------------------- quaternion helpers
-
-static float q_dot(const float *a, const float *b)
-{
-	return a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3];
-}
-
-static float q_angle_deg(const float *a, const float *b)
-{
-	float d = fabsf(q_dot(a, b));
-	if (d > 1.0f)
-		d = 1.0f;
-	return 2.0f * acosf(d) * RAD2DEG;
-}
-
-static void q_slerp(const float *a, const float *b_in, float u, float *out)
-{
-	float b[4] = {b_in[0], b_in[1], b_in[2], b_in[3]};
-	float d = q_dot(a, b);
-	if (d < 0.0f) { // shortest path
-		d = -d;
-		for (int i = 0; i < 4; i++)
-			b[i] = -b[i];
-	}
-	float wa, wb;
-	if (d > 0.9995f) {
-		wa = 1.0f - u;
-		wb = u;
-	} else {
-		float th = acosf(d);
-		float s = sinf(th);
-		wa = sinf((1.0f - u) * th) / s;
-		wb = sinf(u * th) / s;
-	}
-	float n = 0;
-	for (int i = 0; i < 4; i++) {
-		out[i] = wa * a[i] + wb * b[i];
-		n += out[i] * out[i];
-	}
-	n = 1.0f / sqrtf(n);
-	for (int i = 0; i < 4; i++)
-		out[i] *= n;
 }
 
 // ---------------------------------------------------------------- SlimeVR packets
@@ -316,7 +268,7 @@ static void send_slow(trk_t *t)
 
 static bool trk_active(const trk_t *t, int64_t now)
 {
-	return t->have_pose && now - t->last_real_us < MS(CONFIG_HUB_HOLD_MS);
+	return t->have_pose && now - t->last_real_us < MS(ACTIVE_MS);
 }
 
 static void link_down(trk_t *t, const char *why)
@@ -326,8 +278,6 @@ static void link_down(trk_t *t, const char *why)
 	t->link_up = false;
 	t->si_acked = false;
 	t->last_hs_tx_us = 0;
-	t->last_out_us = 0;
-	t->blending = false;
 }
 
 static int open_socket(int id)
@@ -353,27 +303,7 @@ static int open_socket(int id)
 	return s;
 }
 
-// Sends the current output pose, advancing a resume blend if one is running.
-static void output_pose(trk_t *t, int64_t now, bool with_accel)
-{
-	float q[4];
-	if (t->blending) {
-		float u = (float)(now - t->blend_start_us) / (float)t->blend_dur_us;
-		if (u >= 1.0f) {
-			t->blending = false;
-			memcpy(q, t->q, sizeof(q));
-		} else {
-			q_slerp(t->blend_from, t->q, u < 0 ? 0 : u, q);
-		}
-	} else {
-		memcpy(q, t->q, sizeof(q));
-	}
-	memcpy(t->out_q, q, sizeof(q));
-	t->last_out_us = now;
-	send_pose(t, q, with_accel);
-}
-
-static void on_rotation(trk_t *t, const hub_sample_t *s, int64_t now)
+static void on_rotation(trk_t *t, const hub_sample_t *s)
 {
 	if (t->have_pose) {
 		int64_t gap = s->t_us - t->last_real_us;
@@ -381,21 +311,6 @@ static void on_rotation(trk_t *t, const hub_sample_t *s, int64_t now)
 			t->st_gaps++;
 		if (gap > (int64_t)t->st_gap_max_us)
 			t->st_gap_max_us = (uint32_t)gap;
-		// After a real gap, blend from the held pose instead of snapping, unless the jump is tiny.
-		if (gap > MS(CONFIG_HUB_RESUME_GAP_MS) && t->link_up && t->last_out_us > 0) {
-			float ang = q_angle_deg(t->out_q, s->q);
-			if (ang > CONFIG_HUB_BLEND_SNAP_DEG) {
-				int64_t dur = (int64_t)(ang * CONFIG_HUB_BLEND_MS_PER_DEG * 1000.0f);
-				if (dur > MS(CONFIG_HUB_BLEND_MAX_MS))
-					dur = MS(CONFIG_HUB_BLEND_MAX_MS);
-				memcpy(t->blend_from, t->out_q, sizeof(t->blend_from));
-				t->blend_start_us = now;
-				t->blend_dur_us = dur;
-				t->blending = true;
-			} else {
-				t->blending = false;
-			}
-		}
 	}
 	memcpy(t->q, s->q, sizeof(t->q));
 	if (s->flags & HS_ACCEL) {
@@ -407,10 +322,10 @@ static void on_rotation(trk_t *t, const hub_sample_t *s, int64_t now)
 	t->st_samples++;
 
 	if (t->link_up)
-		output_pose(t, now, (s->flags & HS_ACCEL) != 0);
+		send_pose(t, t->q, (s->flags & HS_ACCEL) != 0);
 }
 
-static void handle_sample(const hub_sample_t *s, int64_t now)
+static void handle_sample(const hub_sample_t *s)
 {
 	if (s->id >= HUB_MAX_TRACKERS) {
 		g_hub.id_overflow++;
@@ -467,7 +382,7 @@ static void handle_sample(const hub_sample_t *s, int64_t now)
 			t->si_acked = false; // re-announce with the new status
 	}
 	if (s->flags & HS_ROT)
-		on_rotation(t, s, now);
+		on_rotation(t, s);
 }
 
 // ---------------------------------------------------------------- server packets
@@ -602,12 +517,6 @@ static void tick_10ms(int64_t now)
 			t->last_slow_tx_us = now;
 			send_slow(t);
 		}
-		// Gap hold: keep the server fed with the last pose while the radio is quiet.
-		if (now - t->last_real_us >= MS(CONFIG_HUB_HOLD_PERIOD_MS) &&
-		    now - t->last_out_us >= MS(CONFIG_HUB_HOLD_PERIOD_MS)) {
-			output_pose(t, now, false);
-			t->st_held++;
-		}
 	}
 
 	// Forget a discovered server once every link is gone, so a new server IP can be found.
@@ -652,8 +561,8 @@ static void send_stats(int64_t now)
 		int batt = !t->have_batt || t->batt == 128 ? -1 : (t->batt & 127);
 		n += snprintf(buf + n, sizeof(buf) - n,
 			      "%s{\"id\":%d,\"up\":%d,\"pps\":%" PRIu32 ",\"gap_max_ms\":%" PRIu32 ",\"gaps\":%" PRIu32
-			      ",\"held\":%" PRIu32 ",\"rssi\":%d,\"batt\":%d,\"bv\":%.2f}",
-			      first ? "" : ",", i, t->link_up, t->pps, t->gap_max_ms, t->gaps, t->held,
+			      ",\"rssi\":%d,\"batt\":%d,\"bv\":%.2f}",
+			      first ? "" : ",", i, t->link_up, t->pps, t->gap_max_ms, t->gaps,
 			      t->have_rssi ? -(int)t->rssi : 0, batt, t->have_batt ? (t->batt_v + 245) / 100.0f : 0.0f);
 		first = false;
 	}
@@ -677,9 +586,8 @@ static void roll_stats(int64_t now)
 			t->st_gap_max_us = (uint32_t)(now - t->last_real_us);
 		t->pps = t->st_samples;
 		t->gaps = t->st_gaps;
-		t->held = t->st_held;
 		t->gap_max_ms = t->st_gap_max_us / 1000;
-		t->st_samples = t->st_gaps = t->st_held = t->st_gap_max_us = 0;
+		t->st_samples = t->st_gaps = t->st_gap_max_us = 0;
 	}
 }
 
@@ -691,7 +599,7 @@ static void slime_task(void *arg)
 	for (;;) {
 		if (xQueueReceive(s_q, &s, pdMS_TO_TICKS(1)) == pdTRUE) {
 			do {
-				handle_sample(&s, esp_timer_get_time());
+				handle_sample(&s);
 			} while (xQueueReceive(s_q, &s, 0) == pdTRUE);
 		}
 		int64_t now = esp_timer_get_time();
@@ -764,7 +672,7 @@ void slime_print_status(void)
 	       g_hub.udp_tx_err, g_hub.no_addr_drop, g_hub.id_overflow);
 	if (s_hub_v > 0)
 		printf("hub battery %.2f V\n", s_hub_v);
-	printf("id  address            link  imu  fw       pps  gapmax  gaps  held  rssi  batt  age_ms\n");
+	printf("id  address            link  imu  fw       pps  gapmax  gaps  rssi  batt  age_ms\n");
 	for (int i = 0; i < HUB_MAX_TRACKERS; i++) {
 		trk_t *t = &s_trk[i];
 		if (!t->known)
@@ -772,9 +680,9 @@ void slime_print_status(void)
 		long age = t->have_pose ? (long)((now - t->last_real_us) / 1000) : -1;
 		int batt = !t->have_batt || t->batt == 128 ? -1 : (t->batt & 127);
 		printf("%2d  %02X:%02X:%02X:%02X:%02X:%02X  %-4s  %3u  %u.%u.%-3u  %4" PRIu32 "  %6" PRIu32
-		       "  %4" PRIu32 "  %4" PRIu32 "  %4d  %4d  %ld\n",
+		       "  %4" PRIu32 "  %4d  %4d  %ld\n",
 		       i, t->addr[5], t->addr[4], t->addr[3], t->addr[2], t->addr[1], t->addr[0],
 		       t->link_up ? "up" : "down", t->imu, t->fw[0], t->fw[1], t->fw[2], t->pps, t->gap_max_ms, t->gaps,
-		       t->held, t->have_rssi ? -(int)t->rssi : 0, batt, age);
+		       t->have_rssi ? -(int)t->rssi : 0, batt, age);
 	}
 }

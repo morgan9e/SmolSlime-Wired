@@ -75,22 +75,9 @@ menu "SlimeVR"
 	config HUB_SERVER_TIMEOUT_MS
 		int "Server silence before re-handshake (ms)"
 		default 5000
-endmenu
-
-menu "Gap hold"
-	config HUB_HOLD_PERIOD_MS
-		int "Re-send period for a quiet tracker (ms)"
-		default 10
-
-	config HUB_HOLD_MS
-		int "Hold limit (ms)"
-		default 2000
-		help
-			A tracker silent for longer than this stops sending entirely, so the
-			server marks it timed out. The server's own timeout is 2000 ms.
 
 	config HUB_DROP_MS
-		int "Silence before the server link is dropped (ms)"
+		int "Tracker silence before the server link is dropped (ms)"
 		default 30000
 		help
 			After this, the tracker re-handshakes when its data returns.
@@ -98,22 +85,6 @@ menu "Gap hold"
 	config HUB_GAP_COUNT_MS
 		int "Count gaps longer than this in stats (ms)"
 		default 20
-
-	config HUB_RESUME_GAP_MS
-		int "Blend on resume after gaps longer than this (ms)"
-		default 50
-
-	config HUB_BLEND_SNAP_DEG
-		int "Snap instead of blending below this angle (degrees)"
-		default 3
-
-	config HUB_BLEND_MS_PER_DEG
-		int "Blend duration per degree of jump (ms)"
-		default 2
-
-	config HUB_BLEND_MAX_MS
-		int "Maximum blend duration (ms)"
-		default 50
 endmenu
 
 menu "Board"

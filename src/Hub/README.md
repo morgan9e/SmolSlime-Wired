@@ -106,18 +106,14 @@ Each receiver id gets its own UDP socket on local port 6980 + id, with its own p
 | 3 Handshake (board CUSTOM, protocol 22, tracker IMU/MCU/firmware) | once per second until the server answers |
 | 15 SensorInfo | after the handshake until acknowledged, and when the tracker reports an error status |
 | 23 RotationAndAcceleration | each type 1, 2 and 7 packet (same Q15/Q7 scaling as the HID path) |
-| 17 RotationData | each type 4 packet, and gap-hold re-sends |
+| 17 RotationData | each type 4 packet |
 | 12 Battery, 19 Signal strength, 20 Temperature | 1 Hz |
 | 0 Heartbeat, 10 Ping echo | in reply to the server |
 
 Raw sensor-frame quaternions are passed through; the server applies its axis offset and
-mounting exactly as for HID trackers.
-
-**Gap hold.** While a tracker is quiet for up to 2 s, its last pose is re-sent every 10 ms.
-After 2 s the socket goes completely silent, so the server shows the tracker as timed out.
-When data returns after more than 50 ms, the pose blends from the held one over
-2 ms per degree (max 50 ms); jumps under 3 degrees snap. After 30 s of silence the tracker
-re-handshakes when it returns. All limits are in `menuconfig > Slime Hub`.
+mounting exactly as for HID trackers. Only real tracker packets are forwarded. A tracker
+without data for 2 s stops answering the server, so the server shows it as timed out; after
+30 s of silence (`HUB_DROP_MS`) it re-handshakes when its data returns.
 
 ## Stats and tools
 
