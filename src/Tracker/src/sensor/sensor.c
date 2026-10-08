@@ -24,6 +24,7 @@
 #include "system/system.h"
 #include "util.h"
 #include "connection/connection.h"
+#include "connection/wired.h"
 #include "calibration.h"
 
 #include <math.h>
@@ -122,7 +123,7 @@ static const sensor_mag_t *sensor_mag = &sensor_mag_none;
 #if DEBUG
 LOG_MODULE_REGISTER(sensor, LOG_LEVEL_DBG);
 #else
-LOG_MODULE_REGISTER(sensor, LOG_LEVEL_INF);
+LOG_MODULE_REGISTER(sensor, LOG_LEVEL_DBG);
 #endif
 
 static int sensor_scan(void);
@@ -592,7 +593,8 @@ static void sensor_update_sensor_state(void)
 {
 	bool calibrating = get_status(SYS_STATUS_CALIBRATION_RUNNING);
 	bool resting = sensor_fusion->get_gyro_sanity() == 0 ? q_epsilon(q, last_q, 0.005) : q_epsilon(q, last_q, 0.05); // TODO: Probably okay to use the constantly updating last_q?
-	if (!calibrating && resting)
+	// A relaying tracker counts as active: it must stay awake (and at full rate) for its ankle.
+	if (!IS_ENABLED(CONFIG_DEBUG_NO_POWER_SAVING) && !calibrating && resting && !wired_relaying())
 	{
 		int64_t last_data_delta = k_uptime_get() - last_data_time;
 		if (sensor_mode < SENSOR_SENSOR_MODE_LOW_POWER && last_data_delta > CONFIG_3_SETTINGS_READ(CONFIG_3_SENSOR_LP_TIMEOUT)) // No motion in lp timeout

@@ -2,7 +2,7 @@
 
 #include "fusion_none.h"
 
-LOG_MODULE_REGISTER(fusion_none, LOG_LEVEL_INF);
+LOG_MODULE_REGISTER(fusion_none, LOG_LEVEL_DBG);
 
 void fusion_none_init(float g_time, float a_time, float m_time)
 {

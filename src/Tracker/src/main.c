@@ -33,7 +33,7 @@
 
 static uint32_t *dbl_reset_mem __attribute__((unused)) = ((uint32_t *)DFU_DBL_RESET_MEM); // retained
 
-LOG_MODULE_REGISTER(main, LOG_LEVEL_INF);
+LOG_MODULE_REGISTER(main, LOG_LEVEL_DBG);
 
 #if DT_NODE_HAS_PROP(DT_ALIAS(sw0), gpios)
 #define BUTTON_EXISTS true

@@ -53,7 +53,7 @@ static double sample_count;
 #if DEBUG
 LOG_MODULE_REGISTER(calibration, LOG_LEVEL_DBG);
 #else
-LOG_MODULE_REGISTER(calibration, LOG_LEVEL_INF);
+LOG_MODULE_REGISTER(calibration, LOG_LEVEL_DBG);
 #endif
 
 static void sensor_sample_accel(const float a[3]);

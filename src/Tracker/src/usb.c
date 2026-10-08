@@ -1,6 +1,7 @@
 #include "globals.h"
 #include "console.h"
 #include "hid.h"
+#include "log_mode.h"
 #include "system/status.h"
 
 #if CONFIG_USB_DEVICE_STACK
@@ -16,7 +17,7 @@
 
 static bool configured;
 
-LOG_MODULE_REGISTER(usb, LOG_LEVEL_INF);
+LOG_MODULE_REGISTER(usb, LOG_LEVEL_DBG);
 
 static void usb_init_thread(void);
 K_THREAD_DEFINE(usb_init_thread_id, 512, usb_init_thread, NULL, NULL, NULL, USB_INIT_THREAD_PRIORITY, 0, 500); // Wait before enabling USB
@@ -35,6 +36,7 @@ static void status_cb(enum usb_dc_status_code status, const uint8_t *param)
 		set_status(SYS_STATUS_USB_CONNECTED, true);
 		pm_device_action_run(cons, PM_DEVICE_ACTION_RESUME);
 		log_backend_enable(backend, backend->cb->ctx, CONFIG_LOG_MAX_LEVEL);
+		log_mode_apply(); // the enable above reset this backend's filters
 		console_thread_create();
 		if (use_hid)
 			hid_thread_create();

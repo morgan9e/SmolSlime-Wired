@@ -3,6 +3,7 @@
 #include "sensor/calibration.h"
 #include "connection/connection.h"
 #include "connection/esb.h"
+#include "connection/wired.h"
 
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/drivers/pwm.h>
@@ -26,7 +27,7 @@ static struct nvs_fs fs;
 #define NVS_PARTITION_OFFSET FIXED_PARTITION_OFFSET(NVS_PARTITION)
 #define NVS_PARTITION_SIZE FIXED_PARTITION_SIZE(NVS_PARTITION)
 
-LOG_MODULE_REGISTER(system, LOG_LEVEL_INF);
+LOG_MODULE_REGISTER(system, LOG_LEVEL_DBG);
 
 static void temp_thread(void);
 K_THREAD_DEFINE(temp_thread_id, 256, temp_thread, NULL, NULL, NULL, TEMP_THREAD_PRIORITY, 0, 0);
@@ -499,6 +500,12 @@ void sys_reset_mode(uint8_t mode)
 		LOG_INF("Pairing reset requested");
 		esb_reset_pair();
 		break;
+#if CONFIG_WIRED_LINK
+	case 5: // 6 presses: pair the connected wired ankle through this tracker (4 and 5 are DFU)
+		LOG_INF("Wired tracker pairing requested");
+		wired_request_pair_ankle();
+		break;
+#endif
 #if DFU_EXISTS // Using DFU bootloader
 	case 3:
 	case 4: // Reset mode DFU

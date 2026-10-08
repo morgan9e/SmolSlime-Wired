@@ -4,6 +4,8 @@
 #include "sensor/sensor.h"
 #include "sensor/calibration.h"
 #include "connection/esb.h"
+#include "connection/wired.h"
+#include "log_mode.h"
 #include "build_defines.h"
 #include "parse_args.h"
 
@@ -26,7 +28,7 @@
 
 #include <ctype.h>
 
-LOG_MODULE_REGISTER(console, LOG_LEVEL_INF);
+LOG_MODULE_REGISTER(console, LOG_LEVEL_DBG);
 
 static void console_thread(void);
 #if USB_EXISTS
@@ -498,9 +500,20 @@ static void print_help(void)
 #endif
 	printk("\nset <address>                Manually set receiver\n");
 	printk("pair                         Enter pairing mode\n");
+	printk("link                         Show radio ACKs from the receiver, per tracker id\n");
 	printk("clear                        Clear pairing data\n");
+#if CONFIG_WIRED_LINK
+	printk("\nwired                        Show wired link status (wired mode or relay mode)\n");
+	printk("pair_wired                   Pair the connected wired tracker through this relay\n");
+	printk("                             (receiver in pairing mode; also 6 button presses)\n");
+	printk("forget_wired                 Clear the paired wired tracker table\n");
+#endif
 #if DFU_EXISTS
 	printk("\ndfu                          Enter DFU bootloader\n");
+#endif
+#if CONFIG_LOG_MODES
+	printk("\ndebug [on|off]               Show all debug log messages\n");
+	printk("trace [on|off|<n>]           Log every (or every nth) frame sent, decoded\n");
 #endif
 	printk("\nmeow                         Meow!\n");
 
@@ -555,11 +568,16 @@ static void console_thread(void)
 #endif
 	const char command_set[] = "set";
 	const char command_pair[] = "pair";
+	const char command_link[] = "link";
 	const char command_clear[] = "clear";
 #if DFU_EXISTS
 	const char command_dfu[] = "dfu";
 #endif
 	const char command_meow[] = "meow";
+#if CONFIG_LOG_MODES
+	const char command_debug[] = "debug";
+	const char command_trace[] = "trace";
+#endif
 
 	// data
 	const char command_reset_data[] = "reset_data";
@@ -581,6 +599,13 @@ static void console_thread(void)
 
 	// debug
 	const char command_nvs[] = "nvs";
+
+#if CONFIG_WIRED_LINK
+	// wired link
+	const char command_ankle[] = "wired";
+	const char command_pair_ankle[] = "pair_wired";
+	const char command_forget_ankles[] = "forget_wired";
+#endif
 
 	while (1) {
 #if USB_EXISTS
@@ -657,6 +682,54 @@ static void console_thread(void)
 		{
 			esb_reset_pair();
 		}
+		else if (strcmp(argv[0], command_link) == 0)
+		{
+			esb_print_link();
+		}
+#if CONFIG_LOG_MODES
+		else if (strcmp(argv[0], command_debug) == 0)
+		{
+			if (argc > 1 && (strcmp(argv[1], "on") == 0 || strcmp(argv[1], "off") == 0))
+				log_mode_set_debug(strcmp(argv[1], "on") == 0);
+			else if (argc > 1)
+				printk("Usage: debug [on|off]\n");
+			printk("DEBUG %s\n", log_mode_debug() ? "on" : "off");
+		}
+		else if (strcmp(argv[0], command_trace) == 0)
+		{
+			if (argc > 1)
+			{
+				uint64_t n = parse_u64(argv[1], 10);
+				if (strcmp(argv[1], "on") == 0)
+					log_mode_set_trace(1);
+				else if (strcmp(argv[1], "off") == 0)
+					log_mode_set_trace(0);
+				else if (n > 0 && n < 100000)
+					log_mode_set_trace((uint32_t)n);
+				else
+					printk("Usage: trace [on|off|<n>]\n");
+			}
+			uint32_t every = log_mode_trace_every();
+			if (every > 1)
+				printk("TRACE on, every %u frames\n", every);
+			else
+				printk("TRACE %s\n", every ? "on" : "off");
+		}
+#endif
+#if CONFIG_WIRED_LINK
+		else if (strcmp(argv[0], command_ankle) == 0)
+		{
+			wired_print_status();
+		}
+		else if (strcmp(argv[0], command_pair_ankle) == 0)
+		{
+			wired_request_pair_ankle();
+		}
+		else if (strcmp(argv[0], command_forget_ankles) == 0)
+		{
+			wired_forget_ankles();
+		}
+#endif
 		else if (strcmp(argv[0], command_clear) == 0)
 		{
 			esb_clear_pair();

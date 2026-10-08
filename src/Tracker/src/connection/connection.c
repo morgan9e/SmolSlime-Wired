@@ -25,6 +25,8 @@
 #include "esb.h"
 #include "build_defines.h"
 #include "hid.h"
+#include "wired.h"
+#include "log_mode.h"
 #include "system/battery_tracker.h"
 
 #include <zephyr/kernel.h>
@@ -40,10 +42,11 @@ static uint8_t data_buffer[21] = {0};
 static int64_t last_data_time = 0;
 static uint8_t packet_sequence = 0;
 
-LOG_MODULE_REGISTER(connection, LOG_LEVEL_INF);
+LOG_MODULE_REGISTER(connection, LOG_LEVEL_DBG);
 
 static void connection_thread(void);
-K_THREAD_DEFINE(connection_thread_id, 512, connection_thread, NULL, NULL, NULL, CONNECTION_THREAD_PRIORITY, K_FP_REGS, 0);
+// TRACE decodes frames on this thread (float maths and a long log call), so it needs more stack.
+K_THREAD_DEFINE(connection_thread_id, IS_ENABLED(CONFIG_LOG_MODES) ? 1024 : 512, connection_thread, NULL, NULL, NULL, CONNECTION_THREAD_PRIORITY, K_FP_REGS, 0);
 
 K_MUTEX_DEFINE(data_buffer_mutex);
 
@@ -65,6 +68,12 @@ void connection_clocks_request_stop(void)
 void connection_clocks_request_stop_delay_us(uint32_t delay_us)
 {
 	clocks_request_stop(delay_us);
+}
+
+// Wakes the connection thread early, e.g. when a wired ankle frame is queued.
+void connection_wake(void)
+{
+	k_wakeup(connection_thread_id);
 }
 
 uint8_t connection_get_id(void)
@@ -480,9 +489,22 @@ static int64_t last_status2_time = 0;
 void connection_thread(void)
 {
 	uint8_t data_copy[21];
+#if CONFIG_WIRED_LINK
+	uint32_t own_frames = 0;
+#endif
 	// TODO: checking for connection_update events from sensor_loop, here we will time and send them out
 	while (1)
 	{
+#if CONFIG_WIRED_LINK
+		// Relay: forward queued ankle frames first, at most two per pass so the tracker's own
+		// frames are never starved; the queue keeps only the newest frames.
+		uint8_t relay_frame[WIRED_FRAME_LEN];
+		for (int i = 0; i < 2 && wired_relay_get(relay_frame); i++)
+		{
+			esb_write(relay_frame);
+			log_mode_trace("relay", relay_frame, relay_frame[20]);
+		}
+#endif
 		if (last_data_time != 0) // have valid data
 		{
 			int ret = k_mutex_lock(&data_buffer_mutex, K_MSEC(100));
@@ -494,9 +516,32 @@ void connection_thread(void)
 			memcpy(data_copy, data_buffer, sizeof(data_copy));
 			k_mutex_unlock(&data_buffer_mutex);
 			data_copy[20] = packet_sequence++;
+#if CONFIG_WIRED_LINK
+			if (wired_is_ankle())
+				data_copy[1] = WIRED_ID_PLACEHOLDER; // the relay replaces it with this ankle's receiver id
+#endif
 			uint32_t *crc_ptr = (uint32_t *)&data_copy[16];
 			*crc_ptr = crc32_k_4_2_update(0x93a409eb, data_copy, 16);
+#if CONFIG_WIRED_LINK
+			if (wired_is_ankle())
+			{
+				wired_write_data(data_copy);
+				log_mode_trace("cable", data_copy, data_copy[20]); // id 255: the relay stamps the real one
+			}
+			// Optional airtime saving while relaying: send only every Nth own frame.
+			else if (!wired_relaying() || (own_frames++ % CONFIG_WIRED_RELAY_OWN_RATE_DIVIDER) == 0)
+			{
+				esb_write(data_copy);
+				log_mode_trace(esb_ready() ? "radio" : "radio not ready, dropped", data_copy, data_copy[20]);
+			}
+			else
+			{
+				log_mode_trace("skipped (relay rate divider)", data_copy, data_copy[20]);
+			}
+#else
 			esb_write(data_copy);
+			log_mode_trace(esb_ready() ? "radio" : "radio not ready, dropped", data_copy, data_copy[20]);
+#endif
 		}
 		// mag is higher priority (skip accel, quat is full precision)
 		else if (mag_update_time && k_uptime_get() - last_mag_time > 200)

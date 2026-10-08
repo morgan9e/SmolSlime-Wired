@@ -45,7 +45,7 @@ static bool device_charged = false;
 static bool chg_temp_warn = false;
 static int64_t last_valid_temp = -1;
 
-LOG_MODULE_REGISTER(power, LOG_LEVEL_INF);
+LOG_MODULE_REGISTER(power, LOG_LEVEL_DBG);
 
 static void sys_WOM(bool force);
 static void sys_system_off(bool silent);
@@ -496,7 +496,10 @@ static void power_thread(void)
 
 	while (1)
 	{
-#if DT_NODE_HAS_STATUS_OKAY(DT_NODELABEL(uart0))
+// uart0 is suspended to save power when unused. Not when it carries the wired ankle link:
+// suspending it leaves the TX pin disconnected while transfers still report success.
+#if DT_NODE_HAS_STATUS_OKAY(DT_NODELABEL(uart0)) && \
+	!(DT_HAS_CHOSEN(slimenrf_wired_tx_uart) && DT_SAME_NODE(DT_CHOSEN(slimenrf_wired_tx_uart), DT_NODELABEL(uart0)))
 		const struct device *const uart = DEVICE_DT_GET(DT_NODELABEL(uart0));
 		pm_device_action_run(uart, PM_DEVICE_ACTION_SUSPEND);
 #endif

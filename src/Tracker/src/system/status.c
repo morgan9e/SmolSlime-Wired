@@ -8,7 +8,7 @@
 
 static int status_state = 0;
 
-LOG_MODULE_REGISTER(status, LOG_LEVEL_INF);
+LOG_MODULE_REGISTER(status, LOG_LEVEL_DBG);
 
 static void status_error_thread(void);
 K_THREAD_DEFINE(status_error_thread_id, 256, status_error_thread, NULL, NULL, NULL, STATUS_ERROR_THREAD_PRIORITY, 0, 0);

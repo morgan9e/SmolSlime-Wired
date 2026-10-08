@@ -24,7 +24,7 @@
 
 #include "sensor_none.h"
 
-LOG_MODULE_REGISTER(sensor_none, LOG_LEVEL_INF);
+LOG_MODULE_REGISTER(sensor_none, LOG_LEVEL_DBG);
 
 int imu_none_init(float clock_rate, float accel_time, float gyro_time, float *accel_actual_time, float *gyro_actual_time)
 {

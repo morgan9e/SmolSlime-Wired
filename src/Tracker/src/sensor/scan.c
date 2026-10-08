@@ -27,7 +27,7 @@
 #define SCAN_ADDR_START 8
 #define SCAN_ADDR_STOP 119
 
-LOG_MODULE_REGISTER(sensor_scan, LOG_LEVEL_INF);
+LOG_MODULE_REGISTER(sensor_scan, LOG_LEVEL_DBG);
 
 // Any address out of range (00, 7f, etc.) will search all addresses, otherwise it will check provided address and register first
 

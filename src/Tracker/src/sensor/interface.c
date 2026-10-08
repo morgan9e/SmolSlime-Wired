@@ -8,7 +8,7 @@
 #if DEBUG || DEBUG_RATE
 LOG_MODULE_REGISTER(sensor_interface, LOG_LEVEL_DBG);
 #else
-LOG_MODULE_REGISTER(sensor_interface, LOG_LEVEL_INF);
+LOG_MODULE_REGISTER(sensor_interface, LOG_LEVEL_DBG);
 #endif
 
 // TODO: move all sensor devices here? currently they are scanned by sensor loop

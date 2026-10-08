@@ -9,7 +9,7 @@ static uint8_t valid_result = 0; // track when data should be recalculated
 
 //#define DEBUG true
 
-LOG_MODULE_REGISTER(battery_tracker, LOG_LEVEL_INF);
+LOG_MODULE_REGISTER(battery_tracker, LOG_LEVEL_DBG);
 
 struct battery_tracker
 {

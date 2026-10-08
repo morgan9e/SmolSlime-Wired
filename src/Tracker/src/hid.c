@@ -21,6 +21,7 @@
 	THE SOFTWARE.
 */
 #include "globals.h"
+#include "log_mode.h"
 
 #if CONFIG_USB_DEVICE_STACK
 #define USB DT_NODELABEL(usbd)
@@ -51,7 +52,7 @@ static ATOMIC_DEFINE(hid_ep_in_busy, 1);
 
 #define HID_EP_BUSY_FLAG 0
 
-LOG_MODULE_REGISTER(hid_event, LOG_LEVEL_INF);
+LOG_MODULE_REGISTER(hid_event, LOG_LEVEL_DBG);
 
 static void hid_thread(void);
 static struct k_thread hid_thread_id;
@@ -234,6 +235,7 @@ void hid_write_packet_n(uint8_t *data)
 		if (data[0] != 1 && data[0] != 4) // packet 1 and 4 are full precision quat and accel/mag, no room for rssi
 			report.data[15] = 0; // rssi is always -0dBm for hid from tracker
 		report.data[1] = 0; // id is always 0 for hid from tracker
+		log_mode_trace("usb hid", report.data, -1);
 		if (report_sent + report_count >= REPORT_COUNT) // overflow
 			return;
 		memcpy(&reports[sizeof(report) * (report_sent + report_count)], &report, sizeof(report));

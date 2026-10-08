@@ -20,6 +20,8 @@
 
 #define MAIN_SENSOR_DATA_ID 31
 
+#define WIRED_ANKLES_ID 32 // wired ankle address -> receiver id table (relay builds)
+
 int sys_get_die_temperature(float *ptr);
 
 void configure_sense_pins(void);

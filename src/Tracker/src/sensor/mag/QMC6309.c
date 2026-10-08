@@ -66,7 +66,7 @@ static bool lastOvfl = false;
 static int64_t oneshot_trigger_time = 0;
 static float last_real_time = 0.0f;
 
-LOG_MODULE_REGISTER(QMC6309, LOG_LEVEL_INF);
+LOG_MODULE_REGISTER(QMC6309, LOG_LEVEL_DBG);
 
 int qmc_init(float time, float *actual_time)
 {

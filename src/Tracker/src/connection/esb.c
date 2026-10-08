@@ -31,6 +31,7 @@
 #include <zephyr/sys/crc.h>
 
 #include "esb.h"
+#include "wired.h"
 
 uint8_t last_reset = 0;
 //const nrfx_timer_t m_timer = NRFX_TIMER_INSTANCE(1);
@@ -43,6 +44,60 @@ uint32_t led_clock_offset = 0;
 uint32_t tx_errors = 0;
 int64_t last_tx_success = 0;
 int64_t last_tx_fail = 0;
+
+// Radio ACKs per frame id (this tracker's own id, and relayed wired trackers), for "link".
+// An ACK only proves that a receiver listening on the paired address heard the frame; the
+// receiver can still drop it, e.g. an id it has not stored, which only its own log shows.
+#define LINK_SLOTS 8
+static struct link_stat {
+	bool used;
+	uint8_t id;
+	uint32_t sent, acked, failed;
+	int64_t last_ack;
+} link_stats[LINK_SLOTS], link_shown[LINK_SLOTS]; // link_shown: values at the previous "link"
+static volatile int link_inflight = -1; // slot of the frame waiting for its TX event
+
+// Radio stall watchdog. esb_write_payload() starts a transmission only while the ESB driver is
+// idle; if its state machine ever stops in another state, every frame is queued and none is
+// sent, with neither TX_SUCCESS nor TX_FAILED (seen on a relaying thigh: no ACK for minutes,
+// "Consecutive TX errors: 0"). A frame takes at most a few ms, so restart ESB when frames have
+// been waiting for a TX event for RADIO_STALL_MS.
+#define RADIO_STALL_MS 100
+static volatile int64_t tx_waiting_since; // first frame written since the last TX event, 0: none
+static uint32_t radio_restarts;
+static uint16_t retransmit_delay_us; // per tracker, see esb_initialize()
+static int64_t last_radio_restart;
+
+static int link_slot(uint8_t id)
+{
+	for (int i = 0; i < LINK_SLOTS; i++)
+		if (link_stats[i].used && link_stats[i].id == id)
+			return i;
+	for (int i = 0; i < LINK_SLOTS; i++)
+		if (!link_stats[i].used)
+		{
+			link_stats[i] = (struct link_stat){.used = true, .id = id};
+			return i;
+		}
+	return -1;
+}
+
+static void link_tx_event(bool success)
+{
+	int slot = link_inflight;
+	link_inflight = -1;
+	if (slot < 0)
+		return;
+	if (success)
+	{
+		link_stats[slot].acked++;
+		link_stats[slot].last_ack = k_uptime_get();
+	}
+	else
+	{
+		link_stats[slot].failed++;
+	}
+}
 
 static struct esb_payload rx_payload;
 static struct esb_payload tx_payload = ESB_CREATE_PAYLOAD(0,
@@ -59,7 +114,37 @@ static bool esb_paired = false;
 #define TX_ERROR_MAX 100
 #define TX_ERROR_CLEAR_RATE 10
 
-LOG_MODULE_REGISTER(esb_event, LOG_LEVEL_INF);
+LOG_MODULE_REGISTER(esb_event, LOG_LEVEL_DBG);
+
+#if CONFIG_WIRED_LINK
+// A relay sends its own and the ankle's frames back to back. Instead of flushing the
+// previous frame (which would cut an ankle frame off mid-retransmit), wait for it to finish.
+static K_SEM_DEFINE(esb_tx_done, 1, 1);
+static uint32_t esb_tx_timeout_us = 4500; // set from the ESB retransmit settings in esb_initialize()
+// Pairing requests sent while staying paired: for a wired ankle (esb_pair_other) and the
+// background re-pair (esb_try_repair). One at a time.
+static volatile bool other_pairing;
+static volatile bool other_ack_ready;
+static uint8_t other_ack[8];
+static K_MUTEX_DEFINE(pair_request_lock);
+// While the receiver does not answer, ask every REPAIR_RETRY_MS whether a receiver in pairing mode
+// has a new address or id for this tracker. A receiver changes its address on "clear", so every
+// tracker paired before ends up here and gets a fresh id instead of colliding with the new ones.
+#define REPAIR_RETRY_MS 3000
+static int64_t last_repair_try;
+#endif
+
+// Keep the HF clock running between transmissions while frames come back to back.
+static inline bool esb_hold_clock(void)
+{
+	if (IS_ENABLED(CONFIG_DEBUG_NO_POWER_SAVING))
+		return true;
+#if CONFIG_WIRED_LINK
+	return wired_relaying() || other_pairing;
+#else
+	return false;
+#endif
+}
 
 static void esb_thread(void);
 K_THREAD_DEFINE(esb_thread_id, 512, esb_thread, NULL, NULL, NULL, ESB_THREAD_PRIORITY, 0, 0);
@@ -91,8 +176,13 @@ void event_handler(struct esb_evt const *event)
 			tx_errors -= TX_ERROR_CLEAR_RATE;
 		else
 			tx_errors = 0;
+		link_tx_event(true);
+		tx_waiting_since = 0;
 		LOG_DBG("TX SUCCESS");
-		if (esb_paired)
+#if CONFIG_WIRED_LINK
+		k_sem_give(&esb_tx_done);
+#endif
+		if (esb_paired && !esb_hold_clock())
 			clocks_stop();
 		break;
 	case ESB_EVENT_TX_FAILED:
@@ -103,8 +193,13 @@ void event_handler(struct esb_evt const *event)
 			last_tx_fail = 0; // reset last_tx_fail on threshold reached
 			last_tx_success = k_uptime_get();
 		}
+		link_tx_event(false);
+		tx_waiting_since = 0;
 		LOG_DBG("TX FAILED");
-		if (esb_paired)
+#if CONFIG_WIRED_LINK
+		k_sem_give(&esb_tx_done);
+#endif
+		if (esb_paired && !esb_hold_clock())
 			clocks_stop();
 		break;
 	case ESB_EVENT_RX_RECEIVED:
@@ -112,6 +207,17 @@ void event_handler(struct esb_evt const *event)
 		if (!esb_read_rx_payload(&rx_payload)) // zero, rx success
 		{
 			LOG_DBG("rx len: %d, pipe: %d", rx_payload.length, rx_payload.pipe);
+#if CONFIG_WIRED_LINK
+			if (other_pairing) // reply to a pairing request sent on behalf of a wired ankle
+			{
+				if (rx_payload.length == 8)
+				{
+					memcpy(other_ack, rx_payload.data, sizeof(other_ack));
+					other_ack_ready = true;
+				}
+				break;
+			}
+#endif
 			if (!paired_addr[0]) // zero, not paired
 			{
 				LOG_DBG("tx: %16llX rx: %16llX", *(uint64_t *)tx_payload_pair.data, *(uint64_t *)rx_payload.data);
@@ -267,7 +373,13 @@ int esb_initialize(bool tx)
 		// config.bitrate = ESB_BITRATE_2MBPS;
 		// config.crc = ESB_CRC_16BIT;
 		config.tx_output_power = CONFIG_2_SETTINGS_READ(CONFIG_2_RADIO_TX_POWER);
-		// config.retransmit_delay = 600;
+		// All trackers share one channel. With the same retransmit delay, two trackers whose
+		// frames collide retry at the same moment and collide again on every attempt, so both
+		// lose the frame (a relaying thigh saw 1 in 4 frames fail all 4 attempts). Give each
+		// tracker its own delay from its device address: 600 (stock) to 1475 us, 125 us steps.
+		uint32_t a = NRF_FICR->DEVICEADDR[0];
+		config.retransmit_delay = 600 + ((a ^ (a >> 8) ^ (a >> 16) ^ (a >> 24)) & 7) * 125;
+		retransmit_delay_us = config.retransmit_delay;
 		//config.retransmit_count = 0;
 		//config.tx_mode = ESB_TXMODE_MANUAL;
 		// config.payload_length = 32;
@@ -308,6 +420,12 @@ int esb_initialize(bool tx)
 		return err;
 	}
 
+#if CONFIG_WIRED_LINK
+	// Worst case for one frame: every retransmit, about 400 us of airtime each, plus margin.
+	esb_tx_timeout_us = (config.retransmit_delay + 400) * (config.retransmit_count + 1) + 500;
+	k_sem_reset(&esb_tx_done);
+	k_sem_give(&esb_tx_done);
+#endif
 	esb_initialized = true;
 	return 0;
 }
@@ -483,6 +601,21 @@ void esb_write(uint8_t *data)
 {
 	if (!esb_initialized || !esb_paired)
 		return;
+#if CONFIG_WIRED_LINK
+	if (other_pairing)
+		return;
+#endif
+	int64_t now = k_uptime_get();
+	int64_t waiting = tx_waiting_since;
+	if (waiting && now - waiting > RADIO_STALL_MS && !esb_is_idle())
+	{
+		radio_restarts++;
+		last_radio_restart = now;
+		LOG_WRN("Radio stalled: no TX event for %lld ms, restarting ESB (restart %u)", now - waiting, radio_restarts);
+		esb_disable();
+		esb_initialize(true); // same addresses; also resets esb_tx_done
+		tx_waiting_since = 0;
+	}
 	if (!clock_status)
 		clocks_start();
 	tx_payload.pipe = 1; // using base address 1
@@ -491,21 +624,240 @@ void esb_write(uint8_t *data)
 #else
 	tx_payload.noack = false;
 #endif
+#if CONFIG_WIRED_LINK
+	if (wired_relaying())
+	{
+		k_sem_take(&esb_tx_done, K_USEC(esb_tx_timeout_us));
+		// A frame that ran out of retransmits stays at the head of the ESB TX FIFO and would go
+		// out again before this one. It usually arrived and only the ACK was lost, and the
+		// receiver's duplicate filter does not catch the copy once another tracker sent on the
+		// pipe in between ("Sequence missmatch ... expected N, got N-1"). Drop it, as stock does;
+		// after a success the FIFO is already empty. Also drops a frame that never finished.
+		esb_flush_tx();
+	}
+	else
+	{
+		esb_flush_tx(); // stock behaviour while not relaying
+		k_sem_reset(&esb_tx_done); // this frame's TX event gives it back
+	}
+	memcpy(tx_payload.data, data, tx_payload.length);
+	int slot = link_slot(data[1]);
+	link_inflight = -1; // a flushed frame gets no TX event; it shows up as "no result"
+	if (esb_write_payload(&tx_payload) != 0) // Add transmission to queue
+		k_sem_give(&esb_tx_done); // nothing in flight
+	else
+	{
+		if (!tx_waiting_since)
+			tx_waiting_since = now;
+		if (slot >= 0)
+		{
+			link_stats[slot].sent++;
+			link_inflight = slot;
+		}
+	}
+#else
 	memcpy(tx_payload.data, data, tx_payload.length);
 	esb_flush_tx(); // this will clear all transmissions even if they did not complete
-	esb_write_payload(&tx_payload); // Add transmission to queue
+	int slot = link_slot(data[1]);
+	link_inflight = -1; // a flushed frame gets no TX event; it shows up as "no result"
+	if (esb_write_payload(&tx_payload) == 0) // Add transmission to queue
+	{
+		if (!tx_waiting_since)
+			tx_waiting_since = now;
+		if (slot >= 0)
+		{
+			link_stats[slot].sent++;
+			link_inflight = slot;
+		}
+	}
+#endif
 	send_data = true;
+}
+
+void esb_print_link(void)
+{
+	if (wired_is_ankle())
+	{
+		printk("Wired mode: radio off, frames go over the cable (see \"wired\")\n");
+		return;
+	}
+	if (!retained->paired_addr[0])
+	{
+		printk("Not paired with a receiver\n");
+		return;
+	}
+	printk("Paired as id %u with receiver %012llX\n", retained->paired_addr[1],
+		(*(uint64_t *)&retained->paired_addr[0] >> 16) & 0xFFFFFFFFFFFF);
+	if (!esb_paired || !esb_initialized)
+		printk("Radio: %s\n", esb_paired ? "not started" : "pairing");
+	printk("Consecutive TX errors: %u (connection error at %u)\n", tx_errors, TX_ERROR_THRESHOLD);
+	printk("Radio: %s, retransmit delay %u us; restarted after a stall %u times", esb_is_idle() ? "idle" : "busy",
+		retransmit_delay_us, radio_restarts);
+	if (radio_restarts)
+		printk(", last %lld s ago", (k_uptime_get() - last_radio_restart) / 1000);
+	printk("\n");
+	printk("Per frame id, total (+ since the last \"link\"):\n");
+	int64_t now = k_uptime_get();
+	bool any = false;
+	for (int i = 0; i < LINK_SLOTS; i++)
+	{
+		struct link_stat s = link_stats[i];
+		if (!s.used)
+			continue;
+		any = true;
+		struct link_stat p = link_shown[i].used ? link_shown[i] : (struct link_stat){0};
+		uint32_t ds = s.sent - p.sent, da = s.acked - p.acked, df = s.failed - p.failed;
+		printk("  id %u%s: sent %u (+%u), acked %u (+%u), failed %u (+%u), no result %u",
+			s.id, s.id == retained->paired_addr[1] ? " (this tracker)" : " (relayed)",
+			s.sent, ds, s.acked, da, s.failed, df, s.sent - s.acked - s.failed);
+		if (s.last_ack)
+			printk(", last ACK %lld ms ago\n", now - s.last_ack);
+		else
+			printk(", never ACKed\n");
+		link_shown[i] = s;
+	}
+	if (!any)
+		printk("  nothing sent yet\n");
+	printk("No ACKs: the receiver is off, out of range, or not the one this tracker paired with.\n");
+	printk("ACKs but no data on the receiver: its log names ids it has not stored.\n");
 }
 
 bool esb_ready(void)
 {
+	if (wired_is_ankle())
+		return true; // the radio is never used; do not hold off sleep waiting for pairing
 	return esb_initialized && esb_paired;
 }
 
+#if CONFIG_WIRED_LINK
+static void esb_wait_idle(int64_t deadline)
+{
+	while (!esb_is_idle() && k_uptime_get() < deadline)
+		k_usleep(1);
+}
+
+// Sends pairing requests for addr on the discovery address, as esb_pair() does, for up to
+// `rounds` rounds of one second, and returns the receiver's 8-byte reply (checksum, id, receiver
+// address). Only a receiver in pairing mode answers. This tracker's own pairing is kept.
+static int esb_pair_request(const uint8_t addr[6], int rounds, uint8_t reply[8], bool led)
+{
+	uint8_t checksum = crc8_ccitt(0x07, addr, 6);
+	if (checksum == 0)
+		checksum = 8;
+
+	k_mutex_lock(&pair_request_lock, K_FOREVER);
+	other_pairing = true; // esb_write() returns early from here on
+	esb_deinitialize();   // waits for a pending transmission
+	esb_set_addr_discovery();
+	esb_initialize(true);
+	clocks_start();
+	if (led)
+		set_led(SYS_LED_PATTERN_SHORT, SYS_LED_PRIORITY_PAIR);
+
+	struct esb_payload p = ESB_CREATE_PAYLOAD(0, 0, 0, 0, 0, 0, 0, 0, 0);
+	p.pipe = 0;
+	p.noack = false;
+	p.data[0] = checksum; // the receiver echoes this, so the reply is known to be for this address
+	memcpy(&p.data[2], addr, 6);
+
+	int ret = -ETIMEDOUT;
+	for (int round = 0; round < rounds && ret; round++)
+	{
+		int64_t begin = k_uptime_get();
+		other_ack_ready = false;
+		// Request, as esb_pair() does for the tracker itself.
+		p.data[1] = 0;
+		esb_write_payload(&p);
+		esb_wait_idle(begin + 10);
+		// Fetch the reply. A receiver that answers slowly (stock firmware writes flash
+		// before replying to a new address) gets up to 20 more chances.
+		for (int i = 0; i < 20 && !other_ack_ready; i++)
+		{
+			p.data[1] = 1;
+			esb_write_payload(&p);
+			esb_wait_idle(k_uptime_get() + 10);
+			if (!other_ack_ready)
+				k_msleep(1);
+		}
+		if (other_ack_ready && other_ack[0] == checksum)
+		{
+			memcpy(reply, other_ack, sizeof(other_ack));
+			ret = 0;
+			break;
+		}
+		if (other_ack_ready)
+			LOG_INF("Reply for another device (checksum %02X)", other_ack[0]);
+		int64_t delta = k_uptime_get() - begin;
+		if (round + 1 < rounds && delta < 1000)
+			k_msleep(1000 - delta);
+	}
+
+	esb_deinitialize();
+	esb_set_addr_paired();
+	esb_initialize(true);
+	other_pairing = false;
+	k_mutex_unlock(&pair_request_lock);
+	if (led)
+		set_led(ret ? SYS_LED_PATTERN_OFF : SYS_LED_PATTERN_ONESHOT_COMPLETE, SYS_LED_PRIORITY_PAIR);
+	return ret;
+}
+
+int esb_pair_other(const uint8_t addr[6], uint8_t *id_out)
+{
+	if (wired_is_ankle())
+		return -EPERM;
+	if (!esb_paired)
+	{
+		LOG_WRN("Pair this tracker before pairing a wired tracker through it");
+		return -EPERM;
+	}
+	uint8_t reply[8];
+	int ret = esb_pair_request(addr, 10, reply, true);
+	if (ret == 0)
+		*id_out = reply[1];
+	return ret;
+}
+
+// Called while the receiver does not answer. Takes over the address and id a receiver in pairing
+// mode hands out, and re-pairs the wired ankle on a new receiver (its old id belongs to the old one).
+static void esb_try_repair(void)
+{
+	uint8_t addr[6], reply[8];
+	memcpy(addr, (const void *)NRF_FICR->DEVICEADDR, sizeof(addr));
+	if (esb_pair_request(addr, 1, reply, false) != 0)
+		return; // no receiver in pairing mode
+	if (memcmp(reply, paired_addr, sizeof(paired_addr)) == 0)
+		return; // same receiver, same id
+	bool new_receiver = memcmp(&reply[2], &paired_addr[2], 6) != 0;
+	LOG_INF("Re-paired: id %u -> %u, receiver %012llX -> %012llX", paired_addr[1], reply[1],
+		(*(uint64_t *)&paired_addr[0] >> 16) & 0xFFFFFFFFFFFF, (*(uint64_t *)&reply[0] >> 16) & 0xFFFFFFFFFFFF);
+	esb_deinitialize();
+	memcpy(paired_addr, reply, sizeof(paired_addr));
+	sys_write(PAIRED_ID, retained->paired_addr, paired_addr, sizeof(paired_addr)); // Write new address and tracker id
+	connection_set_id(paired_addr[1]);
+	esb_set_addr_paired();
+	esb_initialize(true);
+	tx_errors = 0;
+	set_led(SYS_LED_PATTERN_ONESHOT_COMPLETE, SYS_LED_PRIORITY_PAIR);
+	if (new_receiver && !wired_is_ankle())
+	{
+		wired_forget_ankles();
+		wired_request_pair_ankle(); // the receiver is still in pairing mode; no-op without an ankle
+	}
+}
+#endif
+
 static void esb_thread(void)
 {
+	if (IS_ENABLED(CONFIG_DEBUG_NO_POWER_SAVING))
+		LOG_WRN("Debug build: power saving off (no low rate, sleep or shutdown when still)");
+	if (wired_is_ankle())
+	{
+		LOG_INF("Wired mode: radio not used");
+		return; // never pair or initialize; tx_errors stays 0, so no connection error or shutdown
+	}
 	bool use_hid = CONFIG_0_SETTINGS_READ(CONFIG_0_CONNECTION_OVER_HID);
-	bool use_shutdown = CONFIG_0_SETTINGS_READ(CONFIG_0_USER_SHUTDOWN);
+	bool use_shutdown = CONFIG_0_SETTINGS_READ(CONFIG_0_USER_SHUTDOWN) && !IS_ENABLED(CONFIG_DEBUG_NO_POWER_SAVING);
 	int64_t start_time = k_uptime_get();
 
 	// Read paired address from retained
@@ -528,7 +880,14 @@ static void esb_thread(void)
 				sys_request_system_off(false);
 			}
 		}
-		else if (tx_errors < TX_ERROR_THRESHOLD && get_status(SYS_STATUS_CONNECTION_ERROR) && k_uptime_get() - last_tx_fail > 3000) // TODO: there is possibly some race condition causing tx_error to potentially be above zero more often than not, so the check is more lenient; tx_error under threshold and last errors above threshold was not recent
+#if CONFIG_WIRED_LINK
+		if (esb_paired && tx_errors >= TX_ERROR_THRESHOLD && k_uptime_get() - last_repair_try > REPAIR_RETRY_MS)
+		{
+			last_repair_try = k_uptime_get();
+			esb_try_repair();
+		}
+#endif
+		if (tx_errors < TX_ERROR_THRESHOLD && get_status(SYS_STATUS_CONNECTION_ERROR) && k_uptime_get() - last_tx_fail > 3000) // TODO: there is possibly some race condition causing tx_error to potentially be above zero more often than not, so the check is more lenient; tx_error under threshold and last errors above threshold was not recent
 		{
 			set_status(SYS_STATUS_CONNECTION_ERROR, false);
 		}

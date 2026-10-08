@@ -27,6 +27,7 @@ const char *config_settings_names[] = {
 	"use_imu_wake_up",
 	"delay_sleep_on_status",
 	"connection_over_hid",
+	"connection_over_uart",
 	"sensor_use_low_power_2", // 1
 	"use_imu_timeout",
 	"use_active_timeout",
@@ -59,6 +60,7 @@ const bool config_0_settings_defaults[16] = {
 	IS_ENABLED(CONFIG_USE_IMU_WAKE_UP),
 	IS_ENABLED(CONFIG_DELAY_SLEEP_ON_STATUS),
 	IS_ENABLED(CONFIG_CONNECTION_OVER_HID),
+	IS_ENABLED(CONFIG_CONNECTION_OVER_UART),
 };
 
 const bool config_1_settings_defaults[16] = {
@@ -137,7 +139,7 @@ const int32_t config_3_settings_defaults[16] = {
 	CONFIG_BATTERY_LOW_RUNTIME_THRESHOLD,
 };
 
-LOG_MODULE_REGISTER(config, LOG_LEVEL_INF);
+LOG_MODULE_REGISTER(config, LOG_LEVEL_DBG);
 
 void config_settings_init(void)
 {

@@ -59,4 +59,13 @@ void esb_write(uint8_t *data); // TODO: give packets some names
 
 bool esb_ready(void);
 
+// Prints radio ACK statistics per frame id (the "link" console command).
+void esb_print_link(void);
+
+#if CONFIG_WIRED_LINK
+// Pairs another device (a wired ankle) with the receiver through this tracker's radio.
+// Blocks for up to about 10 s. Returns 0 and the receiver's id for that address.
+int esb_pair_other(const uint8_t addr[6], uint8_t *id_out);
+#endif
+
 #endif
