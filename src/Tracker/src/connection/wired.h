@@ -20,14 +20,19 @@
 	OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 	THE SOFTWARE.
 */
-// Wired ankle link: an ankle tracker sends its frames over UART to a relay tracker,
-// which stamps the ankle's receiver id and forwards the frames over ESB.
-// One image does both; the connection_over_uart setting selects the ankle role at boot.
+// Wired link. One image, the connection_over_uart setting picks the mode at boot:
+//   off: radio relay. Listens on D8 for a wired ankle, stamps its receiver id and sends its
+//        frames over ESB together with its own.
+//   on:  wired chain mode, radio off. Sends its own frames upstream on D15 and forwards
+//        everything arriving on D8 from downstream, unchanged. A chain ends at the ESP32 hub,
+//        which knows each tracker by the address in its frames: no ids, no pairing.
 //
-// Wire format (ankle -> relay), 460800 baud 8N1:
+// Wire format, 460800 baud 8N1, upstream direction only:
 //     COBS( [type][body] ) + 0x00
-//     type 0x01 DATA : the 21-byte ESB frame (packet[16], CRC32 LE, sequence), id byte = 0xFF
 //     type 0x02 HELLO: FICR device address[6], fw major, minor, patch      (once per second)
+//     type 0x03 ADATA: address[6], packet[16] (id byte 0xFF), CRC32 LE, sequence
+//                      CRC32 = crc32_k_4_2_update(0x93a409eb, address + packet, 22)
+//     type 0x01 DATA : legacy, the 21-byte ESB frame without address (older ankle firmware)
 #ifndef SLIMENRF_WIRED
 #define SLIMENRF_WIRED
 
@@ -38,11 +43,11 @@
 #define WIRED_ID_PLACEHOLDER 0xFF   // tracker id sent by an ankle; the relay replaces it
 
 #if CONFIG_WIRED_LINK
-// True if this tracker is a wired ankle (connection_over_uart). Fixed from boot.
+// True in wired chain mode (connection_over_uart), radio off. Fixed from boot.
 bool wired_is_ankle(void);
 
-// Wired mode: queues one ESB frame (id already set to WIRED_ID_PLACEHOLDER, CRC computed).
-// Never blocks; the frame is dropped only if the small TX queue is full.
+// Wired chain mode: sends one ESB frame upstream as ADATA with this tracker's address.
+// Never blocks; the frame is dropped only if the TX queue is full.
 void wired_write_data(const uint8_t frame[WIRED_FRAME_LEN]);
 
 // Relay: true while frames from a paired ankle are arriving.

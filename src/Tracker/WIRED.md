@@ -1,5 +1,12 @@
 # Wired ankle link (branch `hub-wired`)
 
+> **Wired chain mode** (current, see the top-level README): with `connection_over_uart 1` a
+> tracker turns its radio off, sends its own frames upstream on **D15** and forwards everything
+> arriving on **D8** from the tracker below it, unchanged. Chains end on the ESP32-S3 hub, which
+> knows each tracker by the address in its ADATA frames (format in `src/connection/wired.h`),
+> so no pairing is needed. The rest of this file describes the radio relay mode
+> (`connection_over_uart 0`), which still works and also accepts ADATA from a chain-firmware ankle.
+
 Ankles are wired to their thigh tracker instead of using their own radio. The ankle sends
 its frames over a short UART cable; the thigh (the "relay") stamps the ankle's receiver id
 and forwards the frames over ESB together with its own. The receiver, the ESP32 hub and

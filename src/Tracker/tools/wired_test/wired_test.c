@@ -1,4 +1,5 @@
-// Host test of src/connection/wired.c: ankle encoder -> wire bytes -> relay decoder/stamper.
+// Host test of src/connection/wired.c: chain encoder -> wire bytes -> relay decoder/stamper,
+// and chain mode forwarding.
 #define CONFIG_WIRED_LINK 1
 #define WIRED_HOST_TEST 1
 #define CONFIG_WIRED_RELAY_IDLE_MS 1000
@@ -54,6 +55,29 @@ static void ankle_send_hello(void)
 	ankle_uart_cb(&sim_uart, &e, NULL);
 }
 
+// Decodes the COBS frames in b[0..n) into raw frames; returns how many were found.
+static int decode_frames(const uint8_t *b, size_t n, uint8_t raw[][40], size_t *raw_len, int max)
+{
+	int count = 0;
+	size_t start = 0;
+	for (size_t i = 0; i < n && count < max; i++) {
+		if (b[i] != 0)
+			continue;
+		size_t r = start, w = 0;
+		while (r < i) {
+			uint8_t code = b[r++];
+			for (uint8_t k = 1; k < code && r < i; k++)
+				raw[count][w++] = b[r++];
+			if (code != 0xFF && r < i)
+				raw[count][w++] = 0;
+		}
+		if (w)
+			raw_len[count++] = w;
+		start = i + 1;
+	}
+	return count;
+}
+
 static void relay_feed(const uint8_t *b, size_t n)
 {
 	uint8_t tmp[4096];
@@ -69,9 +93,9 @@ int main(void)
 {
 	uint8_t out[WIRED_FRAME_LEN];
 
-	// Role from the setting: ankle starts only the TX UART, relay only the RX UART.
+	// Role from the setting: chain mode starts the TX (upstream) and RX (downstream) UARTs.
 	sim_role_ankle = 1;
-	CHECK(wired_init_ptr() == 0 && wired_is_ankle() && sim_device_inits == 1 && uart_ok, "ankle role");
+	CHECK(wired_init_ptr() == 0 && wired_is_ankle() && sim_device_inits == 2 && uart_ok, "chain role");
 	int pair_before = pair_sem.count;
 	wired_request_pair_ankle(); // refused on an ankle
 	CHECK(pair_sem.count == pair_before, "ankle must not start pairing");
@@ -82,8 +106,18 @@ int main(void)
 	size_t hello_len = sim_tx_len;
 	ankle_send_data(7, 0);
 	size_t data_len = sim_tx_len - hello_len;
-	printf("HELLO %zu bytes, DATA %zu bytes on the wire\n", hello_len, data_len);
-	CHECK(data_len <= 24, "DATA frame too long: %zu", data_len);
+	printf("HELLO %zu bytes, ADATA %zu bytes on the wire\n", hello_len, data_len);
+	CHECK(data_len <= 31, "ADATA frame too long: %zu", data_len);
+	{
+		uint8_t raw[2][40];
+		size_t rl[2];
+		CHECK(decode_frames(sim_tx, sim_tx_len, raw, rl, 2) == 2 && rl[1] == ADATA_LEN && raw[1][0] == TYPE_ADATA,
+		      "ADATA layout");
+		uint32_t crc;
+		memcpy(&crc, &raw[1][23], 4);
+		CHECK(raw[1][1] == 0x11 && raw[1][6] == 0xC6 && raw[1][27] == 7, "ADATA address/sequence");
+		CHECK(crc == crc32_k_4_2_update(0x93a409eb, &raw[1][1], 22), "ADATA CRC");
+	}
 	CHECK(sim_tx[hello_len - 1] == 0 && sim_tx[sim_tx_len - 1] == 0, "missing delimiters");
 
 	// TX queue: frames sent while one is on the wire are queued, not dropped.
@@ -97,16 +131,16 @@ int main(void)
 	ankle_uart_cb(&sim_uart, &done, NULL); // first done -> second starts
 	CHECK(sim_tx_len - before == 2 * data_len && tx_dropped == 0, "queued frame not sent");
 	ankle_uart_cb(&sim_uart, &done, NULL);
-	// Queue full: 4 queued while busy, the 5th is dropped.
+	// Queue full: TXQ_LEN queued while busy, the next one is dropped.
 	before = sim_tx_len;
-	for (int i = 0; i < 5; i++)
+	for (int i = 0; i < TXQ_LEN + 1; i++)
 		wired_write_data(f);
 	CHECK(tx_dropped == 1, "queue full drop: %u", tx_dropped);
-	for (int i = 0; i < 4; i++)
+	for (int i = 0; i < TXQ_LEN; i++)
 		ankle_uart_cb(&sim_uart, &done, NULL);
-	CHECK(sim_tx_len - before == 4 * data_len && txq_count == 0, "queue drained: %zu bytes, %u left", sim_tx_len - before, txq_count);
+	CHECK(sim_tx_len - before == TXQ_LEN * data_len && txq_count == 0, "queue drained: %zu bytes, %u left", sim_tx_len - before, txq_count);
 	// Drop the extra frames from the captured wire so the relay test below sees a clean stream.
-	sim_tx_len -= 5 * data_len;
+	sim_tx_len -= (TXQ_LEN + 1) * data_len;
 
 	uint8_t wire[4096];
 	size_t wire_len = sim_tx_len;
@@ -116,7 +150,7 @@ int main(void)
 	sim_role_ankle = 0;
 	is_ankle = false;
 	wired_relay_start();
-	CHECK(!wired_is_ankle() && sim_device_inits == 2, "relay role");
+	CHECK(!wired_is_ankle() && sim_device_inits == 3, "relay role");
 	start_rx_work_fn(NULL);
 	uint8_t junk[] = {0x13, 0x37, 0x00};
 	relay_feed(junk, sizeof(junk));
@@ -194,6 +228,78 @@ int main(void)
 	int rearm_before = rearm_work.submitted;
 	relay_uart_cb(&sim_uart, &dis, NULL);
 	CHECK(!wired_relaying() && rearm_work.submitted == rearm_before + 1, "disable handling");
+
+	// Chain mode: a middle tracker forwards HELLO and ADATA from downstream unchanged, wraps a
+	// legacy DATA frame with the address from the HELLO, and drops corrupted frames.
+	{
+		// Downstream tracker: address AA BB CC DD EE F1, three frames.
+		struct sim_ficr own = sim_ficr;
+		sim_ficr.DEVICEADDR[0] = 0xDDCCBBAAu;
+		sim_ficr.DEVICEADDR[1] = 0x0000F1EEu;
+		is_ankle = true;
+		sim_tx_len = 0;
+		ankle_send_hello();
+		for (int s = 0; s < 3; s++)
+			ankle_send_data((uint8_t)(40 + s), (uint8_t)s);
+		uint8_t down[4096];
+		size_t down_len = sim_tx_len;
+		memcpy(down, sim_tx, down_len);
+		// Legacy DATA frame (older ankle firmware): no address.
+		uint8_t legacy_raw[DATA_LEN], legacy_enc[MAX_ENCODED];
+		legacy_raw[0] = TYPE_DATA;
+		make_frame(&legacy_raw[1], 1, 50, 9);
+		size_t ln = cobs_encode(legacy_raw, sizeof(legacy_raw), legacy_enc);
+		legacy_enc[ln++] = 0;
+		memcpy(down + down_len, legacy_enc, ln);
+		down_len += ln;
+		sim_ficr = own;
+
+		// Middle tracker receives it and forwards upstream (TX done delivered after each frame).
+		sim_tx_len = 0;
+		uint32_t fwd = st_relayed, bad = st_bad;
+		atomic_clear(&rx_on);
+		start_rx_work_fn(NULL);
+		uint8_t sync = 0;
+		relay_feed(&sync, 1);
+		for (size_t i = 0; i < down_len; i++) {
+			relay_feed(&down[i], 1);
+			if (down[i] == 0 && tx_active)
+				ankle_uart_cb(&sim_uart, &done, NULL);
+		}
+		while (txq_count)
+			ankle_uart_cb(&sim_uart, &done, NULL);
+		CHECK(st_relayed - fwd == 5 && st_bad == bad, "forwarded %u bad %u", st_relayed - fwd, st_bad - bad);
+		CHECK(sim_tx_len >= down_len - ln && memcmp(sim_tx, down, down_len - ln) == 0,
+		      "HELLO and ADATA must be forwarded byte for byte");
+		uint8_t raw[8][40];
+		size_t rl[8];
+		int n = decode_frames(sim_tx, sim_tx_len, raw, rl, 8);
+		CHECK(n == 5, "upstream frames %d", n);
+		if (n == 5) {
+			uint32_t crc;
+			memcpy(&crc, &raw[4][23], 4);
+			CHECK(raw[4][0] == TYPE_ADATA && raw[4][1] == 0xAA && raw[4][6] == 0xF1 && raw[4][27] == 50,
+			      "legacy DATA wrapped with the HELLO address");
+			CHECK(crc == crc32_k_4_2_update(0x93a409eb, &raw[4][1], 22), "wrapped CRC");
+		}
+		CHECK(wired_relaying(), "a forwarding tracker counts as relaying");
+
+		// A corrupted ADATA is not forwarded.
+		uint8_t corrupt[64];
+		size_t cl = 0;
+		for (size_t i = hello_len; i < down_len && cl < sizeof(corrupt); i++) {
+			corrupt[cl++] = down[i];
+			if (down[i] == 0)
+				break;
+		}
+		corrupt[10] ^= 0x01;
+		if (corrupt[10] == 0)
+			corrupt[10] = 0x01;
+		fwd = st_relayed;
+		bad = st_bad;
+		relay_feed(corrupt, cl);
+		CHECK(st_relayed == fwd && st_bad == bad + 1, "corrupted ADATA forwarded");
+	}
 
 	printf(failures ? "%d FAILURE(S)\n" : "all wired link tests passed\n", failures);
 	return failures != 0;

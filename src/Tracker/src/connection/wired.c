@@ -36,23 +36,27 @@
 #include <zephyr/init.h>
 #include <zephyr/sys/crc.h>
 
-LOG_MODULE_REGISTER(wired, LOG_LEVEL_INF);
+LOG_MODULE_REGISTER(wired, LOG_LEVEL_DBG);
 
-// Both UARTs use zephyr,deferred-init and share P0.08; only the one for this role is started.
+// Both UARTs use zephyr,deferred-init. Radio relay mode starts only the RX UART (D8);
+// wired chain mode starts both: RX from downstream on D8, TX upstream on D15.
 static const struct device *const tx_uart = DEVICE_DT_GET(DT_CHOSEN(slimenrf_wired_tx_uart));
 static const struct device *const rx_uart = DEVICE_DT_GET(DT_CHOSEN(slimenrf_wired_rx_uart));
-static bool is_ankle;
+static bool is_ankle; // wired chain mode (connection_over_uart); the name predates the chains
 
 bool wired_is_ankle(void)
 {
 	return is_ankle;
 }
 
-#define TYPE_DATA 0x01
+#define TYPE_DATA 0x01  // legacy: ESB frame without address (firmware before the chains)
 #define TYPE_HELLO 0x02
+#define TYPE_ADATA 0x03 // addressed data, see wired.h
 #define DATA_LEN (1 + WIRED_FRAME_LEN) // 22
 #define HELLO_LEN (1 + 6 + 3)          // 10
-#define MAX_ENCODED 32                 // a DATA frame encodes to 23 bytes
+#define ADATA_LEN (1 + 6 + 16 + 4 + 1) // 28
+#define ADATA_CRC_LEN (6 + 16)         // address and packet
+#define MAX_ENCODED 32                 // an ADATA frame encodes to 29 bytes
 
 static size_t cobs_encode(const uint8_t *in, size_t len, uint8_t *out)
 {
@@ -80,9 +84,10 @@ static size_t cobs_encode(const uint8_t *in, size_t len, uint8_t *out)
 /* Ankle: send frames                                                                     */
 /* ------------------------------------------------------------------------------------- */
 
-// Small TX queue: the connection thread often sends several packets back to back
-// (rotation, then battery/status/button), and one frame takes about 0.5 ms at 460800 baud.
-#define TXQ_LEN 4
+// TX queue: the connection thread often sends several packets back to back (rotation, then
+// battery/status/button), and a chain tracker also forwards everything from downstream.
+// One frame takes about 0.65 ms at 460800 baud.
+#define TXQ_LEN 16
 static uint8_t txq_buf[TXQ_LEN][MAX_ENCODED];
 static uint8_t txq_len[TXQ_LEN];
 static uint8_t txq_head, txq_count;
@@ -147,11 +152,21 @@ static bool ankle_send(const uint8_t *raw, size_t len)
 	return true;
 }
 
+// Builds an ADATA frame: [type][addr 6][packet 16][CRC32 LE over addr + packet][sequence].
+static void build_adata(uint8_t raw[ADATA_LEN], const uint8_t addr[6], const uint8_t packet[16], uint8_t seq)
+{
+	raw[0] = TYPE_ADATA;
+	memcpy(&raw[1], addr, 6);
+	memcpy(&raw[7], packet, 16);
+	uint32_t crc = crc32_k_4_2_update(0x93a409eb, &raw[1], ADATA_CRC_LEN);
+	memcpy(&raw[23], &crc, sizeof(crc));
+	raw[27] = seq;
+}
+
 void wired_write_data(const uint8_t frame[WIRED_FRAME_LEN])
 {
-	uint8_t raw[DATA_LEN];
-	raw[0] = TYPE_DATA;
-	memcpy(&raw[1], frame, WIRED_FRAME_LEN);
+	uint8_t raw[ADATA_LEN];
+	build_adata(raw, (const uint8_t *)NRF_FICR->DEVICEADDR, frame, frame[20]);
 	ankle_send(raw, sizeof(raw)); // if the queue is full, the next sample replaces this one
 }
 
@@ -179,7 +194,7 @@ static void wired_ankle_start(void)
 	}
 	uart_ok = true;
 	k_work_reschedule(&hello_work, K_MSEC(100));
-	LOG_INF("Wired mode: data over %s, radio off", tx_uart->name);
+	LOG_INF("Wired chain mode: data upstream over %s (D15), radio off", tx_uart->name);
 }
 
 /* ------------------------------------------------------------------------------------- */
@@ -262,12 +277,29 @@ static uint64_t addr_u64(const uint8_t *addr)
 	return v;
 }
 
+// Chain mode: passes a checked frame from downstream on, unchanged. Runs in the RX UART's
+// callback; ankle_send() is safe there. Dropped (and counted) if the TX queue is full.
+static void forward(const uint8_t *raw, size_t len)
+{
+	if (ankle_send(raw, len))
+		st_relayed++;
+	else
+		st_qdrop++;
+	atomic_set(&relaying, 1); // keeps this tracker awake while it carries others
+}
+
 static void handle_hello(const uint8_t *d)
 {
 	bool changed = memcmp(hello_addr, &d[1], 6) != 0 || hello_time == 0;
 	memcpy(hello_addr, &d[1], 6);
 	memcpy(hello_fw, &d[7], 3);
 	hello_time = k_uptime_get();
+	if (is_ankle) {
+		if (changed)
+			LOG_INF("Downstream tracker %012llX connected", addr_u64(hello_addr));
+		forward(d, HELLO_LEN);
+		return;
+	}
 	int id = lookup_ankle(hello_addr);
 	if (changed || id != ankle_id) {
 		if (id >= 0)
@@ -278,9 +310,46 @@ static void handle_hello(const uint8_t *d)
 	ankle_id = id;
 }
 
+// Relay mode: queues an ESB frame for the radio with the receiver id stamped in.
+static void relay_frame(uint8_t *frame, int id);
+
+// Addressed data from downstream, CRC already checked.
+static void handle_adata(const uint8_t *d)
+{
+	if (is_ankle) {
+		forward(d, ADATA_LEN);
+		return;
+	}
+	// A chain-firmware ankle plugged into a radio relay: the address names the ankle.
+	int id = lookup_ankle(&d[1]);
+	if (id < 0) {
+		st_unpaired++;
+		if (k_uptime_get() - last_unpaired_log >= UNPAIRED_LOG_MS) {
+			last_unpaired_log = k_uptime_get();
+			LOG_WRN("Wired tracker %012llX not paired, dropping its data: run pair_wired", addr_u64(&d[1]));
+		}
+		return;
+	}
+	uint8_t frame[WIRED_FRAME_LEN];
+	memcpy(frame, &d[7], 16);
+	frame[20] = d[27];
+	relay_frame(frame, id);
+}
+
 static void handle_data(uint8_t *d)
 {
 	uint8_t *frame = &d[1]; // packet[16], CRC32, sequence
+	if (is_ankle) {
+		// Legacy ankle firmware on a chain: it sends no address, so use the one from its HELLO.
+		if (hello_time == 0) {
+			st_unpaired++;
+			return;
+		}
+		uint8_t raw[ADATA_LEN];
+		build_adata(raw, hello_addr, frame, frame[20]);
+		forward(raw, sizeof(raw));
+		return;
+	}
 	int id = ankle_id;
 	if (id < 0) {
 		st_unpaired++;
@@ -290,6 +359,11 @@ static void handle_data(uint8_t *d)
 		}
 		return;
 	}
+	relay_frame(frame, id);
+}
+
+static void relay_frame(uint8_t *frame, int id)
+{
 	// Stamp the real id and recompute the CRC; the ankle's sequence byte is kept.
 	// A frame purged from the queue below shows up as a sequence jump, which the receiver
 	// accepts (it only drops out-of-order frames). Do not "repair" the sequence here.
@@ -337,6 +411,17 @@ static void frame_done(void)
 			session_found = true;
 			k_work_reschedule(&idle_work, K_MSEC(CONFIG_WIRED_RELAY_IDLE_MS));
 			handle_data(d);
+			return;
+		}
+	} else if (ok && w == ADATA_LEN && d[0] == TYPE_ADATA) {
+		uint32_t crc;
+		memcpy(&crc, &d[23], sizeof(crc));
+		if (crc == crc32_k_4_2_update(0x93a409eb, &d[1], ADATA_CRC_LEN)) {
+			if (session_from_probe && !session_found)
+				st_probe_found++;
+			session_found = true;
+			k_work_reschedule(&idle_work, K_MSEC(CONFIG_WIRED_RELAY_IDLE_MS));
+			handle_adata(d);
 			return;
 		}
 	} else if (ok && w == HELLO_LEN && d[0] == TYPE_HELLO) {
@@ -475,7 +560,7 @@ static void wired_relay_start(void)
 	gpio_add_callback(wake_pin.port, &wake_cb);
 	rearm_work_fn(NULL);
 	k_work_reschedule(&probe_work, K_MSEC(PROBE_PERIOD_MS));
-	LOG_INF("Relay mode: listening on %s", rx_uart->name);
+	LOG_INF("%s: listening on %s (D8)", is_ankle ? "Wired chain mode" : "Relay mode", rx_uart->name);
 }
 
 /* ---- ankle table and pairing ---- */
@@ -504,7 +589,7 @@ static K_SEM_DEFINE(pair_sem, 0, 1);
 void wired_request_pair_ankle(void)
 {
 	if (is_ankle) {
-		LOG_WRN("This tracker is in wired mode (connection_over_uart); pair it from its relay");
+		LOG_WRN("Wired chain mode (connection_over_uart) needs no pairing: the hub knows trackers by address");
 		return;
 	}
 	k_sem_give(&pair_sem);
@@ -572,10 +657,18 @@ void wired_print_status(void)
 	print_uarte_regs("RX uart", DT_REG_ADDR(DT_CHOSEN(slimenrf_wired_rx_uart)), false);
 #endif
 	if (is_ankle) {
-		printk("Wired mode: data over %s, radio off\n", tx_uart->name);
-		printk("Sent %u data frames, %u HELLOs; dropped %u (queue full), errors %u (last %d)\n", tx_frames, tx_hellos,
-		       tx_dropped, tx_errors, tx_last_err);
-		printk("Set connection_over_uart to 0 and reboot for relay mode\n");
+		printk("Wired chain mode: upstream over %s (D15), downstream on %s (D8, UART %s), radio off\n",
+		       tx_uart->name, rx_uart->name, atomic_get(&rx_on) ? "on" : "off");
+		printk("Sent %u data frames, %u HELLOs (own and forwarded); dropped %u (queue full), errors %u (last %d)\n",
+		       tx_frames, tx_hellos, tx_dropped, tx_errors, tx_last_err);
+		if (hello_time)
+			printk("Last downstream tracker: %012llX fw %u.%u.%u, %lld ms ago\n", addr_u64(hello_addr), hello_fw[0],
+			       hello_fw[1], hello_fw[2], k_uptime_get() - hello_time);
+		else
+			printk("Downstream: nothing connected\n");
+		printk("Forwarded %u, bad %u, queue drops %u, line errors %u, bytes received %u\n", st_relayed, st_bad,
+		       st_qdrop, st_line_err, st_rx_bytes);
+		printk("Set connection_over_uart to 0 and reboot for radio relay mode\n");
 		return;
 	}
 	printk("Relay mode: %s, UART %s\n", wired_relaying() ? "relaying" : "idle", atomic_get(&rx_on) ? "on" : "off");
@@ -629,9 +722,8 @@ static int wired_init(void)
 {
 	is_ankle = CONFIG_0_SETTINGS_READ(CONFIG_0_CONNECTION_OVER_UART) != 0;
 	if (is_ankle)
-		wired_ankle_start();
-	else
-		wired_relay_start();
+		wired_ankle_start(); // upstream TX on D15
+	wired_relay_start();     // downstream RX on D8, in both modes
 	return 0;
 }
 
