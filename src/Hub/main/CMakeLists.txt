@@ -1,0 +1,28 @@
+idf_component_register(
+	SRCS
+		"main.c"
+		"board.c"
+		"cobs.c"
+		"crc16.c"
+		"decoder.c"
+		"deframer.c"
+		"hub_config.c"
+		"net.c"
+		"uart_rx.c"
+		"slime.c"
+		"hub_batt.c"
+		"console.c"
+	INCLUDE_DIRS "."
+	REQUIRES
+		esp_driver_uart
+		esp_driver_gpio
+		esp_adc
+		esp_wifi
+		esp_netif
+		esp_event
+		esp_timer
+		nvs_flash
+		console
+		lwip
+		log
+)

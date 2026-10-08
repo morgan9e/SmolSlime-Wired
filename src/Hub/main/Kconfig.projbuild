@@ -1,0 +1,169 @@
+menu "Slime Hub"
+
+menu "Receiver UART"
+	config HUB_UART_PORT
+		int "UART port number"
+		default 1
+		range 0 2
+		help
+			UART peripheral used to read the receiver's mirror stream.
+			Keep it off the console UART.
+
+	config HUB_UART_RX_GPIO
+		int "RX GPIO"
+		default 17 if IDF_TARGET_ESP32C6
+		default 44 if IDF_TARGET_ESP32S3
+		default 5
+		help
+			GPIO wired to the receiver's TX pin (P0.08, D0 on the ProMicro).
+			Pin D7 (labelled RX) on the Seeed XIAO boards:
+			GPIO17 on the XIAO ESP32-C6, GPIO44 on the XIAO ESP32-S3.
+
+	config HUB_UART_BAUD
+		int "Baud rate"
+		default 1000000
+endmenu
+
+menu "Wi-Fi"
+	config HUB_WIFI_SSID
+		string "Default SSID"
+		default ""
+		help
+			Used only when no SSID has been stored with the console "wifi" command.
+
+	config HUB_WIFI_PASSWORD
+		string "Default password"
+		default ""
+
+	config HUB_WIFI_MAX_TX_POWER_DBM
+		int "Maximum TX power in dBm (0 = driver default)"
+		default 0
+		range 0 20
+		help
+			Lowering this can reduce interference with the ESB receiver beside the ESP32.
+endmenu
+
+menu "SlimeVR"
+	config HUB_SERVER_PORT
+		int "SlimeVR server UDP port"
+		default 6969
+
+	config HUB_LOCAL_PORT_BASE
+		int "First local UDP port (tracker id 0)"
+		default 6980
+		help
+			Tracker id n uses local port BASE + n, so the server sees a stable
+			address for each tracker across Wi-Fi reconnects.
+
+	config HUB_STATS_PORT
+		int "Stats JSON UDP port on the server host"
+		default 6971
+
+	config HUB_MAX_TRACKERS
+		int "Maximum tracker ids"
+		default 16
+		range 1 24
+		help
+			Receiver ids at or above this are ignored. Each id uses one UDP socket.
+
+	config HUB_REPORT_BOARD
+		int "Board type reported in the handshake"
+		default 4
+		help
+			4 is CUSTOM in the SlimeVR server, which never offers firmware updates.
+
+	config HUB_SERVER_TIMEOUT_MS
+		int "Server silence before re-handshake (ms)"
+		default 5000
+endmenu
+
+menu "Gap hold"
+	config HUB_HOLD_PERIOD_MS
+		int "Re-send period for a quiet tracker (ms)"
+		default 10
+
+	config HUB_HOLD_MS
+		int "Hold limit (ms)"
+		default 2000
+		help
+			A tracker silent for longer than this stops sending entirely, so the
+			server marks it timed out. The server's own timeout is 2000 ms.
+
+	config HUB_DROP_MS
+		int "Silence before the server link is dropped (ms)"
+		default 30000
+		help
+			After this, the tracker re-handshakes when its data returns.
+
+	config HUB_GAP_COUNT_MS
+		int "Count gaps longer than this in stats (ms)"
+		default 20
+
+	config HUB_RESUME_GAP_MS
+		int "Blend on resume after gaps longer than this (ms)"
+		default 50
+
+	config HUB_BLEND_SNAP_DEG
+		int "Snap instead of blending below this angle (degrees)"
+		default 3
+
+	config HUB_BLEND_MS_PER_DEG
+		int "Blend duration per degree of jump (ms)"
+		default 2
+
+	config HUB_BLEND_MAX_MS
+		int "Maximum blend duration (ms)"
+		default 50
+endmenu
+
+menu "Board"
+	config HUB_LED_GPIO
+		int "Status LED GPIO (-1 = none)"
+		default 15 if IDF_TARGET_ESP32C6
+		default 21 if IDF_TARGET_ESP32S3
+		default -1
+		help
+			User LED: GPIO15 on the XIAO ESP32-C6, GPIO21 on the XIAO ESP32-S3.
+
+	config HUB_LED_ACTIVE_LOW
+		bool "Status LED is active low"
+		default y
+
+	config HUB_BATT_ADC
+		bool "Measure hub battery voltage with an ADC divider"
+		default n
+		help
+			Wire two equal resistors (e.g. 220 kOhm each) from BAT+ to GND with
+			the midpoint on the ADC GPIO below.
+
+	config HUB_BATT_ADC_GPIO
+		int "Battery ADC GPIO"
+		depends on HUB_BATT_ADC
+		default 0 if IDF_TARGET_ESP32C6
+		default 1 if IDF_TARGET_ESP32S3
+		default 0
+		help
+			Pin A0/D0: GPIO0 on the XIAO ESP32-C6, GPIO1 on the XIAO ESP32-S3.
+
+	config HUB_BATT_DIVIDER_X1000
+		int "Divider ratio x1000 (battery volts / pin volts)"
+		depends on HUB_BATT_ADC
+		default 2000
+
+	config HUB_XIAO_C6_RF_SWITCH
+		bool "Seeed XIAO ESP32-C6 antenna switch"
+		depends on IDF_TARGET_ESP32C6
+		default y
+		help
+			The XIAO ESP32-C6 routes the radio through an RF switch: GPIO3 low
+			enables it and GPIO14 selects the antenna. Arduino does this in the
+			board variant; under ESP-IDF the hub does it at boot.
+			Turn off for other ESP32-C6 boards.
+
+	config HUB_XIAO_C6_EXTERNAL_ANTENNA
+		bool "Use the U.FL external antenna instead of the built-in one"
+		depends on HUB_XIAO_C6_RF_SWITCH
+		default n
+endmenu
+
+endmenu
