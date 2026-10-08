@@ -8,7 +8,6 @@
 //   one corrupted frame at 3 s (uart_bad should end at 1)
 #include <arpa/inet.h>
 #include <math.h>
-#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -38,7 +37,6 @@ float hub_batt_volts(void) { return 3.91f; }
 static QueueHandle_t q;
 static deframer_t df;
 static volatile int corrupt_next;
-static char last_stats[4096];
 
 static void wr16(uint8_t *p, int16_t v)
 {
@@ -133,36 +131,12 @@ static void make_rot(uint8_t *p, int id, const float *wq)
 	wr16(p + 14, TO_FIXED_7(0.1f));
 }
 
-static void *stats_listener(void *arg)
-{
-	(void)arg;
-	int s = socket(AF_INET, SOCK_DGRAM, 0);
-	struct sockaddr_in a = {.sin_family = AF_INET, .sin_port = htons(CONFIG_HUB_STATS_PORT)};
-	a.sin_addr.s_addr = htonl(INADDR_ANY);
-	if (bind(s, (struct sockaddr *)&a, sizeof(a)) < 0) {
-		perror("stats bind");
-		return NULL;
-	}
-	char buf[4096];
-	for (;;) {
-		ssize_t n = recv(s, buf, sizeof(buf) - 1, 0);
-		if (n > 0) {
-			buf[n] = 0;
-			memcpy(last_stats, buf, (size_t)n + 1);
-		}
-	}
-	return NULL;
-}
-
 int main(int argc, char **argv)
 {
 	double duration = argc > 1 ? atof(argv[1]) : 25.0;
 	uint32_t server_ip = 0;
 	if (argc > 2 && strcmp(argv[2], "auto") != 0)
 		inet_pton(AF_INET, argv[2], &server_ip);
-
-	pthread_t st;
-	pthread_create(&st, NULL, stats_listener, NULL);
 
 	q = xQueueCreate(HUB_SAMPLE_QUEUE_LEN, sizeof(hub_sample_t));
 	deframer_reset(&df);
@@ -227,9 +201,7 @@ int main(int argc, char **argv)
 		usleep(1000);
 	}
 
-	usleep(1200000); // let the last stats line arrive
 	printf("==== final status\n");
 	slime_print_status();
-	printf("==== last stats line\n%s", last_stats);
 	return 0;
 }

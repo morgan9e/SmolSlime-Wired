@@ -55,10 +55,6 @@ menu "SlimeVR"
 			Tracker id n uses local port BASE + n, so the server sees a stable
 			address for each tracker across Wi-Fi reconnects.
 
-	config HUB_STATS_PORT
-		int "Stats JSON UDP port on the server host"
-		default 6971
-
 	config HUB_MAX_TRACKERS
 		int "Maximum tracker ids"
 		default 16
@@ -83,7 +79,7 @@ menu "SlimeVR"
 			After this, the tracker re-handshakes when its data returns.
 
 	config HUB_GAP_COUNT_MS
-		int "Count gaps longer than this in stats (ms)"
+		int "Count gaps longer than this in the status table (ms)"
 		default 20
 endmenu
 

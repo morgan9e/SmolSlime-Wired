@@ -7,7 +7,6 @@
 
 #include "driver/gpio.h"
 #include "esp_log.h"
-#include "esp_system.h"
 #include "esp_timer.h"
 #include "freertos/task.h"
 #include "hub.h"
@@ -89,7 +88,6 @@ static QueueHandle_t s_q;
 static struct sockaddr_in s_server;
 static bool s_server_known, s_server_fixed;
 static int64_t s_last_any_srv_rx_us;
-static int s_stats_sock = -1;
 static float s_hub_v = -1.0f;
 
 // ---------------------------------------------------------------- packet writer
@@ -544,39 +542,6 @@ static void led_update(int64_t now)
 #endif
 }
 
-static void send_stats(int64_t now)
-{
-	static char buf[2048];
-	int n = snprintf(buf, sizeof(buf),
-			 "{\"t\":%" PRId64 ",\"uart_ok\":%" PRIu32 ",\"uart_bad\":%" PRIu32 ",\"uart_ovf\":%" PRIu32
-			 ",\"uart_unknown\":%" PRIu32 ",\"q_drop\":%" PRIu32 ",\"udp_err\":%" PRIu32
-			 ",\"wifi_rssi\":%d,\"heap\":%" PRIu32 ",\"hub_v\":%.2f,\"trk\":[",
-			 now / 1000, g_hub.uart_ok, g_hub.uart_bad, g_hub.uart_ovf, g_hub.uart_unknown, g_hub.q_drop,
-			 g_hub.udp_tx_err, net_rssi(), esp_get_free_heap_size(), s_hub_v);
-	bool first = true;
-	for (int i = 0; i < HUB_MAX_TRACKERS && n < (int)sizeof(buf) - 160; i++) {
-		trk_t *t = &s_trk[i];
-		if (!t->known)
-			continue;
-		int batt = !t->have_batt || t->batt == 128 ? -1 : (t->batt & 127);
-		n += snprintf(buf + n, sizeof(buf) - n,
-			      "%s{\"id\":%d,\"up\":%d,\"pps\":%" PRIu32 ",\"gap_max_ms\":%" PRIu32 ",\"gaps\":%" PRIu32
-			      ",\"rssi\":%d,\"batt\":%d,\"bv\":%.2f}",
-			      first ? "" : ",", i, t->link_up, t->pps, t->gap_max_ms, t->gaps,
-			      t->have_rssi ? -(int)t->rssi : 0, batt, t->have_batt ? (t->batt_v + 245) / 100.0f : 0.0f);
-		first = false;
-	}
-	n += snprintf(buf + n, sizeof(buf) - n, "]}\n");
-	if (n >= (int)sizeof(buf))
-		n = sizeof(buf) - 1;
-
-	if (s_stats_sock < 0 || !net_is_up())
-		return;
-	struct sockaddr_in dst = {.sin_family = AF_INET, .sin_port = htons(CONFIG_HUB_STATS_PORT)};
-	dst.sin_addr.s_addr = s_server_known ? s_server.sin_addr.s_addr : htonl(INADDR_BROADCAST);
-	sendto(s_stats_sock, buf, (size_t)n, 0, (struct sockaddr *)&dst, sizeof(dst));
-}
-
 static void roll_stats(int64_t now)
 {
 	for (int i = 0; i < HUB_MAX_TRACKERS; i++) {
@@ -616,7 +581,6 @@ static void slime_task(void *arg)
 				last_sec = now; // fell behind; do not burst
 			s_hub_v = hub_batt_volts();
 			roll_stats(now);
-			send_stats(now);
 		}
 		if (now - last_log >= MS(10000)) {
 			last_log = now;
@@ -640,13 +604,6 @@ void slime_start(QueueHandle_t sample_q, uint32_t server_ip)
 		s_server.sin_port = htons(CONFIG_HUB_SERVER_PORT);
 		s_server.sin_addr.s_addr = server_ip;
 		s_server_known = s_server_fixed = true;
-	}
-
-	s_stats_sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-	if (s_stats_sock >= 0) {
-		int one = 1;
-		setsockopt(s_stats_sock, SOL_SOCKET, SO_BROADCAST, &one, sizeof(one));
-		fcntl(s_stats_sock, F_SETFL, fcntl(s_stats_sock, F_GETFL, 0) | O_NONBLOCK);
 	}
 
 #if CONFIG_HUB_LED_GPIO >= 0

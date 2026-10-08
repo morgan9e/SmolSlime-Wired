@@ -8,7 +8,7 @@
 #define HUB_MAX_TRACKERS CONFIG_HUB_MAX_TRACKERS
 #define HUB_SAMPLE_QUEUE_LEN 128
 
-// Counters written by one task each and read by the stats and console code.
+// Counters written by one task each and read by the console code.
 typedef struct {
 	volatile uint32_t uart_ok;       // frames with valid COBS, length and CRC16
 	volatile uint32_t uart_bad;      // malformed COBS, wrong length or CRC16 mismatch

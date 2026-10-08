@@ -115,13 +115,8 @@ mounting exactly as for HID trackers. Only real tracker packets are forwarded. A
 without data for 2 s stops answering the server, so the server shows it as timed out; after
 30 s of silence (`HUB_DROP_MS`) it re-handshakes when its data returns.
 
-## Stats and tools
+## Tools
 
-The hub sends one JSON line per second to UDP 6971 on the server host (broadcast until a
-server is found). UART and UDP counters are totals since boot; tracker fields are for the
-last second.
-
-- `tools/stats_logger.py` writes them to `session-YYYYMMDD-HHMM.csv` and prints a summary.
 - `tools/fake_receiver.py --port COM5` drives the hub from a USB-UART adapter (TX to D7)
   with fake trackers, for bench tests before the receiver fork exists.
 

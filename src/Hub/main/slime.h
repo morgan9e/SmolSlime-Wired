@@ -1,5 +1,4 @@
-// Presents each receiver tracker to the SlimeVR Server as a WiFi tracker (one UDP socket each)
-// and emits the 1 Hz stats line.
+// Presents each receiver tracker to the SlimeVR Server as a WiFi tracker (one UDP socket each).
 #pragma once
 #include <stdint.h>
 
