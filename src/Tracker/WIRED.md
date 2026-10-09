@@ -6,15 +6,19 @@ tracker with an output keeps its radio off and sends everything upstream on the 
 tracker without one relays its inputs over ESB, together with its own frames. The receiver,
 the ESP32 hub and SlimeVR see every wired tracker as a normal tracker with its own id.
 
-The intended setup: ankle → thigh on each leg by wire, both thighs → hip by wire, and the hip
-(a few cm from the receiver) relays all five over ESB. The chest stays wireless.
+The intended setup is **hub mode**: ankle → thigh on each leg by wire, both thighs → hip by
+wire, and the hip takes the nRF receiver's place. It receives the chest over ESB and sends all
+six trackers to the ESP32 hub on a wire, in the receiver's UART mirror format, so the ESP32 hub
+firmware does not change and no separate receiver is needed.
 
 ```
 L ankle ─wire→ L thigh ─wire→ ┐
-                              ├→ hip ─ESB→ receiver ─UART→ ESP32 ─Wi-Fi→ SlimeVR
-R ankle ─wire→ R thigh ─wire→ ┘             ↑
-                                    chest ─ESB┘
+                              ├→ hip (mode hub) ─wire, D15→ ESP32 ─Wi-Fi→ SlimeVR
+R ankle ─wire→ R thigh ─wire→ ┘        ↑
+                             chest ─ESB┘
 ```
+
+The other way, `mode wired in both`, keeps the receiver: the hip relays the legs over ESB to it.
 
 ## Firmware and modes
 
@@ -28,7 +32,8 @@ console; it is stored and the tracker reboots:
 | `mode wired out right` | off | ankle |
 | `mode wired in left out right` | off | thigh: ankle in on the left, upstream on the right |
 | `mode wired in left` | on | a thigh relaying its ankle by radio (the older setup) |
-| `mode wired in both` | on | hip: both legs in, everything relayed by radio |
+| `mode wired in both` | on | hip: both legs in, everything relayed by radio to the receiver |
+| `mode hub` | receives | hip in place of the receiver: both legs in, the chest by radio, all to the ESP32 on D15 |
 
 Any combination works (`in right out left`, `out left`, ...): at most one output, and a
 header cannot be both. `mode` alone prints the current mode, `wired` the full status. The
@@ -44,7 +49,8 @@ default, follows the older `connection_over_uart` setting: on = `in left out rig
 | Right | D16 (P0.10) | D10 (P0.09) | uart0 |
 
 A cable joins the two ground pins and the two data pins, so any straight cable works between
-any two headers: D8/D16 to D8/D16, D9/D10 to D9/D10. 460800 baud 8N1, upstream only.
+any two headers: D8/D16 to D8/D16, D9/D10 to D9/D10. 1,000,000 baud 8N1, upstream only (the
+ESP32 hub's rate, so the hub output can share a UART with an input).
 
 - Both trackers keep their own battery. The ground pins are driven low on both headers from
   boot; they carry only the UART's return current, so a GPIO is enough. Do not share power.
@@ -58,7 +64,27 @@ any two headers: D8/D16 to D8/D16, D9/D10 to D9/D10. 460800 baud 8N1, upstream o
 - Each header's UART receives by default; for an output header the firmware swaps in transmit
   pins (`pinctrl_update_states()`) before starting it.
 
-## Pairing
+## Hub mode
+
+`mode hub` on the hip. Both headers are inputs and stay on, the radio listens like the receiver
+(same discovery address, pairing exchange and frame checks, on pipe addresses derived from the
+hip's own device address), and the left header's UART also sends on **D15 (P1.13)**. Wire D15 to
+the ESP32's RX pin (XIAO D7) and the hip's GND to the ESP32's GND. The output is the receiver's
+mirror format byte for byte (`src/connection/hub.h`): every tracker packet with its id, and a
+type 255 packet per id every 100 ms that tells the ESP32 hub the tracker's address.
+
+- Ids: the hip gives each address an id the first time it sees it, wired trackers at once and
+  wireless ones when they pair; the table (16 ids, the ESP32 hub's limit) is stored. SlimeVR knows
+  trackers by address, so their body assignments survive the switch from the receiver.
+- Wireless trackers (the chest) pair with the hip as with a receiver: `pair` on the hip (or 3
+  button presses) opens pairing for 60 s, then pair the chest as usual. `clear` forgets them.
+  Their pipe addresses come from the hip, so a chest paired with the old receiver pairs once more.
+- The hip never sleeps and stays at full rate while in hub mode; the radio's HF clock stays on.
+- `wired` (or `link`) shows the inputs, the ids with their frame counts, RSSI of the wireless
+  trackers, and the packets sent to the ESP32.
+- The hip sends RSSI 0 for itself and the wired trackers (byte 15, except in types 1 and 4).
+
+## Pairing (radio relay, `mode wired in left` / `in both`)
 
 Wired trackers never pair by radio. The radio relay (the hip) pairs them by address, once:
 
@@ -112,7 +138,7 @@ divider)`, `usb hid`.
 ## Wire format
 
 ```
-COBS( [type][body] ) + 0x00          460800 baud 8N1, upstream only
+COBS( [type][body] ) + 0x00          1,000,000 baud 8N1, upstream only
 0x02 HELLO: FICR device address[6], fw major, minor, patch                     (1 per second)
 0x03 ADATA: address[6], packet[16] (id byte 0xFF), CRC32-K/4.2 LE over address + packet, sequence
 0x01 DATA : legacy, the 21-byte ESB frame without address (older ankle firmware)
@@ -125,4 +151,6 @@ COBS( [type][body] ) + 0x00          460800 baud 8N1, upstream only
 their validation, the older setting's mapping, an ankle's HELLO/ADATA encoding and TX queue, a
 thigh forwarding its input byte for byte (and wrapping legacy DATA), and a hip with two inputs
 and four trackers: unpaired drops, pairing every tracker heard, the table's NVS round trip, id
-stamping with a valid CRC per input, queue overflow, corruption and one input dropping out.
+stamping with a valid CRC per input, queue overflow, corruption and one input dropping out; and hub mode: inputs that listen at once and stay on, every wired frame handed to hub.c
+by address (legacy DATA by its input's HELLO), the hub output's TX events, `pair_wired` opening
+radio pairing. hub.c itself (radio and output) is not host-tested.

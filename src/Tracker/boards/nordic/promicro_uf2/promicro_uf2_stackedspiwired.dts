@@ -10,6 +10,8 @@
 // in the "tx" pin states below (pinctrl_update_states) before starting the UART.
 // Any straight cable joins the two ground pins and the two data pins: D8/D16 to D8/D16,
 // D9/D10 to D9/D10. A 470R-1k series resistor in the data line is recommended.
+// All wired links run at 1 Mbaud, the ESP32 hub's rate: in hub mode ("mode hub") the left
+// header's UART also sends to the hub on D15 (P1.13; ground: the board's GND pin).
 // Ground pins are driven low on both headers from boot: they are the UARTs' signal return
 // only, each tracker keeps its own battery.
 // D10 and D16 are the NFC pins, used as GPIOs (UICR, see &uicr below).
@@ -45,6 +47,25 @@
 	uart1_tx_sleep: uart1_tx_sleep {
 		group1 {
 			psels = <NRF_PSEL(UART_TX, 1, 6)>;
+			low-power-enable;
+		};
+	};
+
+	// uart1 in hub mode: receives the left header (P1.06) and sends to the ESP32 hub (P1.13, D15)
+	uart1_hub_default: uart1_hub_default {
+		group1 {
+			psels = <NRF_PSEL(UART_TX, 1, 13)>;
+		};
+		group2 {
+			psels = <NRF_PSEL(UART_RX, 1, 6)>;
+			bias-pull-up;
+		};
+	};
+
+	uart1_hub_sleep: uart1_hub_sleep {
+		group1 {
+			psels = <NRF_PSEL(UART_TX, 1, 13)>,
+				<NRF_PSEL(UART_RX, 1, 6)>;
 			low-power-enable;
 		};
 	};
@@ -96,6 +117,9 @@
 		wired-left-tx-sleep = <&uart1_tx_sleep>;
 		wired-right-tx-default = <&uart0_tx_default>;
 		wired-right-tx-sleep = <&uart0_tx_sleep>;
+		// Hub mode: left header in and the hub output on one UART.
+		wired-hub-default = <&uart1_hub_default>;
+		wired-hub-sleep = <&uart1_hub_sleep>;
 	};
 };
 
@@ -118,7 +142,7 @@
 	compatible = "nordic,nrf-uarte";
 	status = "okay";
 	zephyr,deferred-init;
-	current-speed = <460800>;
+	current-speed = <1000000>;
 	pinctrl-0 = <&uart0_default>;
 	pinctrl-1 = <&uart0_sleep>;
 	pinctrl-names = "default", "sleep";
@@ -129,7 +153,7 @@
 	compatible = "nordic,nrf-uarte";
 	status = "okay";
 	zephyr,deferred-init;
-	current-speed = <460800>;
+	current-speed = <1000000>;
 	pinctrl-0 = <&uart1_default>;
 	pinctrl-1 = <&uart1_sleep>;
 	pinctrl-names = "default", "sleep";

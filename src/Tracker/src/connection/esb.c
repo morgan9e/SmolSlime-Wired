@@ -32,6 +32,7 @@
 
 #include "esb.h"
 #include "wired.h"
+#include "hub.h"
 
 uint8_t last_reset = 0;
 //const nrfx_timer_t m_timer = NRFX_TIMER_INSTANCE(1);
@@ -597,6 +598,13 @@ void esb_pair(void)
 
 void esb_reset_pair(void)
 {
+#if CONFIG_WIRED_LINK
+	if (wired_is_hub())
+	{
+		hub_pair_open(); // the hub is the receiver: open pairing for wireless trackers
+		return;
+	}
+#endif
 	if (paired_addr[0] || esb_paired)
 	{
 		esb_deinitialize(); // make sure esb is off
@@ -608,6 +616,13 @@ void esb_reset_pair(void)
 
 void esb_clear_pair(void)
 {
+#if CONFIG_WIRED_LINK
+	if (wired_is_hub())
+	{
+		hub_forget_radio();
+		return;
+	}
+#endif
 	esb_reset_pair();
 	sys_write(PAIRED_ID, &retained->paired_addr, paired_addr, sizeof(paired_addr)); // write zeroes
 	LOG_INF("Pairing data reset");
@@ -692,6 +707,13 @@ void esb_write(uint8_t *data)
 
 void esb_print_link(void)
 {
+#if CONFIG_WIRED_LINK
+	if (wired_is_hub())
+	{
+		hub_print_status();
+		return;
+	}
+#endif
 	if (wired_is_ankle())
 	{
 		printk("Wired mode: radio off, frames go over the cable (see \"wired\")\n");
@@ -740,6 +762,8 @@ void esb_print_link(void)
 
 bool esb_ready(void)
 {
+	if (wired_is_hub())
+		return true; // never waits for pairing, never sleeps
 	if (wired_is_ankle())
 		return true; // the radio is never used; do not hold off sleep waiting for pairing
 	return esb_initialized && esb_paired;
@@ -871,6 +895,11 @@ static void esb_thread(void)
 	{
 		LOG_INF("Wired mode: radio not used");
 		return; // never pair or initialize; tx_errors stays 0, so no connection error or shutdown
+	}
+	if (wired_is_hub())
+	{
+		LOG_INF("Hub mode: the radio receives for the hub (hub.c)");
+		return; // no pairing with a receiver: this tracker is the receiver
 	}
 	bool use_hid = CONFIG_0_SETTINGS_READ(CONFIG_0_CONNECTION_OVER_HID);
 	bool use_shutdown = CONFIG_0_SETTINGS_READ(CONFIG_0_USER_SHUTDOWN) && !IS_ENABLED(CONFIG_DEBUG_NO_POWER_SAVING);

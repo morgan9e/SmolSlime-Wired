@@ -25,6 +25,7 @@
 #include "connection.h"
 #include "esb.h"
 #include "wired.h"
+#include "hub.h"
 #include "build_defines.h"
 
 #include <ctype.h>
@@ -48,6 +49,8 @@ int wired_mode_parse(int argc, char **argv)
 {
 	if (argc == 1 && word_is(argv[0], "wireless"))
 		return 0;
+	if (argc == 1 && word_is(argv[0], "hub"))
+		return WIRED_MODE_HUB;
 	if (argc < 3 || !word_is(argv[0], "wired"))
 		return -1;
 	int mode = 0;
@@ -75,6 +78,10 @@ void wired_mode_format(int mode, char *buf, size_t len)
 	static const char *const sides[] = {"", "left", "right", "both"};
 	if (mode == 0) {
 		snprintf(buf, len, "wireless");
+		return;
+	}
+	if (mode & WIRED_HUB) {
+		snprintf(buf, len, "hub");
 		return;
 	}
 	int in = mode & 3, out = (mode >> 2) & 3;
@@ -118,6 +125,7 @@ struct port {
 	const struct device *uart;
 	struct gpio_dt_spec data_pin;
 	bool in, out;
+	bool always_on; // hub mode: receive all the time (the left UART also carries the hub output)
 	// receive
 	uint8_t rx_bufs[2][RX_BUF_SIZE];
 	uint8_t rx_next_buf;
@@ -159,6 +167,16 @@ int wired_mode(void)
 bool wired_is_ankle(void)
 {
 	return out_port >= 0;
+}
+
+bool wired_is_hub(void)
+{
+	return (mode & WIRED_HUB) != 0;
+}
+
+int wired_hub_tx(const uint8_t *buf, size_t len)
+{
+	return uart_tx(ports[PORT_LEFT].uart, buf, len, SYS_FOREVER_US);
 }
 
 static uint64_t addr_u64(const uint8_t *addr)
@@ -324,6 +342,8 @@ static int64_t last_unpaired_log = -UNPAIRED_LOG_MS;
 
 bool wired_relaying(void)
 {
+	if (wired_is_hub())
+		return true; // the hub stays awake, at full rate, with the HF clock on
 	for (int i = 0; i < PORT_COUNT; i++)
 		if (atomic_get(&ports[i].active))
 			return true;
@@ -364,7 +384,7 @@ static struct seen_entry *note_seen(int port, const uint8_t *addr)
 		memcpy(e->addr, addr, 6);
 		e->used = true;
 		int id = lookup_id(addr);
-		if (out_port >= 0)
+		if (out_port >= 0 || wired_is_hub()) // no pairing: the relay or hub.c gives the id
 			LOG_INF("Wired tracker %012llX on the %s header", addr_u64(addr), port_names[port]);
 		else if (id >= 0)
 			LOG_INF("Wired tracker %012llX on the %s header, id %d", addr_u64(addr), port_names[port], id);
@@ -433,6 +453,11 @@ static void handle_adata(struct port *p, const uint8_t *d)
 		forward(d, ADATA_LEN);
 		return;
 	}
+	if (wired_is_hub()) {
+		hub_put_wired(&d[1], &d[7]);
+		st_relayed++;
+		return;
+	}
 	int id = lookup_id(&d[1]);
 	if (id < 0) {
 		drop_unpaired(&d[1]);
@@ -457,6 +482,11 @@ static void handle_data(struct port *p, uint8_t *d)
 		uint8_t raw[ADATA_LEN];
 		build_adata(raw, p->hello_addr, frame, frame[20]);
 		forward(raw, sizeof(raw));
+		return;
+	}
+	if (wired_is_hub()) {
+		hub_put_wired(p->hello_addr, frame);
+		st_relayed++;
 		return;
 	}
 	int id = lookup_id(p->hello_addr);
@@ -545,6 +575,10 @@ static void in_uart_cb(const struct device *dev, struct uart_event *evt, void *u
 {
 	struct port *p = user_data;
 	switch (evt->type) {
+	case UART_TX_DONE:
+	case UART_TX_ABORTED: // hub mode: the left UART also sends the hub output
+		hub_tx_done();
+		break;
 	case UART_RX_RDY:
 		p->st_rx_bytes += evt->data.rx.len;
 		feed(p, evt->data.rx.buf + evt->data.rx.offset, evt->data.rx.len);
@@ -560,7 +594,8 @@ static void in_uart_cb(const struct device *dev, struct uart_event *evt, void *u
 		atomic_clear(&p->rx_on);
 		atomic_clear(&p->active);
 		k_work_cancel_delayable(&p->idle_work);
-		k_work_submit(&p->rearm_work);
+		// An always-on input listens again at once (no suspend: its UART may be sending).
+		k_work_submit(p->always_on ? &p->start_rx_work : &p->rearm_work);
 		break;
 	default:
 		break;
@@ -629,6 +664,10 @@ static void idle_work_fn(struct k_work *work)
 	struct port *p = CONTAINER_OF(k_work_delayable_from_work(work), struct port, idle_work);
 	if (atomic_get(&p->active))
 		LOG_INF("Wired link on the %s header idle", port_names[p - ports]);
+	if (p->always_on) {
+		atomic_clear(&p->active); // keep listening
+		return;
+	}
 	if (atomic_get(&p->rx_on) && uart_rx_disable(p->uart) != 0) {
 		// Already stopping or stopped; make sure the edge detector is armed.
 		atomic_clear(&p->rx_on);
@@ -646,6 +685,10 @@ static void in_start(struct port *p)
 	if (device_init(p->uart) != 0 || !device_is_ready(p->uart) ||
 	    uart_callback_set(p->uart, in_uart_cb, p) != 0) {
 		LOG_ERR("Wired UART for the %s header not ready", port_names[p - ports]);
+		return;
+	}
+	if (p->always_on) {
+		start_rx(p, false); // no wake edge or probes: the UART stays on
 		return;
 	}
 	if (!gpio_is_ready_dt(&p->data_pin)) {
@@ -696,10 +739,34 @@ static int use_tx_pins(int port)
 	return pinctrl_update_states(PINCTRL_DT_DEV_CONFIG_GET(DT_CHOSEN(slimenrf_wired_right_uart)),
 				     right_tx_states, ARRAY_SIZE(right_tx_states));
 }
+
+// Hub mode: the left UART receives the left header (D9) and sends the hub output (D15).
+PINCTRL_DT_STATE_PINS_DEFINE(DT_PATH(zephyr_user), wired_hub_default);
+#ifdef CONFIG_PM_DEVICE
+PINCTRL_DT_STATE_PINS_DEFINE(DT_PATH(zephyr_user), wired_hub_sleep);
+#endif
+
+static const struct pinctrl_state hub_states[] = {
+	PINCTRL_DT_STATE_INIT(wired_hub_default, PINCTRL_STATE_DEFAULT),
+#ifdef CONFIG_PM_DEVICE
+	PINCTRL_DT_STATE_INIT(wired_hub_sleep, PINCTRL_STATE_SLEEP),
+#endif
+};
+
+static int use_hub_pins(void)
+{
+	return pinctrl_update_states(PINCTRL_DT_DEV_CONFIG_GET(DT_CHOSEN(slimenrf_wired_left_uart)), hub_states,
+				     ARRAY_SIZE(hub_states));
+}
 #else
 static int use_tx_pins(int port)
 {
 	(void)port;
+	return 0;
+}
+
+static int use_hub_pins(void)
+{
 	return 0;
 }
 #endif
@@ -759,6 +826,11 @@ static K_SEM_DEFINE(pair_sem, 0, 1);
 
 void wired_request_pair_ankle(void)
 {
+	if (wired_is_hub()) {
+		LOG_INF("Hub mode gives wired trackers their ids by itself; pairing is for wireless ones");
+		hub_pair_open();
+		return;
+	}
 	if (out_port >= 0) {
 		LOG_WRN("A tracker with a wired output needs no pairing: the radio relay pairs it");
 		return;
@@ -859,14 +931,16 @@ void wired_print_status(void)
 {
 	char name[40];
 	wired_mode_format(mode, name, sizeof(name));
-	printk("Mode: %s (radio %s)%s\n", name, out_port >= 0 ? "off" : mode ? "on, relaying the inputs" : "on",
+	printk("Mode: %s (radio %s)%s\n", name,
+	       out_port >= 0 ? "off" : wired_is_hub() ? "receiving for the hub" : mode ? "on, relaying the inputs" : "on",
 	       CONFIG_2_SETTINGS_READ(CONFIG_2_WIRED_MODE) == WIRED_MODE_LEGACY ? ", from connection_over_uart" : "");
 	for (int i = 0; i < PORT_COUNT; i++)
 		print_port(i);
 	bool inputs = mode & (WIRED_IN_LEFT | WIRED_IN_RIGHT);
 	if (inputs)
-		printk("%s %u, unpaired %u, queue drops %u\n", out_port >= 0 ? "Forwarded" : "Relayed", st_relayed,
-		       st_unpaired, st_qdrop);
+		printk("%s %u, unpaired %u, queue drops %u\n",
+		       out_port >= 0 ? "Forwarded" : wired_is_hub() ? "To the hub" : "Relayed", st_relayed, st_unpaired,
+		       st_qdrop);
 	int64_t now = k_uptime_get();
 	bool any = false;
 	for (int i = 0; i < SEEN_MAX; i++) {
@@ -880,7 +954,7 @@ void wired_print_status(void)
 		if (e.have_fw)
 			printk(", fw %u.%u.%u", e.fw[0], e.fw[1], e.fw[2]);
 		printk(", %u frames, last %lld ms ago", e.frames, now - e.last);
-		if (out_port < 0) {
+		if (out_port < 0 && !wired_is_hub()) { // the hub lists its ids below
 			int id = lookup_id(e.addr);
 			if (id >= 0)
 				printk(", id %d", id);
@@ -891,6 +965,10 @@ void wired_print_status(void)
 	}
 	if (!any && inputs)
 		printk("Wired trackers heard: none\n");
+	if (wired_is_hub()) {
+		hub_print_status();
+		return;
+	}
 	if (out_port < 0 && inputs) {
 		printk("Paired wired trackers:\n");
 		for (int i = 0; i < CONFIG_WIRED_ANKLE_TABLE_SIZE; i++)
@@ -944,12 +1022,20 @@ static int wired_init(void)
 
 	char name[40];
 	wired_mode_format(mode, name, sizeof(name));
-	LOG_INF("Mode: %s, radio %s", name, out_port >= 0 ? "off" : "on");
+	LOG_INF("Mode: %s, radio %s", name, out_port >= 0 ? "off" : wired_is_hub() ? "receiving" : "on");
+	if (wired_is_hub()) {
+		ports[PORT_LEFT].always_on = ports[PORT_RIGHT].always_on = true;
+		int err = use_hub_pins();
+		if (err)
+			LOG_ERR("Hub output pins not set: %d", err);
+	}
 	if (out_port >= 0)
 		out_start(&ports[out_port]);
 	for (int i = 0; i < PORT_COUNT; i++)
 		if (ports[i].in)
 			in_start(&ports[i]);
+	if (wired_is_hub())
+		hub_start();
 	return 0;
 }
 

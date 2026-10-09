@@ -503,12 +503,14 @@ static void print_help(void)
 	printk("link                         Show radio ACKs from the receiver, per tracker id\n");
 	printk("clear                        Clear pairing data\n");
 #if CONFIG_WIRED_LINK
-	printk("\nmode [wireless|wired [in left|right|both] [out left|right]]\n");
+	printk("\nmode [wireless|hub|wired [in left|right|both] [out left|right]]\n");
 	printk("                             Wired link roles of the two headers (stored, reboots):\n");
 	printk("                             left = D8 ground, D9 data; right = D16 ground, D10 data.\n");
 	printk("                             With an output the radio is off; without one, the inputs\n");
 	printk("                             are relayed over the radio. e.g. ankle: wired out right,\n");
 	printk("                             thigh: wired in left out right, hip: wired in both\n");
+	printk("                             hub: both headers in, the radio receives (the chest\n");
+	printk("                             pairs with it), all to the ESP32 on D15\n");
 	printk("wired                        Show wired link status\n");
 	printk("pair_wired                   Pair the wired trackers heard through this relay\n");
 	printk("                             (receiver in pairing mode; also 6 button presses)\n");
@@ -736,7 +738,7 @@ static void console_thread(void)
 			int m = wired_mode_parse(argc - 1, &argv[1]);
 			if (m < 0)
 			{
-				printk("Usage: mode wireless | mode wired [in left|right|both] [out left|right]\n");
+				printk("Usage: mode wireless | mode hub | mode wired [in left|right|both] [out left|right]\n");
 				printk("(at most one output, and a header cannot be both input and output)\n");
 				continue;
 			}

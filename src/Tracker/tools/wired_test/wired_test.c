@@ -23,6 +23,19 @@ static int wakes;
 void connection_wake(void) { wakes++; }
 static uint8_t next_pair_id = 10;
 int esb_pair_other(const uint8_t addr[6], uint8_t *id_out) { (void)addr; *id_out = next_pair_id++; return 0; }
+// hub.c stand-ins: record what wired.c hands over
+static int hub_started, hub_tx_dones, hub_wired_count, hub_pair_opens;
+static uint8_t hub_last_addr[6], hub_last_pkt[16];
+void hub_start(void) { hub_started++; }
+void hub_tx_done(void) { hub_tx_dones++; }
+void hub_pair_open(void) { hub_pair_opens++; }
+void hub_print_status(void) {}
+void hub_put_wired(const uint8_t addr[6], const uint8_t *packet)
+{
+	hub_wired_count++;
+	memcpy(hub_last_addr, addr, 6);
+	memcpy(hub_last_pkt, packet, 16);
+}
 
 static int failures;
 #define CHECK(c, ...) do { if (!(c)) { failures++; printf("FAIL line %d: ", __LINE__); printf(__VA_ARGS__); printf("\n"); } } while (0)
@@ -155,6 +168,9 @@ static void test_mode_words(void)
 		{"wired in middle", -1},
 		{"wired in left in right", -1},
 		{"wireless now", -1},
+		{"hub", WIRED_MODE_HUB},
+		{"HUB", WIRED_MODE_HUB},
+		{"hub left", -1},
 	};
 	for (size_t c = 0; c < sizeof(cases) / sizeof(cases[0]); c++) {
 		char buf[64], *argv[8];
@@ -178,6 +194,9 @@ static void test_mode_words(void)
 		int in = m & 3, out = m >> 2;
 		CHECK(wired_mode_valid(m) == (out != 3 && (in & out) == 0), "valid(%d)", m);
 	}
+	for (int m = 16; m < 32; m++)
+		CHECK(wired_mode_valid(m) == (m == WIRED_MODE_HUB), "valid(%d)", m);
+	CHECK(!wired_mode_valid(32) && !wired_mode_valid(-1), "out of range");
 }
 
 int main(void)
@@ -383,6 +402,42 @@ int main(void)
 	CHECK(!atomic_get(&ports[PORT_LEFT].active) && ports[PORT_LEFT].rearm_work.submitted == rearm_before + 1,
 	      "disable handling");
 	CHECK(wired_relaying(), "the right input is still active");
+
+	// Hub: both inputs listen at once and stay on, every wired frame goes to hub.c by address,
+	// the left UART's TX events (the hub output) go to hub.c, and nothing is queued for ESB.
+	hub_started = hub_wired_count = hub_tx_dones = hub_pair_opens = 0;
+	CHECK(boot(WIRED_MODE_HUB, 0) == 0 && wired_is_hub() && !wired_is_ankle() && out_port < 0 && hub_started == 1,
+	      "hub role");
+	CHECK(ports[PORT_LEFT].always_on && ports[PORT_RIGHT].always_on && atomic_get(&ports[PORT_LEFT].rx_on) &&
+	      atomic_get(&ports[PORT_RIGHT].rx_on), "hub inputs listen at once");
+	CHECK(wired_relaying(), "the hub counts as relaying (stays awake)");
+	{
+		uint8_t sync0 = 0;
+		input_feed(PORT_LEFT, &sync0, 1);
+		input_feed(PORT_RIGHT, &sync0, 1);
+		input_feed(PORT_LEFT, a1, a1n);
+		CHECK(hub_wired_count == 3 && hub_last_addr[4] == 0xA1 && hub_last_pkt[1] == WIRED_ID_PLACEHOLDER,
+		      "left input to the hub (%d)", hub_wired_count);
+		input_feed(PORT_RIGHT, b2, b2n);
+		CHECK(hub_wired_count == 6 && hub_last_addr[4] == 0xB2, "right input to the hub (%d)", hub_wired_count);
+		uint8_t legacy_raw[DATA_LEN], legacy_enc[MAX_ENCODED];
+		legacy_raw[0] = TYPE_DATA;
+		make_frame(&legacy_raw[1], 1, 70, 5);
+		size_t ln = cobs_encode(legacy_raw, sizeof(legacy_raw), legacy_enc);
+		legacy_enc[ln++] = 0;
+		input_feed(PORT_RIGHT, legacy_enc, ln);
+		CHECK(hub_wired_count == 7 && hub_last_addr[4] == 0xB2, "legacy DATA takes the right input's HELLO address");
+		CHECK(!wired_relay_get(out) && st_unpaired == 0, "the hub needs no pairing and queues nothing for ESB");
+	}
+	struct uart_event txd = {.type = UART_TX_DONE};
+	in_uart_cb(ports[PORT_LEFT].uart, &txd, &ports[PORT_LEFT]);
+	CHECK(hub_tx_dones == 1, "hub output TX done reaches hub.c");
+	int starts = ports[PORT_LEFT].start_rx_work.submitted, rearms = ports[PORT_LEFT].rearm_work.submitted;
+	in_uart_cb(ports[PORT_LEFT].uart, &dis, &ports[PORT_LEFT]);
+	CHECK(ports[PORT_LEFT].start_rx_work.submitted == starts + 1 && ports[PORT_LEFT].rearm_work.submitted == rearms,
+	      "an always-on input restarts instead of suspending");
+	wired_request_pair_ankle();
+	CHECK(hub_pair_opens == 1 && pair_sem.count == 0, "pair_wired opens radio pairing on the hub");
 
 	printf(failures ? "%d FAILURE(S)\n" : "all wired link tests passed\n", failures);
 	return failures != 0;

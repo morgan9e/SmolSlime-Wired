@@ -374,10 +374,11 @@ config WIRED_LINK
 config WIRED_MODE
     int "Default for the wired_mode setting"
     depends on WIRED_LINK
-    range -1 15
+    range -1 31
     default -1
     help
-        Bits: 1 in left, 2 in right, 4 out left, 8 out right; 0 wireless.
+        Bits: 1 in left, 2 in right, 4 out left, 8 out right, 16 hub; 0
+        wireless, 19 hub (both in, radio receives, output to the ESP32).
         -1 follows the older connection_over_uart setting: on = in left out
         right (wired chain), off = in left (radio relay). Set it on a tracker
         with "mode", e.g. "mode wired in left out right".

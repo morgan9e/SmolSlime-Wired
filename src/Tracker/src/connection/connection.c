@@ -26,6 +26,7 @@
 #include "build_defines.h"
 #include "hid.h"
 #include "wired.h"
+#include "hub.h"
 #include "log_mode.h"
 #include "system/battery_tracker.h"
 
@@ -523,7 +524,12 @@ void connection_thread(void)
 			uint32_t *crc_ptr = (uint32_t *)&data_copy[16];
 			*crc_ptr = crc32_k_4_2_update(0x93a409eb, data_copy, 16);
 #if CONFIG_WIRED_LINK
-			if (wired_is_ankle())
+			if (wired_is_hub())
+			{
+				hub_put_own(data_copy); // straight to the ESP32 hub output
+				log_mode_trace("hub", data_copy, data_copy[20]);
+			}
+			else if (wired_is_ankle())
 			{
 				wired_write_data(data_copy);
 				log_mode_trace("cable", data_copy, data_copy[20]); // id 255: the relay stamps the real one

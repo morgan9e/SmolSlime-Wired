@@ -27,6 +27,7 @@
 //   mode wired in left out right   radio off, own frames and the left header's upstream (thigh)
 //   mode wired in left             radio on: the left header's trackers are relayed over ESB
 //   mode wired in both             radio on: both headers relayed over ESB (hip)
+//   mode hub                       both headers in, radio receives, all to the ESP32 on D15 (hip)
 // Left header: D8 ground reference, D9 data. Right header: D16 ground reference, D10 data.
 // With an output the radio stays off and the chain ends at a radio relay (or the ESP32 hub),
 // which knows each tracker by the address in its frames. Without one, frames from the inputs
@@ -53,18 +54,25 @@
 #define WIRED_IN_RIGHT 0x2
 #define WIRED_OUT_LEFT 0x4
 #define WIRED_OUT_RIGHT 0x8
+// Hub: takes the receiver's place. Both headers in, the radio receives (wireless trackers such as
+// the chest pair with this tracker), and everything goes to the ESP32 hub on D15 in the receiver's
+// UART mirror format (hub.c). "mode hub" = WIRED_HUB | WIRED_IN_LEFT | WIRED_IN_RIGHT.
+#define WIRED_HUB 0x10
+#define WIRED_MODE_HUB (WIRED_HUB | WIRED_IN_LEFT | WIRED_IN_RIGHT)
 #define WIRED_MODE_LEGACY (-1) // from connection_over_uart: on = in left out right, off = in left
 
-// Valid: at most one output, and no header both input and output.
+// Valid: at most one output, no header both input and output; the hub has no header output.
 static inline bool wired_mode_valid(int mode)
 {
-	if (mode < 0 || mode > 15)
+	if (mode < 0 || mode > 31)
 		return false;
 	int in = mode & 3, out = (mode >> 2) & 3;
+	if (mode & WIRED_HUB)
+		return mode == WIRED_MODE_HUB;
 	return out != 3 && (in & out) == 0;
 }
 
-// Parses "wireless" or "wired [in left|right|both] [out left|right]" (argv without "mode").
+// Parses "wireless", "hub" or "wired [in left|right|both] [out left|right]" (argv without "mode").
 // Returns the mode, or -1 if the words do not form a valid one.
 int wired_mode_parse(int argc, char **argv);
 
@@ -78,6 +86,12 @@ int wired_mode(void);
 // True if this tracker has a wired output: its radio stays off. Fixed from boot.
 // (Named for the first wired tracker, the ankle.)
 bool wired_is_ankle(void);
+
+// True in hub mode (fixed from boot): the radio receives for hub.c instead of sending.
+bool wired_is_hub(void);
+
+// Hub mode: sends buf on the hub output (D15). The UART reports the end with hub_tx_done().
+int wired_hub_tx(const uint8_t *buf, size_t len);
 
 // Sends one ESB frame upstream as ADATA with this tracker's address.
 // Never blocks; the frame is dropped only if the TX queue is full.
@@ -98,6 +112,7 @@ void wired_forget_ankles(void);
 #else
 static inline int wired_mode(void) { return 0; }
 static inline bool wired_is_ankle(void) { return false; }
+static inline bool wired_is_hub(void) { return false; }
 static inline bool wired_relaying(void) { return false; }
 #endif
 
