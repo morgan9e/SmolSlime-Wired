@@ -66,6 +66,10 @@ config PACKET_LOG_INTERVAL_MS
     range 100 60000
     default 1000
 
+# "diag on" logs a block of lines every interval; the default 1 KB drops some of them.
+config LOG_BUFFER_SIZE
+    default 4096 if PACKET_LOG && !SOC_NRF52820
+
 DT_CHOSEN_HUB_UART := slimenrf,hub-uart
 
 menu "ESP32 hub"

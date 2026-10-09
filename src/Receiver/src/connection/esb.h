@@ -46,4 +46,9 @@ void esb_receive(void);
 // Address trackers pair with; changes on every "clear" (see pairing_generation in esb.c).
 uint64_t esb_radio_addr(void);
 
+// Radio bit rate, stored in NVS and applied at boot. Trackers must use the same rate
+// (their radio_1mbps setting). esb_set_1mbps() stores it; reboot to apply.
+bool esb_1mbps(void);
+void esb_set_1mbps(bool on);
+
 #endif

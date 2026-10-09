@@ -56,7 +56,8 @@ K_MSGQ_DEFINE(mirror_q, PKT_LEN, CONFIG_HUB_UART_MIRROR_QUEUE_LEN, 4);
 static K_SEM_DEFINE(tx_done, 1, 1);
 
 static uint8_t tx_buf[1 + BATCH_FRAMES * FRAME_MAX];
-static atomic_t mirror_dropped;
+static atomic_t mirror_dropped; // since the last log
+static atomic_t mirror_dropped_total;
 static uint32_t mirror_sent;
 static atomic_t mirror_on = ATOMIC_INIT(1);
 
@@ -64,8 +65,10 @@ void mirror_put(const uint8_t *packet)
 {
 	if (!atomic_get(&mirror_on))
 		return;
-	if (k_msgq_put(&mirror_q, packet, K_NO_WAIT) != 0)
+	if (k_msgq_put(&mirror_q, packet, K_NO_WAIT) != 0) {
 		atomic_inc(&mirror_dropped);
+		atomic_inc(&mirror_dropped_total);
+	}
 }
 
 void mirror_set_enabled(bool on)
@@ -79,6 +82,11 @@ void mirror_set_enabled(bool on)
 bool mirror_enabled(void)
 {
 	return atomic_get(&mirror_on);
+}
+
+uint32_t mirror_dropped_count(void)
+{
+	return (uint32_t)atomic_get(&mirror_dropped_total);
 }
 
 static size_t cobs_encode(const uint8_t *in, size_t len, uint8_t *out)

@@ -34,10 +34,13 @@
 void mirror_put(const uint8_t *packet);
 void mirror_set_enabled(bool on);
 bool mirror_enabled(void);
+// Packets dropped because the queue was full, since boot
+uint32_t mirror_dropped_count(void);
 #else
 static inline void mirror_put(const uint8_t *packet) { (void)packet; }
 static inline void mirror_set_enabled(bool on) { (void)on; }
 static inline bool mirror_enabled(void) { return false; }
+static inline uint32_t mirror_dropped_count(void) { return 0; }
 #endif
 
 #endif

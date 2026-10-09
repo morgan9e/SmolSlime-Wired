@@ -12,6 +12,8 @@
 // 0-15 -> id 3-18
 // 0-255 -> id 3-258
 #define PAIRING_GENERATION 1000
+#define RADIO_1MBPS 1001 // uint8_t, 1: ESB at 1 Mbps instead of 2
+#define DIAG_HUB 1002 // uint8_t, 1: send link diagnostics to the hub ("diag hub on")
 
 uint8_t reboot_counter_read(void);
 void reboot_counter_write(uint8_t reboot_counter);

@@ -57,6 +57,7 @@ static void esb_thread(void);
 K_THREAD_DEFINE(esb_thread_id, 1024, esb_thread, NULL, NULL, NULL, 6, 0, 0);
 
 static bool esb_parse_pair(uint64_t *new_addr);
+static bool esb_pairing; // defined with the pairing code below
 
 //|type    |description
 //|RX  CRC8|pairing
@@ -135,8 +136,20 @@ void event_handler(struct esb_evt const *event)
 					LOG_DBG("RX Pairing ACK Receiver");
 					break;
 				default: // first packet in pairing burst
-					LOG_INF("RX Pairing Request");
+				{
+					uint64_t addr = (*(uint64_t *)pairing_buf >> 16) & 0xFFFFFFFFFFFF;
+					int stored_id = -1;
+					for (int i = 0; i < stored_trackers; i++)
+						if (stored_tracker_addr[i] == addr)
+							stored_id = i;
+					if (stored_id >= 0)
+						LOG_INF("RX Pairing Request from %012llX (stored as id %d)%s", addr, stored_id,
+							esb_pairing ? "" : ", not in pairing mode");
+					else
+						LOG_INF("RX Pairing Request from %012llX (not stored)%s", addr,
+							esb_pairing ? "" : ", not in pairing mode");
 					break;
+				}
 				}
 				continue;
 			default: // base address 1
@@ -144,6 +157,7 @@ void event_handler(struct esb_evt const *event)
 			switch (rx_payload.length)
 			{
 			case 21: // has sequence number
+				packet_log_frame(rx_payload.data, rx_payload.rssi); // link diagnostics, before any filter
 				// TODO : It's a very crude implementation
 				// But brain hurty, will make a better one later
 				uint8_t seq = rx_payload.data[20];
@@ -270,6 +284,18 @@ uint64_t esb_radio_addr(void)
 }
 
 static bool esb_initialized = false;
+static uint8_t radio_1mbps; // read from NVS at boot
+
+bool esb_1mbps(void)
+{
+	return radio_1mbps;
+}
+
+void esb_set_1mbps(bool on)
+{
+	uint8_t v = on;
+	sys_write(RADIO_1MBPS, NULL, &v, sizeof(v));
+}
 
 int esb_initialize(bool tx)
 {
@@ -278,6 +304,8 @@ int esb_initialize(bool tx)
 	int err;
 
 	struct esb_config config = ESB_DEFAULT_CONFIG;
+	if (radio_1mbps)
+		config.bitrate = ESB_BITRATE_1MBPS; // trackers must match (radio_1mbps setting)
 
 	if (tx)
 	{
@@ -310,7 +338,7 @@ int esb_initialize(bool tx)
 //		config.use_fast_ramp_up = true;
 	}
 
-	LOG_INF("Initializing ESB, %sX mode", tx ? "T" : "R");
+	LOG_INF("Initializing ESB, %sX mode, %s", tx ? "T" : "R", radio_1mbps ? "1 Mbps" : "2 Mbps");
 	err = esb_init(&config);
 
 	if (!err)
@@ -595,6 +623,7 @@ static void esb_thread(void)
 	clocks_start();
 
 	sys_read(PAIRING_GENERATION, &pairing_generation, sizeof(pairing_generation));
+	sys_read(RADIO_1MBPS, &radio_1mbps, sizeof(radio_1mbps));
 	sys_read(STORED_TRACKERS, &stored_trackers, sizeof(stored_trackers));
 	if (stored_trackers)
 		esb_paired = true;

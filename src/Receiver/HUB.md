@@ -32,6 +32,57 @@ Two runtime switches on the receiver's USB console, both on again after a reboot
 
 `hid` or `mirror` alone prints the current state.
 
+`diag on` / `diag off` (off at boot) replaces the per tracker orientation lines with link
+diagnostics, once a second:
+
+```
+diag noise: median -94 dBm, quietest 10% -97, loudest 10% -72, 6.1% of samples above -80 dBm (990 samples)
+diag radio: 1180 frames with a good CRC, 35 with a bad CRC (2.9%)
+diag id 2: rx 186, lost 4 (2.1%), dup 3, late 0, max gap 21 ms, RSSI -68 (worst -79) |#########..x########|
+diag gap: id 2 silent 180 ms, 34 frames lost, RSSI -71 before, -83 after
+```
+
+- `noise`: the radio's RSSI sampled 1000 times a second while it listens. Packets fill only a
+  small part of the time, so the median is the noise floor, about -95 dBm on a clean channel.
+  Every dB above that comes off the range (a USB 3 port or Wi-Fi next to the receiver, for example).
+- `radio`: CRC results of everything the radio picked up, all trackers together, counted in
+  hardware (RADIO CRCOK/CRCERROR through PPI into TIMER3/TIMER4).
+- `lost`: the tracker's sequence numbers that never arrived. A tracker that just sends less
+  (still, low rate) shows gaps but no loss. For a wired ankle this includes cable and relay drops.
+- `dup`: the frame arrived but the tracker missed the ACK and sent it again.
+- Slots are 50 ms: `#` frames arrived, `x` frames arrived after lost ones, `.` nothing arrived.
+  Dots in the same columns on every tracker mean the receiver heard nothing at all; dots on
+  one tracker only are that tracker's link.
+- `gap` lines name each silence of 50 ms or more that lost frames, `outage` each one over 1 s.
+
+### Diagnostics through the hub
+
+`diag hub on` (stored; `diag hub off` stops it) sends the same statistics to the hub once a
+second, so they can be watched on the body: run `python slime_diag.py` on the PC the hub
+streams to. The hub forwards packet types 224-254 unchanged to UDP 6971 at the server's
+address and never decodes them. Same framing as the tracker packets, little-endian:
+
+```
+type 253, receiver:  [1] flags: bit 0 HF crystal running, bit 1 1 Mbps, bit 2 CRC counters valid
+                     [2-3] good CRC  [4-5] bad CRC  [6] noise median  [7] quietest 10%
+                     [8] loudest 10% (RSSI magnitudes)  [9] % of noise samples above -80 dBm
+                     [10] stored trackers  [12-13] report number  [14-15] hub UART packets dropped
+type 254, tracker:   [1] id  [2-3] frames received  [4-5] lost  [6] repeats  [7] late
+                     [8-9] longest silence, ms  [10] RSSI average  [11] RSSI worst (magnitudes)
+                     [12-13] report number  [14] silences of 50 ms+ that lost frames  [15] outages of 1 s+
+```
+
+Collecting the statistics samples the radio's RSSI 1000 times a second, which very rarely
+spoils the RSSI byte of a tracker packet (it reads -127).
+
+## Radio bit rate
+
+`radio 1m` / `radio 2m` stores the ESB bit rate and reboots (default 2 Mbps; `info` shows it).
+1 Mbps reaches about 3 dB further but doubles the airtime per frame. Every tracker must use the
+same rate: `write_config radio_1mbps 1` (or `0`) and `reboot` on its console, with a tracker
+firmware from `hub-wired` that has the setting. Trackers on the other rate get no ACKs at all,
+pairing included.
+
 ## Pairing
 
 Press the button once to enter pairing mode (LED blinks as with the `pair` command), and

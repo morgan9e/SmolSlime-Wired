@@ -23,6 +23,7 @@
 #ifndef SLIMENRF_PACKET_LOG
 #define SLIMENRF_PACKET_LOG
 
+#include <stdbool.h>
 #include <stdint.h>
 
 // Why the ESB handler threw a tracker packet away. The tracker still got its radio ACK
@@ -38,12 +39,31 @@ enum packet_drop {
 // Records one tracker packet; a low priority thread logs each tracker's latest
 // orientation and packet rate every CONFIG_PACKET_LOG_INTERVAL_MS, plus drops and silent trackers.
 // Never blocks; safe from the ESB event handler. No-op when the log is disabled.
+//
+// Link diagnostics ("diag on" on the console, off at boot): packet_log_frame() sees every 21-byte
+// ESB data frame before the receiver's own filters. Per tracker and interval it logs frames
+// received, sequence numbers that never arrived (lost in the air), repeats (the tracker missed the
+// ACK), the longest silence and RSSI, plus a timeline of 50 ms slots; also the radio's CRC
+// good/bad counts for all trackers together, and each silence that lost frames.
+// "diag hub on" (stored, survives reboots) sends the same statistics to the ESP32 hub once per
+// interval, as packet types 253 (receiver) and 254 (per tracker); the hub forwards them unchanged
+// to UDP 6971 on the server's PC. Layout in HUB.md.
 #if CONFIG_PACKET_LOG
 void packet_log_put(const uint8_t *packet, uint8_t rssi);
 void packet_log_drop(uint8_t id, enum packet_drop reason);
+void packet_log_frame(const uint8_t *frame, uint8_t rssi);
+void packet_log_set_diag(bool on);
+bool packet_log_diag(void);
+void packet_log_set_diag_hub(bool on);
+bool packet_log_diag_hub(void);
 #else
 static inline void packet_log_put(const uint8_t *packet, uint8_t rssi) { (void)packet; (void)rssi; }
 static inline void packet_log_drop(uint8_t id, enum packet_drop reason) { (void)id; (void)reason; }
+static inline void packet_log_frame(const uint8_t *frame, uint8_t rssi) { (void)frame; (void)rssi; }
+static inline void packet_log_set_diag(bool on) { (void)on; }
+static inline bool packet_log_diag(void) { return false; }
+static inline void packet_log_set_diag_hub(bool on) { (void)on; }
+static inline bool packet_log_diag_hub(void) { return false; }
 #endif
 
 #endif

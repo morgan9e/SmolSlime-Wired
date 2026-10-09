@@ -26,6 +26,7 @@
 #include "parse_args.h"
 #include "hid.h"
 #include "mirror.h"
+#include "packet_log.h"
 
 #define USB DT_NODELABEL(usbd)
 #if DT_NODE_HAS_STATUS(USB, okay)
@@ -123,6 +124,7 @@ static void print_info(void)
 
 	printk("\nDevice address: %012llX\n", *(uint64_t *)NRF_FICR->DEVICEADDR & 0xFFFFFFFFFFFF);
 	printk("Radio address: %012llX\n", esb_radio_addr());
+	printk("Radio bit rate: %s\n", esb_1mbps() ? "1 Mbps" : "2 Mbps");
 }
 
 static void print_uptime(void)
@@ -182,9 +184,14 @@ static void print_help(void)
 	printk("pair                         Enter pairing mode\n");
 	printk("exit                         Exit pairing mode\n");
 	printk("clear                        Clear stored devices\n");
+	printk("radio [1m|2m]                Radio bit rate, stored; reboots. Trackers must match (radio_1mbps)\n");
 	printk("\nhid [on|off]                 Send tracker data to the PC over USB (on at boot)\n");
 #if CONFIG_HUB_UART_MIRROR
 	printk("mirror [on|off]              Send tracker data to the ESP32 hub over UART (on at boot)\n");
+#endif
+#if CONFIG_PACKET_LOG
+	printk("diag [on|off]                Log radio link diagnostics every second (off at boot)\n");
+	printk("diag hub [on|off]            Send them to the hub, for slime_diag.py on the PC (stored)\n");
 #endif
 #if DFU_EXISTS
 	printk("\ndfu                          Enter DFU bootloader\n");
@@ -219,6 +226,8 @@ static void console_thread(void)
 	const char command_meow[] = "meow";
 	const char command_hid[] = "hid";
 	const char command_mirror[] = "mirror";
+	const char command_diag[] = "diag";
+	const char command_radio[] = "radio";
 
 	while (1) {
 		char *line = console_getline();
@@ -320,6 +329,62 @@ static void console_thread(void)
 				else if (argc > 1)
 					printk("Usage: mirror [on|off]\n");
 				printk("Hub UART mirror %s\n", mirror_enabled() ? "on" : "paused");
+			}
+		}
+		else if (strcmp(argv[0], command_radio) == 0)
+		{
+			if (argc > 1 && (strcmp(argv[1], "1m") == 0 || strcmp(argv[1], "2m") == 0))
+			{
+				bool on = strcmp(argv[1], "1m") == 0;
+				if (on == esb_1mbps())
+					printk("Radio bit rate already %s\n", on ? "1 Mbps" : "2 Mbps");
+				else
+				{
+					esb_set_1mbps(on);
+					printk("Radio bit rate set to %s, rebooting\n", on ? "1 Mbps" : "2 Mbps");
+					k_msleep(100);
+					skip_dfu();
+					sys_reboot(SYS_REBOOT_COLD);
+				}
+			}
+			else
+			{
+				if (argc > 1)
+					printk("Usage: radio [1m|2m]\n");
+				printk("Radio bit rate: %s\n", esb_1mbps() ? "1 Mbps" : "2 Mbps");
+			}
+		}
+		else if (strcmp(argv[0], command_diag) == 0)
+		{
+			if (!IS_ENABLED(CONFIG_PACKET_LOG))
+				printk("This build has no packet log\n");
+			else if (argc > 1 && strcmp(argv[1], "hub") == 0)
+			{
+				if (argc > 2)
+					strtolower(argv[2]);
+				if (argc > 2 && (strcmp(argv[2], "on") == 0 || strcmp(argv[2], "off") == 0))
+					packet_log_set_diag_hub(strcmp(argv[2], "on") == 0);
+				else if (argc > 2)
+					printk("Usage: diag hub [on|off]\n");
+				printk("Link diagnostics to the hub (UDP 6971 on the server's PC) %s, stored\n",
+				       packet_log_diag_hub() ? "on" : "off");
+			}
+			else
+			{
+				if (argc > 1 && (strcmp(argv[1], "on") == 0 || strcmp(argv[1], "off") == 0))
+					packet_log_set_diag(strcmp(argv[1], "on") == 0);
+				else if (argc > 1)
+					printk("Usage: diag [on|off]\n");
+				printk("Link diagnostics %s\n", packet_log_diag() ? "on" : "off");
+				if (packet_log_diag())
+					printk("Every second:\n"
+					       "  diag noise: background RSSI while listening; the median is the noise floor (clean: about -95)\n"
+					       "  diag radio: frames the radio received with a good / bad CRC, all trackers\n"
+					       "  diag id N: rx frames, lost = sequence numbers that never arrived,\n"
+					       "    dup = repeats (tracker missed the ACK), late = older after newer,\n"
+					       "    max gap = longest silence, RSSI average (worst),\n"
+					       "    |...| = 50 ms slots: # frames, x frames after lost ones, . nothing\n"
+					       "  diag gap / outage: a silence that lost frames, or over 1 s\n");
 			}
 		}
 		else
