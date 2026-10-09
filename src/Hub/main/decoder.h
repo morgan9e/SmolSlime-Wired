@@ -49,6 +49,14 @@ typedef struct {
 // on a rotation-only packet. Never reads beyond 16 bytes.
 bool decoder_parse(const uint8_t pkt[HUB_PKT_LEN], hub_sample_t *out);
 
+// Packet types 224-254 come from the receiver itself (link diagnostics: 253 receiver,
+// 254 per tracker; layout in the receiver's HUB.md). The hub forwards them unchanged to
+// UDP 6971 on the server's PC and never decodes them.
+static inline bool decoder_is_receiver_diag(uint8_t type)
+{
+	return type >= 224 && type <= 254;
+}
+
 // Inverse of the tracker's q_fem() exponential-map quantisation (types 2 and 7).
 // q_out is x, y, z, w.
 void decoder_expmap_to_quat(uint32_t q_buf, float q_out[4]);

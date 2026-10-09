@@ -8,6 +8,7 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "hub.h"
+#include "slime.h"
 
 static const char *TAG = "uart_rx";
 
@@ -28,6 +29,10 @@ static void feed(const uint8_t *buf, int n)
 	for (int i = 0; i < n; i++) {
 		switch (deframer_push(&s_df, buf[i], pkt)) {
 		case DF_OK:
+			if (decoder_is_receiver_diag(pkt[0])) {
+				slime_forward_diag(pkt, HUB_PKT_LEN);
+				break;
+			}
 			if (!decoder_parse(pkt, &s))
 				break; // unknown packet type
 			s.t_us = now;

@@ -36,8 +36,8 @@ Optional hub battery voltage: two 220 kOhm resistors from BAT+ to GND, midpoint 
 ## Receiver link contract (for the receiver fork)
 
 The receiver side is implemented in `src/Receiver` (branch `hub-uart-mirror`, see its
-`HUB.md`). A prebuilt image for the stacked ProMicro is
-`dist/SlimeNRF_ProMicro_Stacked_HubReceiver.uf2`.
+`HUB.md`). A prebuilt image for the ProMicro is
+`dist/SlimeNRF_ProMicro_HubReceiver.uf2`.
 
 
 Every 16-byte tracker packet the receiver passes to `hid_write_packet_n()` (after the RSSI
@@ -52,6 +52,11 @@ Use Zephyr's `crc16_itu_t()`. Do not use `crc16_ccitt()`, which is the reflected
 The receiver must also send a type 255 packet (`packet_device_addr()` layout) for each
 stored tracker about every 100 ms. The hub ignores data for an id until it has seen its 255
 packet, and uses the address as the tracker's MAC in SlimeVR.
+
+Packet types 224-254 are the receiver's own link diagnostics ("diag hub on" on the receiver).
+The hub sends each one unchanged as a 16-byte UDP datagram to port 6971 at the server's
+address, once the server is known, and never decodes them. `slime_diag.py` in the
+`SlimeVR-Hub` folder shows them; the layout is in the receiver's `HUB.md`.
 
 ## Build
 
@@ -82,6 +87,14 @@ python -m esptool --chip esp32s3 -p COM7 write_flash 0x0 dist\slime_hub-xiao-esp
 
 The browser flasher at https://espressif.github.io/esptool-js/ also works with that file at
 address 0x0. If the port does not appear, hold BOOT while plugging the XIAO in.
+
+The merged image also covers the settings partition (0x9000), so it erases the stored Wi-Fi
+credentials and server IP: run `wifi` again afterwards. To update a hub that is already set
+up, write only the application instead, which keeps them:
+
+```
+python -m esptool --chip esp32c6 -p COM7 write-flash 0x10000 <build dir>\slime_hub.bin
+```
 
 ## First setup
 

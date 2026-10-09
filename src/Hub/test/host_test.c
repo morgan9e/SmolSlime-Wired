@@ -214,6 +214,12 @@ static void test_misc_types(void)
 	memset(p, 0, 16);
 	p[0] = 9;
 	CHECK(!decoder_parse(p, &s), "unknown type accepted");
+
+	// Receiver diagnostics are forwarded raw, never decoded
+	CHECK(decoder_is_receiver_diag(253) && decoder_is_receiver_diag(254), "diag types not forwarded");
+	CHECK(!decoder_is_receiver_diag(255) && !decoder_is_receiver_diag(7), "data types taken as diag");
+	p[0] = 254;
+	CHECK(!decoder_parse(p, &s), "diag type decoded");
 }
 
 // Full wire path: packet -> CRC16 -> COBS -> deframe -> check -> decode.

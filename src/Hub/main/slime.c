@@ -77,7 +77,10 @@ typedef struct {
 	bool si_acked;
 } trk_t;
 
+#define DIAG_PORT 6971 // receiver diagnostics, see slime_forward_diag()
+
 static trk_t s_trk[HUB_MAX_TRACKERS];
+static int s_diag_sock = -1;
 static QueueHandle_t s_q;
 static struct sockaddr_in s_server;
 static bool s_server_known, s_server_fixed;
@@ -544,9 +547,21 @@ static void slime_task(void *arg)
 	}
 }
 
+void slime_forward_diag(const uint8_t *pkt, size_t len)
+{
+	if (!s_server_known || s_diag_sock < 0)
+		return;
+	struct sockaddr_in dst = s_server;
+	dst.sin_port = htons(DIAG_PORT);
+	sendto(s_diag_sock, pkt, len, 0, (const struct sockaddr *)&dst, sizeof(dst));
+}
+
 void slime_start(QueueHandle_t sample_q, uint32_t server_ip)
 {
 	s_q = sample_q;
+	s_diag_sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+	if (s_diag_sock >= 0)
+		fcntl(s_diag_sock, F_SETFL, fcntl(s_diag_sock, F_GETFL, 0) | O_NONBLOCK);
 	for (int i = 0; i < HUB_MAX_TRACKERS; i++)
 		s_trk[i].sock = -1;
 
