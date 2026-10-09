@@ -1,0 +1,162 @@
+// Copyright (c) 2024 Nordic Semiconductor ASA
+// SPDX-License-Identifier: Apache-2.0
+
+// Stacked SPI tracker (SmolSlime) with the wired link. One image for every tracker; the
+// wired_mode setting ("mode" on the console) picks, per header, input, output or unused,
+// and src/connection/wired.c starts the matching UARTs at boot:
+//   left header:  D8 = P1.04 data, D9 = P1.06 ground reference, uart1
+//   right header: D16 = P0.10 data, D10 = P0.09 ground reference, uart0
+// Each header's UART receives on its data pin by default; for an output header wired.c swaps
+// in the "tx" pin states below (pinctrl_update_states) before starting the UART.
+// Any straight cable joins the two data pins and the two ground pins: D8/D16 to D8/D16,
+// D9/D10 to D9/D10. A 470R-1k series resistor in the data line is recommended.
+// The left header matches the older wired ankle firmware (data D8, ground D9, 460800 baud).
+// All wired links run at 460800 baud. In hub mode ("mode hub") the left header's UART also sends
+// to the ESP32 hub on D0 (P0.08, a full-speed pin; ground: the board's GND pin), so the ESP32 hub
+// must be built with CONFIG_HUB_UART_BAUD=460800 for it.
+// Ground pins are driven low on both headers from boot: they are the UARTs' signal return
+// only, each tracker keeps its own battery.
+// D10 and D16 are the NFC pins, used as GPIOs (UICR, see &uicr below).
+// D0-D7 and D14 are taken on the SmolSlime stack. All these pins are "low frequency I/O only";
+// harmless with the radio off, and close to the receiver (the hip) also with the radio on.
+
+/dts-v1/;
+#include "promicro_uf2_stackedspi.dts"
+
+&pinctrl {
+	// uart1: left header data P1.04
+	uart1_default: uart1_default {
+		group1 {
+			psels = <NRF_PSEL(UART_RX, 1, 4)>;
+			bias-pull-up;
+		};
+	};
+
+	uart1_sleep: uart1_sleep {
+		group1 {
+			psels = <NRF_PSEL(UART_RX, 1, 4)>;
+			bias-pull-up;
+			// no low-power-enable: the input must stay connected for the wake edge
+		};
+	};
+
+	uart1_tx_default: uart1_tx_default {
+		group1 {
+			psels = <NRF_PSEL(UART_TX, 1, 4)>;
+		};
+	};
+
+	uart1_tx_sleep: uart1_tx_sleep {
+		group1 {
+			psels = <NRF_PSEL(UART_TX, 1, 4)>;
+			low-power-enable;
+		};
+	};
+
+	// uart1 in hub mode: receives the left header (P1.04) and sends to the ESP32 hub (P0.08, D0)
+	uart1_hub_default: uart1_hub_default {
+		group1 {
+			psels = <NRF_PSEL(UART_TX, 0, 8)>;
+		};
+		group2 {
+			psels = <NRF_PSEL(UART_RX, 1, 4)>;
+			bias-pull-up;
+		};
+	};
+
+	uart1_hub_sleep: uart1_hub_sleep {
+		group1 {
+			psels = <NRF_PSEL(UART_TX, 0, 8)>,
+				<NRF_PSEL(UART_RX, 1, 4)>;
+			low-power-enable;
+		};
+	};
+
+	// uart0: right header data P0.10
+	uart0_default: uart0_default {
+		group1 {
+			psels = <NRF_PSEL(UART_RX, 0, 10)>;
+			bias-pull-up;
+		};
+	};
+
+	uart0_sleep: uart0_sleep {
+		group1 {
+			psels = <NRF_PSEL(UART_RX, 0, 10)>;
+			bias-pull-up;
+		};
+	};
+
+	uart0_tx_default: uart0_tx_default {
+		group1 {
+			psels = <NRF_PSEL(UART_TX, 0, 10)>;
+		};
+	};
+
+	uart0_tx_sleep: uart0_tx_sleep {
+		group1 {
+			psels = <NRF_PSEL(UART_TX, 0, 10)>;
+			low-power-enable;
+		};
+	};
+};
+
+/ {
+	chosen {
+		slimenrf,wired-left-uart = &uart1;
+		slimenrf,wired-right-uart = &uart0;
+	};
+
+	zephyr,user {
+		// Data pins, watched as GPIOs while an input header's UART is off, to wake it.
+		wired-left-gpios = <&gpio1 4 (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>;
+		wired-right-gpios = <&gpio0 10 (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>;
+		// Ground references, driven low from boot (signal return only, not power).
+		wired-left-gnd-gpios = <&gpio1 6 0>;
+		wired-right-gnd-gpios = <&gpio0 9 0>;
+		// Transmit pin states for an output header.
+		wired-left-tx-default = <&uart1_tx_default>;
+		wired-left-tx-sleep = <&uart1_tx_sleep>;
+		wired-right-tx-default = <&uart0_tx_default>;
+		wired-right-tx-sleep = <&uart0_tx_sleep>;
+		// Hub mode: left header in and the hub output on one UART.
+		wired-hub-default = <&uart1_hub_default>;
+		wired-hub-sleep = <&uart1_hub_sleep>;
+	};
+};
+
+// Detect the first edge with the low-power PORT/SENSE mechanism instead of a GPIOTE channel.
+&gpio1 {
+	sense-edge-mask = <(1 << 4)>;
+};
+
+&gpio0 {
+	sense-edge-mask = <(1 << 10)>;
+};
+
+// P0.09 and P0.10 (D10, D16) as GPIOs instead of NFC antenna pins (written to UICR at the first boot).
+&uicr {
+	nfct-pins-as-gpios;
+};
+
+// Right header. i2c0 is deleted by the stacked SPI build, so uart0 is free.
+&uart0 {
+	compatible = "nordic,nrf-uarte";
+	status = "okay";
+	zephyr,deferred-init;
+	current-speed = <460800>;
+	pinctrl-0 = <&uart0_default>;
+	pinctrl-1 = <&uart0_sleep>;
+	pinctrl-names = "default", "sleep";
+};
+
+// Left header.
+&uart1 {
+	compatible = "nordic,nrf-uarte";
+	status = "okay";
+	zephyr,deferred-init;
+	current-speed = <460800>;
+	pinctrl-0 = <&uart1_default>;
+	pinctrl-1 = <&uart1_sleep>;
+	pinctrl-names = "default", "sleep";
+};

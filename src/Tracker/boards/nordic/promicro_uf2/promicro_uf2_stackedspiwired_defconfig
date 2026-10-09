@@ -1,0 +1,23 @@
+# Copyright (c) 2024 Nordic Semiconductor ASA
+# SPDX-License-Identifier: Apache-2.0
+
+CONFIG_ARM_MPU=y
+CONFIG_HW_STACK_PROTECTION=y
+
+CONFIG_USB_DEVICE_STACK=y
+CONFIG_USB_DEVICE_MANUFACTURER="SlimeVR"
+CONFIG_USB_DEVICE_PRODUCT="SlimeNRF Tracker ProMicro Wired"
+
+CONFIG_BATTERY_USE_REG_LDO_MAPPING=y
+CONFIG_SENSOR_ROTATION_270=y
+
+#generate for adafruit uf2 bootloader flashing
+CONFIG_BUILD_OUTPUT_UF2=y
+CONFIG_FLASH_LOAD_OFFSET=0x1000
+
+# Wired link on two headers; roles from the wired_mode setting (src/connection/wired.c)
+CONFIG_WIRED_LINK=y
+# an output header's UART gets transmit pins at boot
+CONFIG_PINCTRL_DYNAMIC=y
+CONFIG_UART_0_INTERRUPT_DRIVEN=n
+CONFIG_UART_1_INTERRUPT_DRIVEN=n

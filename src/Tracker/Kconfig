@@ -1,0 +1,416 @@
+#
+# Copyright (c) 2023 Nordic Semiconductor
+#
+# SPDX-License-Identifier: LicenseRef-Nordic-5-Clause
+#
+
+config USE_SLIMENRF_CONSOLE
+    bool "Use basic console"
+    default y
+    help
+        Use basic console for commands.
+
+config BATTERY_CHARGER_HAS_NTC
+    bool "Battery thermistor"
+    help
+      Flag for battery NTC thermistor availability.
+
+choice
+    prompt "Battery voltage mapping"
+    default BATTERY_NO_MAPPING
+
+config BATTERY_USE_REG_BUCK_MAPPING
+    bool "Use buck regulator mapping (3.7V battery, DCDC)"
+    help
+      Use a constant power mapping for battery voltage.
+      Preffered for systems with a buck regulator.
+      Measured at a system voltage of 3.0V.
+
+config BATTERY_USE_REG_LDO_MAPPING
+    bool "Use LDO linear regulator mapping (3.7V battery, LDO)"
+    help
+      Use a constant current mapping for battery voltage.
+      Preferred for systems with a linear regulator.
+
+config BATTERY_NO_MAPPING
+    bool "Disable battery voltage mapping"
+    help
+      Always map to 100% battery. Disables battery monitoring.
+
+endchoice
+
+config BATTERY_LOW_RUNTIME_THRESHOLD
+    int "Low battery runtime threshold (ms)"
+    default 10800000
+    help
+      Trigger low battery when estimated runtime falls below threshold.
+      If estimated runtime is not available, low battery will trigger under 10% estimated state of charge.
+
+choice
+    prompt "Status LED color mapping"
+    default LED_TRI_COLOR
+
+config LED_RGB_COLOR
+    bool "Use RGB color mapping"
+    help
+        Use RGB or RG color mapping for LED status if available.
+
+config LED_TRI_COLOR
+    bool "Use default color mapping"
+    help
+        Use the default color mapping for LED status.
+
+endchoice
+
+menu "Status LED default status color"
+    depends on LED_RGB_COLOR
+
+config LED_DEFAULT_COLOR_R
+    int "Red value"
+    range 0 10000
+    default 4000
+    depends on LED_RGB_COLOR
+    help
+        Red color for default status.
+        Valid range is 0 to 10000.
+
+config LED_DEFAULT_COLOR_G
+    int "Green value"
+    range 0 10000
+    default 6000
+    depends on LED_RGB_COLOR
+    help
+        Green color for default status.
+        Valid range is 0 to 10000.
+
+config LED_DEFAULT_COLOR_B
+    int "Blue value"
+    range 0 10000
+    default 0
+    depends on LED_RGB_COLOR
+    help
+        Blue color for default status.
+        Valid range is 0 to 10000.
+
+endmenu
+
+config USER_EXTRA_ACTIONS
+    bool "Multiple press actions"
+    help
+        Allow user to use multiple presses to calibrate, pair, or enter DFU.
+        By default, pairing is available when holding down sw0 for 5 seconds.
+        By default, DFU is available when holding down sw0 and plugging in a USB cable.
+
+config IGNORE_RESET
+    bool "Ignore reset"
+    default y
+    help
+        If sw0 is available, don't perform any extra actions on reset.
+
+config USER_SHUTDOWN
+    bool "User shutdown support"
+    default y
+    help
+        Allow user to use reset or sw0 to shutdown.
+
+config USE_IMU_WAKE_UP
+    bool "IMU wake up support"
+    default y
+    help
+        Use IMU wake up state if IMU wake up is present.
+
+config DELAY_SLEEP_ON_STATUS
+    bool "Delay IMU wake up mode on status flags"
+    default y
+    depends on USE_IMU_WAKE_UP
+    help
+        Delay IMU wake up state if there is an active status flag or in pairing mode.
+
+config WOM_USE_DCDC
+    bool "Use DCDC in IMU wake up mode"
+    depends on USE_IMU_WAKE_UP
+    help
+        Use DCDC instead of LDO in IMU wake up state if it is more efficient.
+
+config CONNECTION_TIMEOUT_DELAY
+    int "Connection timeout delay (ms)"
+    default 300000
+    depends on USER_SHUTDOWN
+    help
+        Connection timeout duration when receiver is not detected.
+
+choice
+    prompt "Sensor rotation"
+    default SENSOR_ROTATION_90
+
+config SENSOR_ROTATION_0
+    bool "0 degrees"
+
+config SENSOR_ROTATION_90
+    bool "90 degrees"
+
+config SENSOR_ROTATION_180
+    bool "180 degrees"
+
+config SENSOR_ROTATION_270
+    bool "270 degrees"
+
+config SENSOR_ROTATION_0_FLIPPED
+    bool "0 degrees flipped"
+
+config SENSOR_ROTATION_90_FLIPPED
+    bool "90 degrees flipped"
+
+config SENSOR_ROTATION_180_FLIPPED
+    bool "180 degrees flipped"
+
+config SENSOR_ROTATION_270_FLIPPED
+    bool "270 degrees flipped"
+
+endchoice
+
+menu "Sensor power saving"
+
+config SENSOR_LP_TIMEOUT
+    int "Sensor low power delay (ms)"
+    default 500
+    help
+        Low power timeout during no motion.
+
+config SENSOR_USE_LOW_POWER_2
+    bool "Use additional low power modes"
+    help
+        Use a higher latency sensor mode during no motion.
+
+config USE_IMU_TIMEOUT
+    bool "Use IMU wake up state"
+    default y
+    depends on USE_IMU_WAKE_UP
+    help
+        Use IMU wake up state during no motion.
+
+config IMU_TIMEOUT_RAMP_MIN
+    int "Sensor timeout minimum delay (ms)"
+    default 5000
+    depends on USE_IMU_TIMEOUT || SENSOR_USE_LOW_POWER_2
+    help
+        Minimum timeout during no motion. Initial period on wake up.
+
+config IMU_TIMEOUT_RAMP_MAX
+    int "Sensor timeout maximum delay (ms)"
+    default 15000
+    depends on USE_IMU_TIMEOUT || SENSOR_USE_LOW_POWER_2
+    help
+        Maximum timeout during no motion.
+
+config USE_ACTIVE_TIMEOUT
+    bool "Use activity timeout"
+    default y
+    depends on USE_IMU_WAKE_UP || USER_SHUTDOWN
+    help
+        Delay IMU wake up state or user shutdown during activity.
+
+choice
+    prompt "Activity timeout mode"
+    default SLEEP_ON_ACTIVE_TIMEOUT
+    depends on USE_ACTIVE_TIMEOUT
+
+config SLEEP_ON_ACTIVE_TIMEOUT
+    bool "IMU wake up"
+    depends on USE_IMU_WAKE_UP
+    help
+        Use IMU wake up state when activity timeout elapses.
+
+config SHUTDOWN_ON_ACTIVE_TIMEOUT
+    bool "User shutdown"
+    depends on USER_SHUTDOWN
+    help
+        Use user shutdown when activity timeout elapses.
+
+endchoice
+
+config ACTIVE_TIMEOUT_THRESHOLD
+    int "Activity timeout threshold (ms)"
+    default 15000
+    depends on USE_ACTIVE_TIMEOUT
+    help
+        Trigger activity timeout after a certain threshold of activity.
+
+config ACTIVE_TIMEOUT_DELAY
+    int "Activity timeout delay (ms)"
+    default 900000
+    depends on USE_ACTIVE_TIMEOUT
+    help
+        Activity timeout duration when triggered.
+
+endmenu
+
+config SENSOR_ACCEL_ODR
+    int "Accelerometer output data rate (Hz)"
+    default 100
+    help
+        Requested accelerometer output data rate. Actual rate will be raised to the nearest supported rate.
+        A higher rate will increase the time to read and process sensor data.
+
+config SENSOR_GYRO_ODR
+    int "Gyrometer output data rate (Hz)"
+    default 200
+    help
+        Requested gyrometer output data rate. Actual rate will be raised to the nearest supported rate.
+        A higher rate will increase the time to read and process sensor data.
+        A lower rate is recommended for IMUs with poor gyrometer rate noise density. (e.g. BMI270, LSM6DS3TR-C)
+
+config SENSOR_ACCEL_FS
+    int "Accelerometer full scale (g)"
+    default 4
+    help
+        Requested accelerometer full scale. Actual scale will be raised to the nearest supported scale.
+        A lower scale may improve noise performance, but is more likely to saturate.
+
+config SENSOR_GYRO_FS
+    int "Gyrometer full scale (dps)"
+    default 1000
+    help
+        Requested gyrometer full scale. Actual scale will be raised to the nearest supported scale.
+        A lower scale may improve noise performance, but is more likely to saturate.
+
+config SENSOR_USE_MAG
+    bool "Magnetometer support"
+    default y
+    help
+        Use magnetometer if it is present.
+
+config USE_SENSOR_CLOCK
+    bool "Use external IMU clock"
+    default y
+    help
+        Use external IMU clock if it is present.
+
+choice
+    prompt "Sensor fusion"
+    default SENSOR_USE_VQF
+    help
+        Select the sensor fusion method.
+
+config SENSOR_USE_VQF
+    bool "Use VQF"
+    help
+        Use VQF for sensor fusion.
+        Based on Kalman filter.
+
+endchoice
+
+config SENSOR_USE_6_SIDE_CALIBRATION
+    bool "Use 6-side calibration"
+    default y
+    depends on USE_SLIMENRF_CONSOLE
+    help
+        Use 6-side calibration for accelerometer.
+        Calibration can be completed through the basic console.
+
+config RADIO_TX_POWER
+    int "Radio output power (dBm)"
+    default 8
+    help
+        Radio output power level.
+        A lower value may reduce power consumption.
+
+config RADIO_1MBPS
+    bool "Default for the radio_1mbps setting"
+    help
+        Send at 1 Mbps instead of 2 Mbps: about 3 dB more range, twice the
+        airtime per frame. The receiver must use the same rate ("radio 1m" on
+        its console). Change it on a tracker with "write_config radio_1mbps 1"
+        and "reboot".
+
+config CONNECTION_OVER_HID
+    bool "Use HID for data output"
+    help
+        Use HID if available.
+        Otherwise, use ESB only.
+
+config CONNECTION_OVER_UART
+    bool "Default for the connection_over_uart setting (wired chain)"
+    help
+        Older form of wired_mode, used only while wired_mode is -1: on is
+        "in left out right" (wired chain, radio off), off is "in left" (radio
+        relay of a wired tracker plugged into the left header). Prefer the
+        "mode" console command.
+
+DT_CHOSEN_WIRED_LEFT_UART := slimenrf,wired-left-uart
+DT_CHOSEN_WIRED_RIGHT_UART := slimenrf,wired-right-uart
+
+config LOG_MODES
+    bool "DEBUG and TRACE console modes"
+    default y
+    select LOG_RUNTIME_FILTERING
+    help
+        Console commands "debug" and "trace". The firmware's modules are
+        compiled with debug messages, kept at INFO until "debug on".
+        "trace" logs every frame handed to the radio, cable or USB, decoded.
+
+config LOG_MODES_DEBUG_DEFAULT
+    bool "Start with DEBUG on"
+    depends on LOG_MODES
+
+menu "Wired ankle link"
+
+config WIRED_LINK
+    bool "Wired link between trackers (roles from the wired_mode setting)"
+    depends on $(dt_chosen_enabled,$(DT_CHOSEN_WIRED_LEFT_UART))
+    depends on $(dt_chosen_enabled,$(DT_CHOSEN_WIRED_RIGHT_UART))
+    select SERIAL
+    select UART_ASYNC_API
+    select GPIO
+    help
+        Two headers, "slimenrf,wired-left-uart" and "slimenrf,wired-right-uart",
+        each an input, an output or unused (wired_mode, "mode" on the console).
+        Both UARTs use zephyr,deferred-init and receive by default; an output
+        header gets the "wired-left/right-tx-default/sleep" pin states from zephyr,user.
+        With an output the radio stays off and everything goes upstream on the
+        wire; without one, frames from the inputs are stamped with their
+        receiver ids and sent over ESB with the tracker's own.
+
+config WIRED_MODE
+    int "Default for the wired_mode setting"
+    depends on WIRED_LINK
+    range -1 31
+    default -1
+    help
+        Bits: 1 in left, 2 in right, 4 out left, 8 out right, 16 hub; 0
+        wireless, 19 hub (both in, radio receives, output to the ESP32).
+        -1 follows the older connection_over_uart setting: on = in left out
+        right (wired chain), off = in left (radio relay). Set it on a tracker
+        with "mode", e.g. "mode wired in left out right".
+
+config DEBUG_NO_POWER_SAVING
+    bool "Debug: no power saving"
+    help
+        For debugging the link: the tracker never lowers its IMU rate, never
+        sleeps or shuts down when lying still or when the receiver does not
+        answer, and keeps the radio's HF clock running between frames.
+        The low battery shutdown and the button shutdown stay. Built by
+        "make tracker-nosleep"; flash the normal image to undo.
+
+config WIRED_RELAY_IDLE_MS
+    int "Relay: stop listening after this long without valid frames (ms)"
+    depends on WIRED_LINK
+    default 1000
+
+config WIRED_RELAY_OWN_RATE_DIVIDER
+    int "Relay: while relaying, send only every Nth own data frame"
+    depends on WIRED_LINK
+    range 1 4
+    default 1
+    help
+        Airtime fallback: 2 halves the relay's own data rate while it relays.
+
+config WIRED_ANKLE_TABLE_SIZE
+    int "Relay: number of wired tracker addresses remembered"
+    depends on WIRED_LINK
+    range 1 8
+    default 8
+
+endmenu
+
+source "Kconfig.zephyr"

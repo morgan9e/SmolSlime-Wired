@@ -1,0 +1,26 @@
+# Copyright (c) 2024 Nordic Semiconductor ASA
+# SPDX-License-Identifier: Apache-2.0
+
+# The 'smspi' board variant is targeted promico stack with the SM-ICM45686-AK09940A
+# where ICM is on SPI, AK is on I2C, external clock disabled.
+
+# The 'stackedspiwired' variant is 'stackedspi' with the wired ankle link (data on P1.04/D8: TX in
+# wired mode, RX in relay mode; D9 driven low as ground; straight cable).
+# One image for every tracker: the connection_over_uart setting makes it an ankle (data out
+# over UART, radio off); otherwise it relays a wired ankle over ESB when one is plugged in.
+# See src/connection/wired.c.
+
+board:
+  name: promicro_uf2
+  full_name: Pro Micro
+  vendor: nordic
+  socs:
+    - name: nrf52840
+      variants:
+      - name: 'i2c'
+      - name: 'spi'
+      - name: 'smspi'
+      - name: 'chrysalis'
+      - name: 'stackedi2c'
+      - name: 'stackedspi'
+      - name: 'stackedspiwired'
