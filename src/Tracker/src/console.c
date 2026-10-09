@@ -510,7 +510,7 @@ static void print_help(void)
 	printk("                             are relayed over the radio. e.g. ankle: wired out right,\n");
 	printk("                             thigh: wired in left out right, hip: wired in both\n");
 	printk("                             hub: both headers in, the radio receives (the chest\n");
-	printk("                             pairs with it), all to the ESP32 on D15\n");
+	printk("                             pairs with it), all to the ESP32 on D0\n");
 	printk("wired                        Show wired link status\n");
 	printk("pair_wired                   Pair the wired trackers heard through this relay\n");
 	printk("                             (receiver in pairing mode; also 6 button presses)\n");

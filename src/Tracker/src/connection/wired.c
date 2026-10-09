@@ -740,7 +740,7 @@ static int use_tx_pins(int port)
 				     right_tx_states, ARRAY_SIZE(right_tx_states));
 }
 
-// Hub mode: the left UART receives the left header (D9) and sends the hub output (D15).
+// Hub mode: the left UART receives the left header (D9) and sends the hub output (D0).
 PINCTRL_DT_STATE_PINS_DEFINE(DT_PATH(zephyr_user), wired_hub_default);
 #ifdef CONFIG_PM_DEVICE
 PINCTRL_DT_STATE_PINS_DEFINE(DT_PATH(zephyr_user), wired_hub_sleep);

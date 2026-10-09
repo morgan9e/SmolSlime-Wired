@@ -23,7 +23,7 @@
 // Hub mode ("mode hub"): this tracker takes the nRF receiver's place next to the ESP32 hub.
 // It gathers its own frames, the wired trackers on both headers and the wireless trackers it
 // receives over ESB (they pair with it as with a receiver), gives each tracker address an id,
-// and sends everything to the ESP32 hub on D15 exactly as the receiver's UART mirror does:
+// and sends everything to the ESP32 hub on D0 exactly as the receiver's UART mirror does:
 //     COBS( packet[16] + crc16_le[2] ) + 0x00, 1,000,000 baud, each batch preceded by 0x00
 //     crc16 = crc16_itu_t(0xFFFF, packet, 16); a type 255 address packet per id every 100 ms
 // The ESP32 hub firmware needs no change.

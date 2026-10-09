@@ -406,7 +406,7 @@ void hub_forget_radio(void)
 
 void hub_print_status(void)
 {
-	printk("Hub: radio address %012llX, %s; output to the ESP32 on D15: %u packets sent, %u dropped\n",
+	printk("Hub: radio address %012llX, %s; output to the ESP32 on D0: %u packets sent, %u dropped\n",
 	       addr_u64(radio_addr), atomic_get(&pairing) ? "pairing open" : "pairing closed", st_sent, st_qdrop);
 	printk("Radio: %u bad CRC, %u unknown id, %u pairing requests; id table full %u times\n", st_bad_crc,
 	       st_unknown_id, st_pair_requests, st_full);

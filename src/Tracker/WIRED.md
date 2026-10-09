@@ -13,7 +13,7 @@ firmware does not change and no separate receiver is needed.
 
 ```
 L ankle ─wire→ L thigh ─wire→ ┐
-                              ├→ hip (mode hub) ─wire, D15→ ESP32 ─Wi-Fi→ SlimeVR
+                              ├→ hip (mode hub) ─wire, D0→ ESP32 ─Wi-Fi→ SlimeVR
 R ankle ─wire→ R thigh ─wire→ ┘        ↑
                              chest ─ESB┘
 ```
@@ -33,7 +33,7 @@ console; it is stored and the tracker reboots:
 | `mode wired in left out right` | off | thigh: ankle in on the left, upstream on the right |
 | `mode wired in left` | on | a thigh relaying its ankle by radio (the older setup) |
 | `mode wired in both` | on | hip: both legs in, everything relayed by radio to the receiver |
-| `mode hub` | receives | hip in place of the receiver: both legs in, the chest by radio, all to the ESP32 on D15 |
+| `mode hub` | receives | hip in place of the receiver: both legs in, the chest by radio, all to the ESP32 on D0 |
 
 Any combination works (`in right out left`, `out left`, ...): at most one output, and a
 header cannot be both. `mode` alone prints the current mode, `wired` the full status. The
@@ -68,7 +68,7 @@ ESP32 hub's rate, so the hub output can share a UART with an input).
 
 `mode hub` on the hip. Both headers are inputs and stay on, the radio listens like the receiver
 (same discovery address, pairing exchange and frame checks, on pipe addresses derived from the
-hip's own device address), and the left header's UART also sends on **D15 (P1.13)**. Wire D15 to
+hip's own device address), and the left header's UART also sends on **D0 (P0.08)**, a full-speed pin (the radio is listening at the same time). Wire D0 to
 the ESP32's RX pin (XIAO D7) and the hip's GND to the ESP32's GND. The output is the receiver's
 mirror format byte for byte (`src/connection/hub.h`): every tracker packet with its id, and a
 type 255 packet per id every 100 ms that tells the ESP32 hub the tracker's address.
