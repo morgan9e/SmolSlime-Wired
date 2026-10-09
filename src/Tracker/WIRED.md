@@ -1,137 +1,128 @@
-# Wired ankle link (branch `hub-wired`)
+# Wired link (branch `hip-relay`)
 
-> **Wired chain mode** (current, see the top-level README): with `connection_over_uart 1` a
-> tracker turns its radio off, sends its own frames upstream on **D15** and forwards everything
-> arriving on **D8** from the tracker below it, unchanged. Chains end on the ESP32-S3 hub, which
-> knows each tracker by the address in its ADATA frames (format in `src/connection/wired.h`),
-> so no pairing is needed. The rest of this file describes the radio relay mode
-> (`connection_over_uart 0`), which still works and also accepts ADATA from a chain-firmware ankle.
+Trackers can pass their data over short UART cables instead of their own radio. Each board
+has two headers, and the `mode` setting makes each one an input, an output or unused. A
+tracker with an output keeps its radio off and sends everything upstream on the wire; a
+tracker without one relays its inputs over ESB, together with its own frames. The receiver,
+the ESP32 hub and SlimeVR see every wired tracker as a normal tracker with its own id.
 
-Ankles are wired to their thigh tracker instead of using their own radio. The ankle sends
-its frames over a short UART cable; the thigh (the "relay") stamps the ankle's receiver id
-and forwards the frames over ESB together with its own. The receiver, the ESP32 hub and
-SlimeVR see the ankle as a normal tracker.
-
-A tracker in **wired mode** (radio off) sends over the cable; a tracker in **relay mode**
-forwards it. Ankles use wired mode, thighs relay mode.
-
-## Firmware
-
-One image for every tracker: `promicro_uf2/nrf52840/stackedspiwired`.
-The `connection_over_uart` setting chooses the role at boot:
-
-| Setting | Role | What it does |
-| --- | --- | --- |
-| `connection_over_uart 1` | wired mode | data out of P1.04 (D8) as UART TX, radio never started |
-| `connection_over_uart 0` (default) | relay mode | listens on P1.04 (D8); with nothing plugged in it behaves like `stackedspi` |
-
-Make a tracker an ankle from its USB console:
+The intended setup: ankle → thigh on each leg by wire, both thighs → hip by wire, and the hip
+(a few cm from the receiver) relays all five over ESB. The chest stays wireless.
 
 ```
-write_config connection_over_uart 1
-reboot
+L ankle ─wire→ L thigh ─wire→ ┐
+                              ├→ hip ─ESB→ receiver ─UART→ ESP32 ─Wi-Fi→ SlimeVR
+R ankle ─wire→ R thigh ─wire→ ┘             ↑
+                                    chest ─ESB┘
 ```
 
-`wired` on the console shows which mode is active. Thighs, hip and chest keep the default.
-Hip and chest simply never see an ankle. The flash layout is the same as `stackedspi`,
-so calibration and pairing survive reflashing.
+## Firmware and modes
 
-How one image serves both roles: the board has a transmit-only `uart0` and a receive-only `uart1`,
-both on P1.04 (D8), both with `zephyr,deferred-init`. At boot,
-`src/connection/wired.c` reads the setting and starts only the matching one.
+One image for every tracker: `promicro_uf2/nrf52840/stackedspiwired`
+(`dist/SlimeNRF_ProMicro_StackedSPI_Wired_Tracker.uf2`). Set the role on each tracker's USB
+console; it is stored and the tracker reboots:
 
-## Cable
-
-Straight-through, the same at both ends:
-
-| Wired mode (ankle) | Relay mode (thigh) | Notes |
+| Command | Radio | Used for |
 | --- | --- | --- |
-| D8 (P1.04) | D8 (P1.04) | data: TX in wired mode, RX in relay mode, 460800 baud |
-| D9 (P1.06) | D9 (P1.06) | ground reference: both ends drive D9 low (signal return only) |
+| `mode wireless` | on | chest, or any tracker on its own |
+| `mode wired out right` | off | ankle |
+| `mode wired in left out right` | off | thigh: ankle in on the left, upstream on the right |
+| `mode wired in left` | on | a thigh relaying its ankle by radio (the older setup) |
+| `mode wired in both` | on | hip: both legs in, everything relayed by radio |
 
-Both trackers keep their own battery. D9 carries only the UART's return current (well under
-1 mA), so a GPIO is enough; do not use it to share power. A 470R-1k resistor in series on D8
-makes a misconfiguration harmless (both ends set to wired mode would otherwise drive D8
-against each other). With nothing connected, D9 just sits low.
+Any combination works (`in right out left`, `out left`, ...): at most one output, and a
+header cannot be both. `mode` alone prints the current mode, `wired` the full status. The
+setting is `wired_mode` (bits: 1 in left, 2 in right, 4 out left, 8 out right); `-1`, the
+default, follows the older `connection_over_uart` setting: on = `in left out right`, off =
+`in left`. The flash layout is the same as `stackedspi`, so calibration and pairing survive.
 
-On the SmolSlime stack, D0-D7 and D14 are taken, so no "full-speed" pin is left. P1.04 is
-a "low frequency I/O only" pin on the nRF52840: Nordic advises against UART traffic on such
-pins while the radio runs, because it can increase packet loss. On the ankle this does not
-matter (radio off). On the thigh, check it: compare the thigh's gap statistics in the hub
-stats while relaying against not relaying.
+## Headers and cables
 
-The relay's internal pull-up keeps D8 idle when the connector is open.
+| Header | Ground reference | Data | UART |
+| --- | --- | --- | --- |
+| Left | D8 (P1.04) | D9 (P1.06) | uart1 |
+| Right | D16 (P0.10) | D10 (P0.09) | uart0 |
 
-## Pairing an ankle
+A cable joins the two ground pins and the two data pins, so any straight cable works between
+any two headers: D8/D16 to D8/D16, D9/D10 to D9/D10. 460800 baud 8N1, upstream only.
 
-The ankle never pairs by radio. It is paired *through* its thigh, once:
+- Both trackers keep their own battery. The ground pins are driven low on both headers from
+  boot; they carry only the UART's return current, so a GPIO is enough. Do not share power.
+- A 470R-1k resistor in series in the data line makes a misconfiguration harmless (two outputs
+  on one cable would otherwise drive the line against each other).
+- D10 and D16 are the nRF52840's NFC pins, used as GPIOs. The first boot after flashing writes
+  this to the UICR and restarts once.
+- All these pins are "low frequency I/O only" on the nRF52840 (D0-D7 and D14 are taken on the
+  SmolSlime stack). Nordic advises against UART traffic on them while the radio runs. Wired
+  trackers have the radio off; the hip sits a few cm from the receiver, where it does not matter.
+- Each header's UART receives by default; for an output header the firmware swaps in transmit
+  pins (`pinctrl_update_states()`) before starting it.
 
-1. The thigh must already be paired with the receiver.
-2. Plug the ankle into the thigh. The thigh console shows
-   `Wired tracker <address> connected, not paired: run pair_wired`.
-3. Put the receiver in pairing mode (button on the hub receiver, or `pair` on its console).
-4. On the thigh: `pair_wired` in the console, or press its button 6 times
-   (2 = calibrate, 3 = pairing reset, 4-5 = DFU, as before).
-   The thigh LED blinks while it pairs and flashes 4 times on success:
-   `Wired tracker <address> paired as id <n>`.
+## Pairing
+
+Wired trackers never pair by radio. The radio relay (the hip) pairs them by address, once:
+
+1. The hip itself must already be paired with the receiver.
+2. Plug in the chains. The hip's console names each new tracker:
+   `Wired tracker <address> on the left header, not paired: run pair_wired`.
+3. Put the receiver in pairing mode (its button, or `pair` on its console).
+4. On the hip: `pair_wired`, or press its button 6 times. It pairs every wired tracker heard
+   in the last 3 s that has no id yet: `Wired tracker <address> paired as id <n>`.
 5. Leave pairing mode on the receiver.
 
-`link` on the thigh shows the radio ACKs per id, its own and the relayed ankle's: an ACK means
-the receiver's radio heard the frame. If the ankle's id is ACKed but never shows up, the receiver
-log says why (for example an id it has not stored).
+A tracker that was paired before (by radio, or through a thigh) gets its old id back, so
+SlimeVR keeps its body assignment. The hip remembers 8 addresses; `forget_wired` clears them.
+Trackers with an output need no pairing: they send their address in every frame.
 
-While the receiver does not answer, a tracker asks every 3 s whether a receiver in pairing mode
-has a new address or id for it, keeping its pairing otherwise. A receiver `clear` changes the
-receiver's address, so after a clear every tracker re-pairs with a fresh id on its own; a thigh
-that moves to a new receiver address clears its ankle table and re-pairs the plugged-in ankle.
-
-Each thigh remembers up to 4 ankle addresses, so ankles can be swapped between thighs that
-have both paired them. `wired` shows the link state and the table; `forget_wired` clears it.
+While the receiver does not answer, a tracker asks every 3 s whether a receiver in pairing
+mode has a new address or id for it. After a receiver `clear` every tracker re-pairs with a
+fresh id on its own, and a relay that moves to a new receiver re-pairs its wired trackers.
 
 ## Behaviour
 
-- The relay's UART is off until the first edge on D8, and turns off again after 1 s without
-  valid frames, so a thigh without an ankle uses no extra power.
-- While relaying, the thigh stays awake at full rate (it counts as moving) and keeps its
-  HF clock running between frames.
-- Ankle frames are forwarded at the ankle's rate: each frame wakes the connection thread.
-  At most two ankle frames are sent per pass, so the thigh's own frames are never starved.
-- The relay waits for the previous ESB frame to finish (up to 4.5 ms with the default
-  retransmit settings) instead of flushing it, so ankle frames are not cut off.
-- Frames are checked with the ankle's CRC32 before stamping; the id is replaced and the CRC
-  recomputed; the ankle's sequence byte is kept.
-- `CONFIG_WIRED_RELAY_OWN_RATE_DIVIDER=2` halves the thigh's own rate while relaying, if
-  airtime becomes a problem.
-- An unplugged ankle keeps running until its normal motion timeout puts it to sleep.
-- While not relaying, the relay sends exactly like stock (flushing the previous frame).
+- An input's UART is off until the first edge on its data pin, and turns off again after 1 s
+  without valid frames, so an unused input costs no power.
+- While frames arrive on an input, the tracker stays awake at full rate and keeps its radio's
+  HF clock running between frames (relay).
+- Chain trackers forward everything from their input unchanged, after checking its CRC; an
+  older ankle's DATA frames (no address) are wrapped with the address from its HELLO.
+- The relay stamps each frame with the receiver id paired for its address, recomputes the CRC
+  and keeps the tracker's sequence byte. It queues 32 frames (keeping the newest) and sends up
+  to 8 per pass of the connection thread, so its own frames are never starved.
+- The relay waits for the previous ESB frame to finish instead of flushing it, and releases the
+  HF clock only when the radio is idle, so relayed frames are not cut off.
+- `CONFIG_WIRED_RELAY_OWN_RATE_DIVIDER=2` halves a relay's own rate while relaying, if airtime
+  becomes a problem.
 
-## Console log modes
-
-Two independent switches on the USB console, reset on reboot:
+## Console
 
 | Command | Effect |
 | --- | --- |
-| `debug on` / `debug off` | every `LOG_DBG` message of the firmware (radio TX results, LED, battery, sensor...) |
-| `trace on` / `trace <n>` / `trace off` | every (or every nth) frame handed to a transport, decoded from the bytes sent |
+| `mode ...` | set the role (see above), stored, reboots |
+| `wired` | mode, per header counters (frames, bad frames, line errors, wakes), the trackers heard and their ids |
+| `pair_wired` / `forget_wired` | pair the wired trackers heard / clear the table |
+| `link` | radio ACKs per id, the tracker's own and the relayed ones |
+| `debug on` / `off` | every `LOG_DBG` message |
+| `trace on` / `<n>` / `off` | every (or every nth) frame handed to a transport, decoded |
 
-A trace line names the route and decodes the packet, e.g.
-`radio id 0 #17 type 2: X 1.4 Y -3.9 Z 85.8 deg, q ..., accel ... m/s2, batt 44% 3850 mV, 27.5 C`.
-Routes: `radio`, `radio not ready, dropped` (not paired), `relay` (an ankle frame, with its
-receiver id), `cable` (wired mode; id 255 until the relay stamps it), `skipped (relay rate
-divider)`, `usb hid`. At full rate the console cannot keep up and Zephyr reports dropped
-messages; `trace 10` keeps it readable. `CONFIG_LOG_MODES_DEBUG_DEFAULT` starts with DEBUG on.
+Trace routes: `radio`, `radio not ready, dropped`, `relay` (a wired tracker's frame with its
+receiver id), `cable` (sent upstream; id 255 until a relay stamps it), `skipped (relay rate
+divider)`, `usb hid`.
 
-## Wire format (ankle to relay)
+## Wire format
 
 ```
-COBS( [type][body] ) + 0x00          460800 baud 8N1
-0x01 DATA : 21-byte ESB frame (packet[16], CRC32-K/4.2 LE, sequence), id byte = 0xFF
-0x02 HELLO: FICR device address[6], fw major, minor, patch    (1 per second)
+COBS( [type][body] ) + 0x00          460800 baud 8N1, upstream only
+0x02 HELLO: FICR device address[6], fw major, minor, patch                     (1 per second)
+0x03 ADATA: address[6], packet[16] (id byte 0xFF), CRC32-K/4.2 LE over address + packet, sequence
+0x01 DATA : legacy, the 21-byte ESB frame without address (older ankle firmware)
 ```
 
 ## Tests
 
-`tools/wired_test/run.sh <zephyr dir>` compiles `src/connection/wired.c` on a PC with minimal
-Zephyr stand-ins and checks the ankle encoder against the relay decoder: frame sizes, busy
-drop, unpaired drop, pairing table and its NVS round trip, id stamping with a valid CRC,
-queue overflow, corruption and RX shutdown.
+`tools/wired_test/run.sh <zephyr dir>` (or `make test-tracker`) compiles
+`src/connection/wired.c` on a PC with minimal Zephyr stand-ins and checks: the mode words and
+their validation, the older setting's mapping, an ankle's HELLO/ADATA encoding and TX queue, a
+thigh forwarding its input byte for byte (and wrapping legacy DATA), and a hip with two inputs
+and four trackers: unpaired drops, pairing every tracker heard, the table's NVS round trip, id
+stamping with a valid CRC per input, queue overflow, corruption and one input dropping out.

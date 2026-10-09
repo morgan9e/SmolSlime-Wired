@@ -55,6 +55,7 @@ enum config_2_settings_id {
 	CONFIG_2_SENSOR_GYRO_FS,
 	CONFIG_2_SENSOR_FUSION, // 1: XIO, 3: VQF
 	CONFIG_2_RADIO_TX_POWER,
+	CONFIG_2_WIRED_MODE, // wired.h WIRED_IN_* / WIRED_OUT_* bits, -1: from connection_over_uart
 	CONFIG_2_SETTINGS_END
 };
 

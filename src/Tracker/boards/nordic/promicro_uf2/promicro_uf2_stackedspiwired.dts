@@ -1,85 +1,130 @@
 // Copyright (c) 2024 Nordic Semiconductor ASA
 // SPDX-License-Identifier: Apache-2.0
 
-// Stacked SPI tracker (SmolSlime) with the wired link. One image for every tracker:
-// both UARTs below use deferred init; src/connection/wired.c starts them at boot,
-// depending on the connection_over_uart setting:
-//   wired chain mode (setting on): uart0 TX upstream on P1.13 (D15) and uart1 RX from
-//                                  downstream on P1.04 (D8); radio off
-//   radio relay mode (setting off): uart1 RX on P1.04 (D8) only, started on the first edge
-// D9 (P1.06) is driven low in both modes as the link's ground reference.
-// Cable, upstream direction: lower tracker D15 -> upper tracker (or hub) D8 / hub RX pin,
-// and D9 <-> D9 (or hub GND). A 470R-1k series resistor in the data line is recommended.
-// The ground wire is only the UART signal reference; each tracker keeps its own battery.
-// D0-D7 and D14 are taken on the SmolSlime stack; these pins are "low frequency I/O only".
-// That is harmless on the ankle (radio off); on the relay, compare its gap statistics
-// while relaying against not relaying.
+// Stacked SPI tracker (SmolSlime) with the wired link. One image for every tracker; the
+// wired_mode setting ("mode" on the console) picks, per header, input, output or unused,
+// and src/connection/wired.c starts the matching UARTs at boot:
+//   left header:  D8 = P1.04 ground reference, D9 = P1.06 data, uart1
+//   right header: D16 = P0.10 ground reference, D10 = P0.09 data, uart0
+// Each header's UART receives on its data pin by default; for an output header wired.c swaps
+// in the "tx" pin states below (pinctrl_update_states) before starting the UART.
+// Any straight cable joins the two ground pins and the two data pins: D8/D16 to D8/D16,
+// D9/D10 to D9/D10. A 470R-1k series resistor in the data line is recommended.
+// Ground pins are driven low on both headers from boot: they are the UARTs' signal return
+// only, each tracker keeps its own battery.
+// D10 and D16 are the NFC pins, used as GPIOs (UICR, see &uicr below).
+// D0-D7 and D14 are taken on the SmolSlime stack. All these pins are "low frequency I/O only";
+// harmless with the radio off, and close to the receiver (the hip) also with the radio on.
 
 /dts-v1/;
 #include "promicro_uf2_stackedspi.dts"
 
 &pinctrl {
-	uart0_default: uart0_default {
-		group1 {
-			psels = <NRF_PSEL(UART_TX, 1, 13)>;
-		};
-	};
-
-	uart0_sleep: uart0_sleep {
-		group1 {
-			psels = <NRF_PSEL(UART_TX, 1, 13)>;
-			low-power-enable;
-		};
-	};
-
+	// uart1: left header data P1.06
 	uart1_default: uart1_default {
 		group1 {
-			psels = <NRF_PSEL(UART_RX, 1, 4)>;
+			psels = <NRF_PSEL(UART_RX, 1, 6)>;
 			bias-pull-up;
 		};
 	};
 
 	uart1_sleep: uart1_sleep {
 		group1 {
-			psels = <NRF_PSEL(UART_RX, 1, 4)>;
+			psels = <NRF_PSEL(UART_RX, 1, 6)>;
 			bias-pull-up;
 			// no low-power-enable: the input must stay connected for the wake edge
+		};
+	};
+
+	uart1_tx_default: uart1_tx_default {
+		group1 {
+			psels = <NRF_PSEL(UART_TX, 1, 6)>;
+		};
+	};
+
+	uart1_tx_sleep: uart1_tx_sleep {
+		group1 {
+			psels = <NRF_PSEL(UART_TX, 1, 6)>;
+			low-power-enable;
+		};
+	};
+
+	// uart0: right header data P0.09
+	uart0_default: uart0_default {
+		group1 {
+			psels = <NRF_PSEL(UART_RX, 0, 9)>;
+			bias-pull-up;
+		};
+	};
+
+	uart0_sleep: uart0_sleep {
+		group1 {
+			psels = <NRF_PSEL(UART_RX, 0, 9)>;
+			bias-pull-up;
+		};
+	};
+
+	uart0_tx_default: uart0_tx_default {
+		group1 {
+			psels = <NRF_PSEL(UART_TX, 0, 9)>;
+		};
+	};
+
+	uart0_tx_sleep: uart0_tx_sleep {
+		group1 {
+			psels = <NRF_PSEL(UART_TX, 0, 9)>;
+			low-power-enable;
 		};
 	};
 };
 
 / {
 	chosen {
-		slimenrf,wired-tx-uart = &uart0;
-		slimenrf,wired-rx-uart = &uart1;
+		slimenrf,wired-left-uart = &uart1;
+		slimenrf,wired-right-uart = &uart0;
 	};
 
 	zephyr,user {
-		// P1.04 watched as a GPIO while the relay's UART is off, to wake it.
-		wired-gpios = <&gpio1 4 (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>;
-		// P1.06 (D9) driven low as the link's ground reference (signal return only, not power).
-		wired-gnd-gpios = <&gpio1 6 0>;
+		// Data pins, watched as GPIOs while an input header's UART is off, to wake it.
+		wired-left-gpios = <&gpio1 6 (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>;
+		wired-right-gpios = <&gpio0 9 (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>;
+		// Ground references, driven low from boot (signal return only, not power).
+		wired-left-gnd-gpios = <&gpio1 4 0>;
+		wired-right-gnd-gpios = <&gpio0 10 0>;
+		// Transmit pin states for an output header.
+		wired-left-tx-default = <&uart1_tx_default>;
+		wired-left-tx-sleep = <&uart1_tx_sleep>;
+		wired-right-tx-default = <&uart0_tx_default>;
+		wired-right-tx-sleep = <&uart0_tx_sleep>;
 	};
 };
 
 // Detect the first edge with the low-power PORT/SENSE mechanism instead of a GPIOTE channel.
 &gpio1 {
-	sense-edge-mask = <(1 << 4)>;
+	sense-edge-mask = <(1 << 6)>;
 };
 
-// Chain mode upstream: transmit only, on D15. i2c0 is deleted by the stacked SPI build, so uart0 is free.
+&gpio0 {
+	sense-edge-mask = <(1 << 9)>;
+};
+
+// P0.09 and P0.10 as GPIOs instead of NFC antenna pins (written to UICR at the first boot).
+&uicr {
+	nfct-pins-as-gpios;
+};
+
+// Right header. i2c0 is deleted by the stacked SPI build, so uart0 is free.
 &uart0 {
 	compatible = "nordic,nrf-uarte";
 	status = "okay";
 	zephyr,deferred-init;
 	current-speed = <460800>;
-	disable-rx;
 	pinctrl-0 = <&uart0_default>;
 	pinctrl-1 = <&uart0_sleep>;
 	pinctrl-names = "default", "sleep";
 };
 
-// Downstream (both modes): receive only, on D8.
+// Left header.
 &uart1 {
 	compatible = "nordic,nrf-uarte";
 	status = "okay";

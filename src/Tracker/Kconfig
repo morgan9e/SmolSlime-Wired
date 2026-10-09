@@ -330,16 +330,15 @@ config CONNECTION_OVER_HID
         Otherwise, use ESB only.
 
 config CONNECTION_OVER_UART
-    bool "Default for the connection_over_uart setting (wired ankle)"
+    bool "Default for the connection_over_uart setting (wired chain)"
     help
-        Default of the connection_over_uart setting. On a board with the wired
-        link (WIRED_LINK), the setting turns the tracker into a wired ankle: data
-        goes out over UART and the radio stays off. Otherwise the tracker relays a
-        wired ankle when one is plugged in. Change it on a tracker with
-        "write_config connection_over_uart 1" and "reboot".
+        Older form of wired_mode, used only while wired_mode is -1: on is
+        "in left out right" (wired chain, radio off), off is "in left" (radio
+        relay of a wired tracker plugged into the left header). Prefer the
+        "mode" console command.
 
-DT_CHOSEN_WIRED_TX_UART := slimenrf,wired-tx-uart
-DT_CHOSEN_WIRED_RX_UART := slimenrf,wired-rx-uart
+DT_CHOSEN_WIRED_LEFT_UART := slimenrf,wired-left-uart
+DT_CHOSEN_WIRED_RIGHT_UART := slimenrf,wired-right-uart
 
 config LOG_MODES
     bool "DEBUG and TRACE console modes"
@@ -357,18 +356,31 @@ config LOG_MODES_DEBUG_DEFAULT
 menu "Wired ankle link"
 
 config WIRED_LINK
-    bool "Wired ankle link (ankle or relay, chosen by the connection_over_uart setting)"
-    depends on $(dt_chosen_enabled,$(DT_CHOSEN_WIRED_TX_UART))
-    depends on $(dt_chosen_enabled,$(DT_CHOSEN_WIRED_RX_UART))
+    bool "Wired link between trackers (roles from the wired_mode setting)"
+    depends on $(dt_chosen_enabled,$(DT_CHOSEN_WIRED_LEFT_UART))
+    depends on $(dt_chosen_enabled,$(DT_CHOSEN_WIRED_RIGHT_UART))
     select SERIAL
     select UART_ASYNC_API
     select GPIO
     help
-        Both UARTs must use zephyr,deferred-init and may share one pin; only the
-        one for the configured role is started. Ankle: frames go out on
-        "slimenrf,wired-tx-uart" with tracker id 0xFF and the radio is never
-        started. Relay: "slimenrf,wired-rx-uart" starts on the first edge, frames
-        are stamped with the ankle's receiver id and forwarded over ESB.
+        Two headers, "slimenrf,wired-left-uart" and "slimenrf,wired-right-uart",
+        each an input, an output or unused (wired_mode, "mode" on the console).
+        Both UARTs use zephyr,deferred-init and receive by default; an output
+        header gets the "wired-left/right-tx-default/sleep" pin states from zephyr,user.
+        With an output the radio stays off and everything goes upstream on the
+        wire; without one, frames from the inputs are stamped with their
+        receiver ids and sent over ESB with the tracker's own.
+
+config WIRED_MODE
+    int "Default for the wired_mode setting"
+    depends on WIRED_LINK
+    range -1 15
+    default -1
+    help
+        Bits: 1 in left, 2 in right, 4 out left, 8 out right; 0 wireless.
+        -1 follows the older connection_over_uart setting: on = in left out
+        right (wired chain), off = in left (radio relay). Set it on a tracker
+        with "mode", e.g. "mode wired in left out right".
 
 config DEBUG_NO_POWER_SAVING
     bool "Debug: no power saving"
@@ -393,10 +405,10 @@ config WIRED_RELAY_OWN_RATE_DIVIDER
         Airtime fallback: 2 halves the relay's own data rate while it relays.
 
 config WIRED_ANKLE_TABLE_SIZE
-    int "Relay: number of ankle addresses remembered"
+    int "Relay: number of wired tracker addresses remembered"
     depends on WIRED_LINK
     range 1 8
-    default 4
+    default 8
 
 endmenu
 

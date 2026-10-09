@@ -20,12 +20,17 @@
 	OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 	THE SOFTWARE.
 */
-// Wired link. One image, the connection_over_uart setting picks the mode at boot:
-//   off: radio relay. Listens on D8 for a wired ankle, stamps its receiver id and sends its
-//        frames over ESB together with its own.
-//   on:  wired chain mode, radio off. Sends its own frames upstream on D15 and forwards
-//        everything arriving on D8 from downstream, unchanged. A chain ends at the ESP32 hub,
-//        which knows each tracker by the address in its frames: no ids, no pairing.
+// Wired link between trackers, over two headers. The wired_mode setting ("mode" on the console)
+// makes each header an input, an output or unused:
+//   mode wireless                  no wired link, radio only
+//   mode wired out right           radio off, own frames upstream on the right header (ankle)
+//   mode wired in left out right   radio off, own frames and the left header's upstream (thigh)
+//   mode wired in left             radio on: the left header's trackers are relayed over ESB
+//   mode wired in both             radio on: both headers relayed over ESB (hip)
+// Left header: D8 ground reference, D9 data. Right header: D16 ground reference, D10 data.
+// With an output the radio stays off and the chain ends at a radio relay (or the ESP32 hub),
+// which knows each tracker by the address in its frames. Without one, frames from the inputs
+// are stamped with the receiver id paired for their address (pair_wired) and sent over ESB.
 //
 // Wire format, 460800 baud 8N1, upstream direction only:
 //     COBS( [type][body] ) + 0x00
@@ -37,29 +42,61 @@
 #define SLIMENRF_WIRED
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #define WIRED_FRAME_LEN 21          // ESB frame: packet[16] + CRC32[4] + sequence[1]
-#define WIRED_ID_PLACEHOLDER 0xFF   // tracker id sent by an ankle; the relay replaces it
+#define WIRED_ID_PLACEHOLDER 0xFF   // tracker id sent over the wire; the relay replaces it
+
+// wired_mode bits
+#define WIRED_IN_LEFT 0x1
+#define WIRED_IN_RIGHT 0x2
+#define WIRED_OUT_LEFT 0x4
+#define WIRED_OUT_RIGHT 0x8
+#define WIRED_MODE_LEGACY (-1) // from connection_over_uart: on = in left out right, off = in left
+
+// Valid: at most one output, and no header both input and output.
+static inline bool wired_mode_valid(int mode)
+{
+	if (mode < 0 || mode > 15)
+		return false;
+	int in = mode & 3, out = (mode >> 2) & 3;
+	return out != 3 && (in & out) == 0;
+}
+
+// Parses "wireless" or "wired [in left|right|both] [out left|right]" (argv without "mode").
+// Returns the mode, or -1 if the words do not form a valid one.
+int wired_mode_parse(int argc, char **argv);
+
+// Writes the mode in the form wired_mode_parse() takes, e.g. "wired in left out right".
+void wired_mode_format(int mode, char *buf, size_t len);
 
 #if CONFIG_WIRED_LINK
-// True in wired chain mode (connection_over_uart), radio off. Fixed from boot.
+// The mode in use since boot (the setting, resolved from connection_over_uart if -1).
+int wired_mode(void);
+
+// True if this tracker has a wired output: its radio stays off. Fixed from boot.
+// (Named for the first wired tracker, the ankle.)
 bool wired_is_ankle(void);
 
-// Wired chain mode: sends one ESB frame upstream as ADATA with this tracker's address.
+// Sends one ESB frame upstream as ADATA with this tracker's address.
 // Never blocks; the frame is dropped only if the TX queue is full.
 void wired_write_data(const uint8_t frame[WIRED_FRAME_LEN]);
 
-// Relay: true while frames from a paired ankle are arriving.
+// True while frames from a wired input are arriving (relaying or forwarding).
 bool wired_relaying(void);
-// Pops one stamped frame for ESB. Returns false if none is queued.
+
+// Radio relay: pops one stamped frame for ESB. Returns false if none is queued.
 bool wired_relay_get(uint8_t frame[WIRED_FRAME_LEN]);
-// Pairs the ankle currently connected (last HELLO) with the receiver, through this relay.
-// Runs in its own thread; returns immediately. The receiver must be in pairing mode.
+
+// Pairs every wired tracker seen in the last few seconds that has no receiver id yet, through
+// this relay. Runs in its own thread; returns immediately. The receiver must be in pairing mode.
 void wired_request_pair_ankle(void);
+
 void wired_print_status(void);
 void wired_forget_ankles(void);
 #else
+static inline int wired_mode(void) { return 0; }
 static inline bool wired_is_ankle(void) { return false; }
 static inline bool wired_relaying(void) { return false; }
 #endif

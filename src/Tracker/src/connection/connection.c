@@ -496,10 +496,10 @@ void connection_thread(void)
 	while (1)
 	{
 #if CONFIG_WIRED_LINK
-		// Relay: forward queued ankle frames first, at most two per pass so the tracker's own
-		// frames are never starved; the queue keeps only the newest frames.
+		// Relay: forward queued wired frames first, at most eight per pass (a hip carries four
+		// trackers) so the tracker's own frames are never starved; the queue keeps the newest.
 		uint8_t relay_frame[WIRED_FRAME_LEN];
-		for (int i = 0; i < 2 && wired_relay_get(relay_frame); i++)
+		for (int i = 0; i < 8 && wired_relay_get(relay_frame); i++)
 		{
 			esb_write(relay_frame);
 			log_mode_trace("relay", relay_frame, relay_frame[20]);

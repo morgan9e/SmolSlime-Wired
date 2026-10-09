@@ -503,8 +503,14 @@ static void print_help(void)
 	printk("link                         Show radio ACKs from the receiver, per tracker id\n");
 	printk("clear                        Clear pairing data\n");
 #if CONFIG_WIRED_LINK
-	printk("\nwired                        Show wired link status (wired mode or relay mode)\n");
-	printk("pair_wired                   Pair the connected wired tracker through this relay\n");
+	printk("\nmode [wireless|wired [in left|right|both] [out left|right]]\n");
+	printk("                             Wired link roles of the two headers (stored, reboots):\n");
+	printk("                             left = D8 ground, D9 data; right = D16 ground, D10 data.\n");
+	printk("                             With an output the radio is off; without one, the inputs\n");
+	printk("                             are relayed over the radio. e.g. ankle: wired out right,\n");
+	printk("                             thigh: wired in left out right, hip: wired in both\n");
+	printk("wired                        Show wired link status\n");
+	printk("pair_wired                   Pair the wired trackers heard through this relay\n");
 	printk("                             (receiver in pairing mode; also 6 button presses)\n");
 	printk("forget_wired                 Clear the paired wired tracker table\n");
 #endif
@@ -602,6 +608,7 @@ static void console_thread(void)
 
 #if CONFIG_WIRED_LINK
 	// wired link
+	const char command_mode[] = "mode";
 	const char command_ankle[] = "wired";
 	const char command_pair_ankle[] = "pair_wired";
 	const char command_forget_ankles[] = "forget_wired";
@@ -613,7 +620,7 @@ static void console_thread(void)
 #else
 		char *line = rtt_console_getline();
 #endif
-		char* argv[5] = {NULL}; // command and 4 args
+		char* argv[8] = {NULL}; // command and 7 args ("mode wired in left out right")
 		size_t argc = parse_args(line, argv, ARRAY_SIZE(argv));
 		if(argc == 0)
 			continue;
@@ -717,6 +724,28 @@ static void console_thread(void)
 		}
 #endif
 #if CONFIG_WIRED_LINK
+		else if (strcmp(argv[0], command_mode) == 0)
+		{
+			char name[40];
+			if (argc == 1)
+			{
+				wired_mode_format(wired_mode(), name, sizeof(name));
+				printk("Mode: %s\n", name);
+				continue;
+			}
+			int m = wired_mode_parse(argc - 1, &argv[1]);
+			if (m < 0)
+			{
+				printk("Usage: mode wireless | mode wired [in left|right|both] [out left|right]\n");
+				printk("(at most one output, and a header cannot be both input and output)\n");
+				continue;
+			}
+			wired_mode_format(m, name, sizeof(name));
+			config_2_settings_write(CONFIG_2_WIRED_MODE, m);
+			printk("Mode set to %s, rebooting\n", name);
+			k_msleep(100);
+			sys_request_system_reboot(false);
+		}
 		else if (strcmp(argv[0], command_ankle) == 0)
 		{
 			wired_print_status();

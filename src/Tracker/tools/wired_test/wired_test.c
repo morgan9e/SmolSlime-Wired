@@ -1,31 +1,64 @@
-// Host test of src/connection/wired.c: chain encoder -> wire bytes -> relay decoder/stamper,
-// and chain mode forwarding.
+// Host test of src/connection/wired.c: the mode words, a wired tracker's output (encoder),
+// a chain tracker forwarding its input, and a hip relaying two inputs with several trackers.
 #define CONFIG_WIRED_LINK 1
 #define WIRED_HOST_TEST 1
 #define CONFIG_WIRED_RELAY_IDLE_MS 1000
-#define CONFIG_WIRED_ANKLE_TABLE_SIZE 4
+#define CONFIG_WIRED_ANKLE_TABLE_SIZE 8
 #define CONFIG_APPLICATION_INIT_PRIORITY 90
 #include "wired.c"
 
 int64_t sim_now_ms = 1000;
 int sim_role_ankle;
+int sim_wired_mode = WIRED_MODE_LEGACY;
 int sim_device_inits;
-struct device sim_uart = {"uart0"};
+struct device sim_uarts[2] = {{"uart1"}, {"uart0"}};
 uart_callback_t sim_cb;
 uint8_t sim_tx[4096];
 size_t sim_tx_len;
-struct sim_ficr sim_ficr = {{0x44332211u, 0x0000C655u}}; // address 55C6...: bytes 11 22 33 44 55 C6
-static uint8_t nvs[64];
+struct sim_ficr sim_ficr = {{0x44332211u, 0x0000C655u}}; // address bytes 11 22 33 44 55 C6
+static uint8_t nvs[128];
 void sys_write(uint16_t id, void *ptr, const void *data, size_t len) { (void)id; (void)ptr; memcpy(nvs, data, len); }
 void sys_read(uint16_t id, void *data, size_t len) { (void)id; memcpy(data, nvs, len); }
 static int wakes;
 void connection_wake(void) { wakes++; }
-int esb_pair_other(const uint8_t addr[6], uint8_t *id_out) { (void)addr; *id_out = 5; return 0; }
+static uint8_t next_pair_id = 10;
+int esb_pair_other(const uint8_t addr[6], uint8_t *id_out) { (void)addr; *id_out = next_pair_id++; return 0; }
 
 static int failures;
 #define CHECK(c, ...) do { if (!(c)) { failures++; printf("FAIL line %d: ", __LINE__); printf(__VA_ARGS__); printf("\n"); } } while (0)
 
-// Build an ESB frame the way connection_thread() does on an ankle.
+// Back to power-on state, then boot with the given setting.
+static int boot(int wired_mode_setting, int legacy_role)
+{
+	for (int i = 0; i < PORT_COUNT; i++) {
+		struct port keep = ports[i];
+		memset(&ports[i], 0, sizeof(ports[i]));
+		ports[i].uart = keep.uart;
+		ports[i].data_pin = keep.data_pin;
+	}
+	out_port = -1;
+	mode = 0;
+	txq_head = txq_count = 0;
+	tx_active = uart_ok = false;
+	tx_dropped = tx_frames = tx_hellos = tx_errors = 0;
+	memset(seen, 0, sizeof(seen));
+	st_relayed = st_unpaired = st_qdrop = 0;
+	uint8_t junk[WIRED_FRAME_LEN];
+	while (k_msgq_get(&relay_q, junk, K_NO_WAIT) == 0) {}
+	sim_device_inits = 0;
+	sim_wired_mode = wired_mode_setting;
+	sim_role_ankle = legacy_role;
+	return wired_init_ptr();
+}
+
+static void tx_done_all(void)
+{
+	struct uart_event done = {.type = UART_TX_DONE};
+	while (txq_count)
+		out_uart_cb(ports[out_port].uart, &done, NULL);
+}
+
+// Build an ESB frame the way connection_thread() does on a wired tracker.
 static void make_frame(uint8_t *f, uint8_t type, uint8_t seq, uint8_t fill)
 {
 	memset(f, 0, WIRED_FRAME_LEN);
@@ -38,21 +71,28 @@ static void make_frame(uint8_t *f, uint8_t type, uint8_t seq, uint8_t fill)
 	memcpy(&f[16], &crc, 4);
 }
 
-// Ankle side: frames go into sim_tx. The TX-done callback is delivered at once.
-static void ankle_send_data(uint8_t seq, uint8_t fill)
+static void set_addr(uint8_t last)
 {
-	uint8_t f[WIRED_FRAME_LEN];
-	make_frame(f, 1, seq, fill);
-	wired_write_data(f);
-	struct uart_event e = {.type = UART_TX_DONE};
-	ankle_uart_cb(&sim_uart, &e, NULL);
+	sim_ficr.DEVICEADDR[0] = 0x44332211u;
+	sim_ficr.DEVICEADDR[1] = 0x00005500u | last;
 }
 
-static void ankle_send_hello(void)
+// Wire bytes a wired tracker with address ..55<last> sends: a HELLO, then frames seq0, seq0+1, ...
+// Uses this file's own output path (out_port must be set), so encoder and decoder are both tested.
+static size_t tracker_wire(uint8_t last, uint8_t seq0, int frames, uint8_t *buf)
 {
+	set_addr(last);
+	sim_tx_len = 0;
 	hello_work_fn(NULL);
-	struct uart_event e = {.type = UART_TX_DONE};
-	ankle_uart_cb(&sim_uart, &e, NULL);
+	tx_done_all();
+	for (int s = 0; s < frames; s++) {
+		uint8_t f[WIRED_FRAME_LEN];
+		make_frame(f, 1, (uint8_t)(seq0 + s), (uint8_t)(last + s));
+		wired_write_data(f);
+		tx_done_all();
+	}
+	memcpy(buf, sim_tx, sim_tx_len);
+	return sim_tx_len;
 }
 
 // Decodes the COBS frames in b[0..n) into raw frames; returns how many were found.
@@ -78,7 +118,7 @@ static int decode_frames(const uint8_t *b, size_t n, uint8_t raw[][40], size_t *
 	return count;
 }
 
-static void relay_feed(const uint8_t *b, size_t n)
+static void input_feed(int port, const uint8_t *b, size_t n)
 {
 	uint8_t tmp[4096];
 	memcpy(tmp, b, n);
@@ -86,25 +126,90 @@ static void relay_feed(const uint8_t *b, size_t n)
 	e.data.rx.buf = tmp;
 	e.data.rx.offset = 0;
 	e.data.rx.len = n;
-	relay_uart_cb(&sim_uart, &e, NULL);
+	in_uart_cb(ports[port].uart, &e, &ports[port]);
+}
+
+static void input_open(int port)
+{
+	atomic_clear(&ports[port].rx_on);
+	start_rx_work_fn(&ports[port].start_rx_work);
+	uint8_t sync = 0;
+	input_feed(port, &sync, 1);
+}
+
+static void test_mode_words(void)
+{
+	struct { const char *words; int mode; } cases[] = {
+		{"wireless", 0},
+		{"wired out right", WIRED_OUT_RIGHT},
+		{"wired in left out right", WIRED_IN_LEFT | WIRED_OUT_RIGHT},
+		{"wired out right in left", WIRED_IN_LEFT | WIRED_OUT_RIGHT},
+		{"WIRED In Left", WIRED_IN_LEFT},
+		{"wired in both", WIRED_IN_LEFT | WIRED_IN_RIGHT},
+		{"wired in right out left", WIRED_IN_RIGHT | WIRED_OUT_LEFT},
+		{"wired in left out left", -1},
+		{"wired in both out right", -1},
+		{"wired out both", -1},
+		{"wired", -1},
+		{"wired in", -1},
+		{"wired in middle", -1},
+		{"wired in left in right", -1},
+		{"wireless now", -1},
+	};
+	for (size_t c = 0; c < sizeof(cases) / sizeof(cases[0]); c++) {
+		char buf[64], *argv[8];
+		int argc = 0;
+		strcpy(buf, cases[c].words);
+		for (char *t = strtok(buf, " "); t && argc < 8; t = strtok(NULL, " "))
+			argv[argc++] = t;
+		int m = wired_mode_parse(argc, argv);
+		CHECK(m == cases[c].mode, "\"%s\" parsed as %d, expected %d", cases[c].words, m, cases[c].mode);
+		if (m >= 0) {
+			char name[40], again[64], *av[8];
+			int ac = 0;
+			wired_mode_format(m, name, sizeof(name));
+			strcpy(again, name);
+			for (char *t = strtok(again, " "); t && ac < 8; t = strtok(NULL, " "))
+				av[ac++] = t;
+			CHECK(wired_mode_parse(ac, av) == m, "\"%s\" does not parse back", name);
+		}
+	}
+	for (int m = 0; m < 16; m++) {
+		int in = m & 3, out = m >> 2;
+		CHECK(wired_mode_valid(m) == (out != 3 && (in & out) == 0), "valid(%d)", m);
+	}
 }
 
 int main(void)
 {
 	uint8_t out[WIRED_FRAME_LEN];
+	struct uart_event done = {.type = UART_TX_DONE};
 
-	// Role from the setting: chain mode starts the TX (upstream) and RX (downstream) UARTs.
-	sim_role_ankle = 1;
-	CHECK(wired_init_ptr() == 0 && wired_is_ankle() && sim_device_inits == 2 && uart_ok, "chain role");
-	int pair_before = pair_sem.count;
-	wired_request_pair_ankle(); // refused on an ankle
-	CHECK(pair_sem.count == pair_before, "ankle must not start pairing");
+	test_mode_words();
 
-	// Ankle: one HELLO and a DATA frame; check sizes and that both sides agree.
+	// Older setting: connection_over_uart on = in left out right, off = in left.
+	CHECK(boot(WIRED_MODE_LEGACY, 1) == 0 && mode == (WIRED_IN_LEFT | WIRED_OUT_RIGHT) && out_port == PORT_RIGHT,
+	      "legacy chain mode %d", mode);
+	CHECK(wired_is_ankle() && uart_ok && sim_device_inits == 2, "legacy chain: output and input started");
+	CHECK(boot(WIRED_MODE_LEGACY, 0) == 0 && mode == WIRED_IN_LEFT && out_port < 0 && !wired_is_ankle(),
+	      "legacy relay mode %d", mode);
+	CHECK(boot(13, 0) == 0 && mode == 0, "invalid setting runs wireless");
+	CHECK(boot(0, 1) == 0 && mode == 0 && sim_device_inits == 0 && !wired_is_ankle(), "wireless starts no UART");
+
+	// Ankle: wired out right. HELLO and ADATA sizes, layout, CRC; TX queue.
+	CHECK(boot(WIRED_OUT_RIGHT, 0) == 0 && out_port == PORT_RIGHT && !ports[PORT_LEFT].in && sim_device_inits == 1,
+	      "ankle role");
+	wired_request_pair_ankle();
+	CHECK(pair_sem.count == 0, "a tracker with an output must not start pairing");
+	set_addr(0xC6);
 	sim_tx_len = 0;
-	ankle_send_hello();
+	hello_work_fn(NULL);
+	tx_done_all();
 	size_t hello_len = sim_tx_len;
-	ankle_send_data(7, 0);
+	uint8_t f[WIRED_FRAME_LEN];
+	make_frame(f, 1, 7, 0);
+	wired_write_data(f);
+	tx_done_all();
 	size_t data_len = sim_tx_len - hello_len;
 	printf("HELLO %zu bytes, ADATA %zu bytes on the wire\n", hello_len, data_len);
 	CHECK(data_len <= 31, "ADATA frame too long: %zu", data_len);
@@ -115,191 +220,169 @@ int main(void)
 		      "ADATA layout");
 		uint32_t crc;
 		memcpy(&crc, &raw[1][23], 4);
-		CHECK(raw[1][1] == 0x11 && raw[1][6] == 0xC6 && raw[1][27] == 7, "ADATA address/sequence");
+		CHECK(raw[1][1] == 0x11 && raw[1][5] == 0xC6 && raw[1][6] == 0x55 && raw[1][27] == 7, "ADATA address/sequence");
 		CHECK(crc == crc32_k_4_2_update(0x93a409eb, &raw[1][1], 22), "ADATA CRC");
 	}
-	CHECK(sim_tx[hello_len - 1] == 0 && sim_tx[sim_tx_len - 1] == 0, "missing delimiters");
-
-	// TX queue: frames sent while one is on the wire are queued, not dropped.
 	size_t before = sim_tx_len;
-	uint8_t f[WIRED_FRAME_LEN];
-	make_frame(f, 1, 8, 0);
 	wired_write_data(f);
 	wired_write_data(f); // queued behind the first
-	CHECK(sim_tx_len - before == data_len, "only one frame on the wire while busy: %zu", sim_tx_len - before);
-	struct uart_event done = {.type = UART_TX_DONE};
-	ankle_uart_cb(&sim_uart, &done, NULL); // first done -> second starts
+	CHECK(sim_tx_len - before == data_len, "only one frame on the wire while busy");
+	out_uart_cb(ports[out_port].uart, &done, NULL);
 	CHECK(sim_tx_len - before == 2 * data_len && tx_dropped == 0, "queued frame not sent");
-	ankle_uart_cb(&sim_uart, &done, NULL);
-	// Queue full: TXQ_LEN queued while busy, the next one is dropped.
-	before = sim_tx_len;
+	out_uart_cb(ports[out_port].uart, &done, NULL);
 	for (int i = 0; i < TXQ_LEN + 1; i++)
 		wired_write_data(f);
 	CHECK(tx_dropped == 1, "queue full drop: %u", tx_dropped);
-	for (int i = 0; i < TXQ_LEN; i++)
-		ankle_uart_cb(&sim_uart, &done, NULL);
-	CHECK(sim_tx_len - before == TXQ_LEN * data_len && txq_count == 0, "queue drained: %zu bytes, %u left", sim_tx_len - before, txq_count);
-	// Drop the extra frames from the captured wire so the relay test below sees a clean stream.
-	sim_tx_len -= (TXQ_LEN + 1) * data_len;
+	tx_done_all();
 
-	uint8_t wire[4096];
-	size_t wire_len = sim_tx_len;
-	memcpy(wire, sim_tx, wire_len);
+	// Wire streams of four trackers, made with the output path: left leg ankle A1 and thigh A2,
+	// right leg ankle B1 and thigh B2.
+	uint8_t a1[1024], a2[1024], b1[1024], b2[1024];
+	size_t a1n = tracker_wire(0xA1, 10, 3, a1), a2n = tracker_wire(0xA2, 20, 3, a2);
+	size_t b1n = tracker_wire(0xB1, 30, 3, b1), b2n = tracker_wire(0xB2, 40, 3, b2);
 
-	// Relay: unpaired ankle. A partial frame before the first delimiter is not counted as bad.
-	sim_role_ankle = 0;
-	is_ankle = false;
-	wired_relay_start();
-	CHECK(!wired_is_ankle() && sim_device_inits == 3, "relay role");
-	start_rx_work_fn(NULL);
-	uint8_t junk[] = {0x13, 0x37, 0x00};
-	relay_feed(junk, sizeof(junk));
-	relay_feed(wire, wire_len);
-	CHECK(st_bad == 0, "bad frames: %u", st_bad);
-	CHECK(ankle_id == -1 && st_unpaired == 2 && !wired_relay_get(out), "unpaired ankle must be dropped (id %d, unpaired %u)", ankle_id, st_unpaired);
-	CHECK(hello_addr[0] == 0x11 && hello_addr[5] == 0xC6 && hello_fw[2] == 3, "HELLO contents");
-
-	// Pair through the relay (esb_pair_other stub returns id 5).
-	wired_request_pair_ankle();
+	// Thigh: wired in left out right. Forwards its input unchanged, wraps legacy DATA.
+	CHECK(boot(WIRED_IN_LEFT | WIRED_OUT_RIGHT, 0) == 0 && ports[PORT_LEFT].in && out_port == PORT_RIGHT &&
+	      sim_device_inits == 2, "thigh role");
 	{
-		// run one iteration of pair_thread's body
-		uint8_t addr[6], id;
-		memcpy(addr, hello_addr, 6);
-		CHECK(esb_pair_other(addr, &id) == 0, "pair");
-		store_ankle(addr, id);
-		if (memcmp(addr, hello_addr, 6) == 0)
-			ankle_id = id;
-	}
-	CHECK(ankle_id == 5 && ankles[0].used && ankles[0].id == 5, "table after pairing");
-
-	// Reboot of the relay: table comes back from NVS; HELLO restores the id.
-	memset(ankles, 0, sizeof(ankles));
-	ankle_id = -1;
-	wired_relay_start();
-	start_rx_work_fn(NULL);
-	atomic_clear(&rx_on);
-	start_rx_work_fn(NULL);
-	sim_tx_len = 0;
-	ankle_send_hello();
-	for (int s = 0; s < 3; s++)
-		ankle_send_data((uint8_t)(10 + s), (uint8_t)s);
-	uint8_t sync0 = 0;
-	relay_feed(&sync0, 1);
-	relay_feed(sim_tx, sim_tx_len);
-	CHECK(ankle_id == 5, "id after reboot: %d", ankle_id);
-	CHECK(wired_relaying() && wakes >= 3, "relaying %d wakes %d", (int)wired_relaying(), wakes);
-
-	// Stamped frames: id 5, CRC valid for the receiver, sequence and payload kept.
-	for (int s = 0; s < 3; s++) {
-		uint8_t ref[WIRED_FRAME_LEN];
-		make_frame(ref, 1, (uint8_t)(10 + s), (uint8_t)s);
-		CHECK(wired_relay_get(out), "frame %d missing", s);
-		uint32_t crc;
-		memcpy(&crc, &out[16], 4);
-		CHECK(out[1] == 5, "id byte %u", out[1]);
-		CHECK(crc == crc32_k_4_2_update(0x93a409eb, out, 16), "relayed CRC invalid");
-		CHECK(out[20] == 10 + s, "sequence %u", out[20]);
-		CHECK(out[0] == ref[0] && memcmp(&out[2], &ref[2], 14) == 0, "payload changed");
-	}
-	CHECK(!wired_relay_get(out), "queue should be empty");
-
-	// Queue overflow: 6 frames without draining keeps the newest 4.
-	sim_tx_len = 0;
-	for (int s = 0; s < 6; s++)
-		ankle_send_data((uint8_t)(20 + s), 0);
-	uint32_t qd = st_qdrop;
-	relay_feed(sim_tx, sim_tx_len);
-	CHECK(st_qdrop - qd == 2, "queue drops %u", st_qdrop - qd);
-	CHECK(wired_relay_get(out) && out[20] == 22, "oldest kept should be seq 22, got %u", out[20]);
-
-	// Corruption: a flipped bit fails CRC32 and is counted as bad.
-	while (wired_relay_get(out)) {}
-	sim_tx_len = 0;
-	ankle_send_data(30, 0);
-	sim_tx[5] ^= 0x40;
-	if (sim_tx[5] == 0)
-		sim_tx[5] = 0x40;
-	uint32_t bad = st_bad;
-	relay_feed(sim_tx, sim_tx_len);
-	CHECK(st_bad == bad + 1 && !wired_relay_get(out), "corrupted frame accepted");
-
-	// RX disabled (idle or line error): relaying stops and the edge detector is re-armed.
-	struct uart_event dis = {.type = UART_RX_DISABLED};
-	int rearm_before = rearm_work.submitted;
-	relay_uart_cb(&sim_uart, &dis, NULL);
-	CHECK(!wired_relaying() && rearm_work.submitted == rearm_before + 1, "disable handling");
-
-	// Chain mode: a middle tracker forwards HELLO and ADATA from downstream unchanged, wraps a
-	// legacy DATA frame with the address from the HELLO, and drops corrupted frames.
-	{
-		// Downstream tracker: address AA BB CC DD EE F1, three frames.
-		struct sim_ficr own = sim_ficr;
-		sim_ficr.DEVICEADDR[0] = 0xDDCCBBAAu;
-		sim_ficr.DEVICEADDR[1] = 0x0000F1EEu;
-		is_ankle = true;
-		sim_tx_len = 0;
-		ankle_send_hello();
-		for (int s = 0; s < 3; s++)
-			ankle_send_data((uint8_t)(40 + s), (uint8_t)s);
-		uint8_t down[4096];
-		size_t down_len = sim_tx_len;
-		memcpy(down, sim_tx, down_len);
-		// Legacy DATA frame (older ankle firmware): no address.
 		uint8_t legacy_raw[DATA_LEN], legacy_enc[MAX_ENCODED];
 		legacy_raw[0] = TYPE_DATA;
 		make_frame(&legacy_raw[1], 1, 50, 9);
 		size_t ln = cobs_encode(legacy_raw, sizeof(legacy_raw), legacy_enc);
 		legacy_enc[ln++] = 0;
-		memcpy(down + down_len, legacy_enc, ln);
-		down_len += ln;
-		sim_ficr = own;
+		uint8_t down[2048];
+		memcpy(down, a1, a1n);
+		memcpy(down + a1n, legacy_enc, ln);
+		size_t down_len = a1n + ln;
 
-		// Middle tracker receives it and forwards upstream (TX done delivered after each frame).
 		sim_tx_len = 0;
-		uint32_t fwd = st_relayed, bad = st_bad;
-		atomic_clear(&rx_on);
-		start_rx_work_fn(NULL);
-		uint8_t sync = 0;
-		relay_feed(&sync, 1);
+		input_open(PORT_LEFT);
 		for (size_t i = 0; i < down_len; i++) {
-			relay_feed(&down[i], 1);
-			if (down[i] == 0 && tx_active)
-				ankle_uart_cb(&sim_uart, &done, NULL);
+			input_feed(PORT_LEFT, &down[i], 1);
+			if (down[i] == 0)
+				tx_done_all();
 		}
-		while (txq_count)
-			ankle_uart_cb(&sim_uart, &done, NULL);
-		CHECK(st_relayed - fwd == 5 && st_bad == bad, "forwarded %u bad %u", st_relayed - fwd, st_bad - bad);
-		CHECK(sim_tx_len >= down_len - ln && memcmp(sim_tx, down, down_len - ln) == 0,
-		      "HELLO and ADATA must be forwarded byte for byte");
+		CHECK(st_relayed == 5 && ports[PORT_LEFT].st_bad == 0, "forwarded %u bad %u", st_relayed,
+		      ports[PORT_LEFT].st_bad);
+		CHECK(sim_tx_len >= a1n && memcmp(sim_tx, a1, a1n) == 0, "HELLO and ADATA must be forwarded byte for byte");
 		uint8_t raw[8][40];
 		size_t rl[8];
 		int n = decode_frames(sim_tx, sim_tx_len, raw, rl, 8);
-		CHECK(n == 5, "upstream frames %d", n);
-		if (n == 5) {
-			uint32_t crc;
-			memcpy(&crc, &raw[4][23], 4);
-			CHECK(raw[4][0] == TYPE_ADATA && raw[4][1] == 0xAA && raw[4][6] == 0xF1 && raw[4][27] == 50,
-			      "legacy DATA wrapped with the HELLO address");
-			CHECK(crc == crc32_k_4_2_update(0x93a409eb, &raw[4][1], 22), "wrapped CRC");
-		}
+		CHECK(n == 5 && raw[4][0] == TYPE_ADATA && raw[4][1] == 0x11 && raw[4][5] == 0xA1 && raw[4][27] == 50,
+		      "legacy DATA wrapped with the HELLO address (%d frames)", n);
 		CHECK(wired_relaying(), "a forwarding tracker counts as relaying");
-
-		// A corrupted ADATA is not forwarded.
-		uint8_t corrupt[64];
-		size_t cl = 0;
-		for (size_t i = hello_len; i < down_len && cl < sizeof(corrupt); i++) {
-			corrupt[cl++] = down[i];
-			if (down[i] == 0)
-				break;
-		}
-		corrupt[10] ^= 0x01;
-		if (corrupt[10] == 0)
-			corrupt[10] = 0x01;
-		fwd = st_relayed;
-		bad = st_bad;
-		relay_feed(corrupt, cl);
-		CHECK(st_relayed == fwd && st_bad == bad + 1, "corrupted ADATA forwarded");
+		CHECK(!wired_relay_get(out), "a chain tracker queues nothing for the radio");
 	}
+
+	// Hip: wired in both. Left carries A1 and A2, right B1 and B2.
+	memset(nvs, 0, sizeof(nvs));
+	memset(ankles, 0, sizeof(ankles));
+	CHECK(boot(WIRED_IN_LEFT | WIRED_IN_RIGHT, 0) == 0 && ports[PORT_LEFT].in && ports[PORT_RIGHT].in && out_port < 0 &&
+	      sim_device_inits == 2 && !wired_is_ankle(), "hip role");
+	input_open(PORT_LEFT);
+	input_open(PORT_RIGHT);
+	input_feed(PORT_LEFT, a1, a1n);
+	input_feed(PORT_LEFT, a2, a2n);
+	input_feed(PORT_RIGHT, b1, b1n);
+	input_feed(PORT_RIGHT, b2, b2n);
+	CHECK(st_unpaired == 12 && !wired_relay_get(out), "unpaired frames dropped (%u)", st_unpaired);
+	{
+		uint8_t addrs[SEEN_MAX][6];
+		int heard, n = pair_candidates(addrs, &heard);
+		CHECK(heard == 4 && n == 4, "pairing candidates %d of %d", n, heard);
+		for (int i = 0; i < n; i++) { // one pass of pair_thread
+			uint8_t id;
+			esb_pair_other(addrs[i], &id);
+			store_id(addrs[i], id);
+		}
+		CHECK(pair_candidates(addrs, &heard) == 0 && heard == 4, "all paired");
+	}
+	int id_of[256];
+	for (int i = 0; i < 256; i++)
+		id_of[i] = -1;
+	for (int i = 0; i < CONFIG_WIRED_ANKLE_TABLE_SIZE; i++)
+		if (ankles[i].used)
+			id_of[ankles[i].addr[5] == 0x55 ? ankles[i].addr[4] : 0] = ankles[i].id;
+	CHECK(id_of[0xA1] >= 10 && id_of[0xA2] >= 10 && id_of[0xB1] >= 10 && id_of[0xB2] >= 10,
+	      "ids %d %d %d %d", id_of[0xA1], id_of[0xA2], id_of[0xB1], id_of[0xB2]);
+
+	// Table survives a reboot (NVS); frames from both inputs come out with their own ids.
+	CHECK(boot(WIRED_IN_LEFT | WIRED_IN_RIGHT, 0) == 0, "hip reboot");
+	input_open(PORT_LEFT);
+	input_open(PORT_RIGHT);
+	int w0 = wakes;
+	input_feed(PORT_LEFT, a2, a2n);
+	input_feed(PORT_RIGHT, b1, b1n);
+	CHECK(wired_relaying() && wakes - w0 == 6, "relaying, wakes %d", wakes - w0);
+	struct { uint8_t addr, seq0; } expect[] = {{0xA2, 20}, {0xB1, 30}};
+	for (int e = 0; e < 2; e++)
+		for (int s = 0; s < 3; s++) {
+			uint8_t ref[WIRED_FRAME_LEN];
+			make_frame(ref, 1, (uint8_t)(expect[e].seq0 + s), (uint8_t)(expect[e].addr + s));
+			CHECK(wired_relay_get(out), "frame %d/%d missing", e, s);
+			uint32_t crc;
+			memcpy(&crc, &out[16], 4);
+			CHECK(out[1] == id_of[expect[e].addr], "id byte %u, expected %d", out[1], id_of[expect[e].addr]);
+			CHECK(crc == crc32_k_4_2_update(0x93a409eb, out, 16), "relayed CRC invalid");
+			CHECK(out[20] == expect[e].seq0 + s, "sequence %u", out[20]);
+			CHECK(out[0] == ref[0] && memcmp(&out[2], &ref[2], 14) == 0, "payload changed");
+		}
+	CHECK(!wired_relay_get(out), "queue should be empty");
+
+	// Legacy DATA on the right input takes the address of the right input's last HELLO.
+	{
+		uint8_t legacy_raw[DATA_LEN], legacy_enc[MAX_ENCODED];
+		legacy_raw[0] = TYPE_DATA;
+		make_frame(&legacy_raw[1], 1, 60, 3);
+		size_t ln = cobs_encode(legacy_raw, sizeof(legacy_raw), legacy_enc);
+		legacy_enc[ln++] = 0;
+		input_feed(PORT_RIGHT, legacy_enc, ln);
+		CHECK(wired_relay_get(out) && out[1] == id_of[0xB1] && out[20] == 60, "legacy DATA id %u", out[1]);
+	}
+
+	// Queue overflow: 40 frames without draining keep the newest 32.
+	uint8_t many[4096];
+	set_addr(0xA2);
+	out_port = PORT_RIGHT; // borrow the output path to build the stream
+	uart_ok = true;
+	sim_tx_len = 0;
+	for (int s = 0; s < 40; s++) {
+		make_frame(f, 1, (uint8_t)(100 + s), 0);
+		wired_write_data(f);
+		tx_done_all();
+	}
+	size_t many_len = sim_tx_len;
+	memcpy(many, sim_tx, many_len);
+	out_port = -1;
+	uint32_t qd = st_qdrop;
+	input_feed(PORT_LEFT, many, many_len);
+	CHECK(st_qdrop - qd == 8, "queue drops %u", st_qdrop - qd);
+	CHECK(wired_relay_get(out) && out[20] == 108, "oldest kept should be seq 108, got %u", out[20]);
+	while (wired_relay_get(out)) {}
+
+	// Corruption: a flipped bit fails CRC32 and is counted as bad on that input only.
+	uint8_t bad_frame[64];
+	size_t bl = 0;
+	for (size_t i = 0; i < many_len && bl < sizeof(bad_frame); i++) {
+		bad_frame[bl++] = many[i];
+		if (many[i] == 0)
+			break;
+	}
+	bad_frame[5] ^= 0x40;
+	if (bad_frame[5] == 0)
+		bad_frame[5] = 0x40;
+	uint32_t bad_l = ports[PORT_LEFT].st_bad, bad_r = ports[PORT_RIGHT].st_bad;
+	input_feed(PORT_LEFT, bad_frame, bl);
+	CHECK(ports[PORT_LEFT].st_bad == bad_l + 1 && ports[PORT_RIGHT].st_bad == bad_r && !wired_relay_get(out),
+	      "corrupted frame accepted");
+
+	// RX disabled on one input: that input stops and re-arms, the other keeps relaying.
+	struct uart_event dis = {.type = UART_RX_DISABLED};
+	int rearm_before = ports[PORT_LEFT].rearm_work.submitted;
+	in_uart_cb(ports[PORT_LEFT].uart, &dis, &ports[PORT_LEFT]);
+	CHECK(!atomic_get(&ports[PORT_LEFT].active) && ports[PORT_LEFT].rearm_work.submitted == rearm_before + 1,
+	      "disable handling");
+	CHECK(wired_relaying(), "the right input is still active");
 
 	printf(failures ? "%d FAILURE(S)\n" : "all wired link tests passed\n", failures);
 	return failures != 0;

@@ -45,6 +45,7 @@ const char *config_settings_names[] = {
 	"sensor_gyro_fs",
 	"sensor_fusion",
 	"radio_tx_power",
+	"wired_mode",
 	"connection_timeout_delay", // 3
 	"sensor_lp_timeout",
 	"imu_timeout_ramp_min",
@@ -109,6 +110,11 @@ const int16_t config_2_settings_defaults[16] = {
 	0,
 #endif
 	CONFIG_RADIO_TX_POWER, // -128-127
+#ifdef CONFIG_WIRED_MODE
+	CONFIG_WIRED_MODE,
+#else
+	0,
+#endif
 };
 
 const int32_t config_3_settings_defaults[16] = {

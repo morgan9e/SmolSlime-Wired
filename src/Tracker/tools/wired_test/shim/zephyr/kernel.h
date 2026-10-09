@@ -4,6 +4,8 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
+#include <stddef.h>
+#define CONTAINER_OF(ptr, type, field) ((type *)(((char *)(ptr)) - offsetof(type, field)))
 typedef long atomic_t;
 static inline long atomic_get(atomic_t *a) { return *a; }
 static inline long atomic_set(atomic_t *a, long v) { long o = *a; *a = v; return o; }
@@ -30,6 +32,9 @@ struct k_work { void (*fn)(struct k_work *); int submitted; };
 struct k_work_delayable { struct k_work work; long delay_ms; int scheduled; };
 #define K_WORK_DEFINE(n, f) struct k_work n = {f, 0}
 #define K_WORK_DELAYABLE_DEFINE(n, f) struct k_work_delayable n = {{f, 0}, 0, 0}
+static inline void k_work_init(struct k_work *w, void (*fn)(struct k_work *)) { w->fn = fn; w->submitted = 0; }
+static inline void k_work_init_delayable(struct k_work_delayable *w, void (*fn)(struct k_work *)) { w->work.fn = fn; w->delay_ms = 0; w->scheduled = 0; }
+static inline struct k_work_delayable *k_work_delayable_from_work(struct k_work *w) { return CONTAINER_OF(w, struct k_work_delayable, work); }
 static inline int k_work_submit(struct k_work *w) { w->submitted++; return 0; }
 static inline int k_work_reschedule(struct k_work_delayable *w, k_timeout_t t) { w->delay_ms = t.ms; w->scheduled++; return 0; }
 static inline int k_work_cancel_delayable(struct k_work_delayable *w) { w->scheduled = 0; return 0; }
@@ -40,12 +45,14 @@ static inline int k_sem_take(struct k_sem *s, k_timeout_t t) { (void)t; if (!s->
 #define K_THREAD_DEFINE(n, st, fn, a, b, c, p, o, d) void *const n##_entry = (void *)(fn)
 // devicetree / device
 struct device { const char *name; };
-#define DT_CHOSEN(x) 0
+#define DT_CHOSEN(x) DT_CHOSEN_##x
+#define DT_CHOSEN_slimenrf_wired_left_uart 0
+#define DT_CHOSEN_slimenrf_wired_right_uart 1
 #define DT_PATH(x) 0
 #define DT_NODE_HAS_STATUS(n, s) 1
 #define BUILD_ASSERT(c, m)
-extern struct device sim_uart;
-#define DEVICE_DT_GET(n) (&sim_uart)
+extern struct device sim_uarts[2];
+#define DEVICE_DT_GET(n) (&sim_uarts[n])
 extern int sim_device_inits;
 static inline bool device_is_ready(const struct device *d) { (void)d; return true; }
 static inline int device_init(const struct device *d) { (void)d; sim_device_inits++; return 0; }
