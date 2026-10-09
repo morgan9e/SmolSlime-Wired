@@ -68,11 +68,14 @@ static atomic_t started;
 static atomic_t pairing;
 static uint32_t st_sent, st_qdrop, st_full, st_bad_crc, st_unknown_id, st_pair_requests;
 
-static void persist_work_fn(struct k_work *work)
+// Set when the id table changed; the output thread writes it to NVS. Not the system workqueue:
+// its 256-byte stack is too small for an NVS write (it overflowed and reset the board at boot).
+static atomic_t persist_pending;
+
+static void persist_request(void)
 {
-	sys_write(HUB_IDS_ID, NULL, ids, sizeof(ids));
+	atomic_set(&persist_pending, 1);
 }
-static K_WORK_DEFINE(persist_work, persist_work_fn);
 
 static int find_id(const uint8_t *addr)
 {
@@ -107,7 +110,7 @@ static int get_id(const uint8_t *addr, uint8_t kind)
 		irq_unlock(key);
 		if (id >= 0) {
 			LOG_INF("Tracker %012llX (%s) is id %d", addr_u64(addr), kind_names[kind], id);
-			k_work_submit(&persist_work);
+			persist_request();
 		} else {
 			st_full++;
 		}
@@ -115,7 +118,7 @@ static int get_id(const uint8_t *addr, uint8_t kind)
 	}
 	if (ids[id].kind != kind && kind != KIND_SELF) {
 		ids[id].kind = kind; // e.g. a tracker that moved from radio to a cable
-		k_work_submit(&persist_work);
+		persist_request();
 	}
 	irq_unlock(key);
 	return id;
@@ -249,11 +252,14 @@ static void hub_thread(void)
 			st_sent += frames;
 		else
 			k_sem_give(&tx_idle); // nothing in flight
+		if (atomic_cas(&persist_pending, 1, 0))
+			sys_write(HUB_IDS_ID, NULL, ids, sizeof(ids));
 	}
 }
 
-// Priority 7: below the radio, like the receiver's mirror thread.
-K_THREAD_DEFINE(hub_thread_id, 1024, hub_thread, NULL, NULL, NULL, 7, 0, 0);
+// Priority 7: below the radio, like the receiver's mirror thread. The stack also covers the NVS
+// write of the id table.
+K_THREAD_DEFINE(hub_thread_id, 1536, hub_thread, NULL, NULL, NULL, 7, 0, 0);
 
 /* ------------------------------------------------------------------------------------- */
 /* Wireless trackers: ESB reception, as on the receiver                                   */
@@ -400,7 +406,7 @@ void hub_forget_radio(void)
 		if (ids[i].used && ids[i].kind == KIND_RADIO)
 			ids[i].used = 0;
 	irq_unlock(key);
-	k_work_submit(&persist_work);
+	persist_request();
 	LOG_INF("Wireless trackers forgotten; pair them again (pair)");
 }
 

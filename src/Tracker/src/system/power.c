@@ -496,10 +496,12 @@ static void power_thread(void)
 
 	while (1)
 	{
-// uart0 is suspended to save power when unused. Not when it carries the wired ankle link:
-// suspending it leaves the TX pin disconnected while transfers still report success.
+// uart0 is suspended to save power when unused. Not when it is a wired link header's UART
+// (wired.c manages it): suspending an output leaves the TX pin disconnected while transfers still
+// report success, and suspending a running input (hub mode) fails an assert in the UARTE driver.
 #if DT_NODE_HAS_STATUS_OKAY(DT_NODELABEL(uart0)) && \
-	!(DT_HAS_CHOSEN(slimenrf_wired_tx_uart) && DT_SAME_NODE(DT_CHOSEN(slimenrf_wired_tx_uart), DT_NODELABEL(uart0)))
+	!(DT_HAS_CHOSEN(slimenrf_wired_left_uart) && DT_SAME_NODE(DT_CHOSEN(slimenrf_wired_left_uart), DT_NODELABEL(uart0))) && \
+	!(DT_HAS_CHOSEN(slimenrf_wired_right_uart) && DT_SAME_NODE(DT_CHOSEN(slimenrf_wired_right_uart), DT_NODELABEL(uart0)))
 		const struct device *const uart = DEVICE_DT_GET(DT_NODELABEL(uart0));
 		pm_device_action_run(uart, PM_DEVICE_ACTION_SUSPEND);
 #endif

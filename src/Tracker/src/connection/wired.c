@@ -22,6 +22,7 @@
 */
 #include "globals.h"
 #include "system/system.h"
+#include "system/crash.h"
 #include "connection.h"
 #include "esb.h"
 #include "wired.h"
@@ -151,12 +152,13 @@ struct port {
 	bool enc_over, enc_synced;
 	struct gpio_callback wake_cb;
 	struct k_work start_rx_work, rearm_work;
-	struct k_work_delayable idle_work, probe_work;
+	struct k_work_delayable idle_work, probe_work, retry_work;
 	bool session_from_probe, session_found;
 	// The last HELLO on this input: names legacy DATA frames, which carry no address.
 	uint8_t hello_addr[6];
 	int64_t hello_time;
 	uint32_t st_frames, st_bad, st_line_err, st_wakes, st_rx_starts, st_rx_bytes, st_rx_enable_err;
+	int last_rx_enable_err;
 	uint32_t st_probes, st_probe_found;
 };
 
@@ -628,6 +630,8 @@ static void wake_isr(const struct device *dev, struct gpio_callback *cb, uint32_
 static void rearm_work_fn(struct k_work *work)
 {
 	struct port *p = CONTAINER_OF(work, struct port, rearm_work);
+	if (p->always_on)
+		return; // never suspended, see start_rx()
 	// Release the pin: a suspended UARTE leaves it to the GPIO, so the edge detector sees it.
 	pm_device_action_run(p->uart, PM_DEVICE_ACTION_SUSPEND);
 	gpio_pin_configure_dt(&p->data_pin, GPIO_INPUT);
@@ -650,9 +654,16 @@ static void start_rx(struct port *p, bool from_probe)
 	int err = uart_rx_enable(p->uart, p->rx_bufs[0], RX_BUF_SIZE, RX_TIMEOUT_US);
 	if (err != 0) {
 		p->st_rx_enable_err++;
+		p->last_rx_enable_err = err;
 		LOG_ERR("Wired UART RX enable failed on the %s header: %d", port_names[p - ports], err);
 		atomic_clear(&p->rx_on);
-		k_work_submit(&p->rearm_work);
+		// An always-on UART is never suspended: in hub mode it may be sending the hub output, and
+		// suspending it then fails an assert in the UARTE driver (a reset loop at boot). -EBUSY
+		// is RX still finishing a stop: try again shortly.
+		if (p->always_on)
+			k_work_reschedule(&p->retry_work, K_MSEC(5));
+		else
+			k_work_submit(&p->rearm_work);
 		return;
 	}
 	// Give up again if nothing valid arrives (noise on an open connector, or an empty probe).
@@ -662,6 +673,11 @@ static void start_rx(struct port *p, bool from_probe)
 static void start_rx_work_fn(struct k_work *work)
 {
 	start_rx(CONTAINER_OF(work, struct port, start_rx_work), false);
+}
+
+static void retry_work_fn(struct k_work *work)
+{
+	start_rx(CONTAINER_OF(k_work_delayable_from_work(work), struct port, retry_work), false);
 }
 
 static void probe_work_fn(struct k_work *work)
@@ -697,6 +713,7 @@ static void in_start(struct port *p)
 	k_work_init(&p->rearm_work, rearm_work_fn);
 	k_work_init_delayable(&p->idle_work, idle_work_fn);
 	k_work_init_delayable(&p->probe_work, probe_work_fn);
+	k_work_init_delayable(&p->retry_work, retry_work_fn);
 	if (device_init(p->uart) != 0 || !device_is_ready(p->uart) ||
 	    uart_callback_set(p->uart, in_uart_cb, p) != 0) {
 		LOG_ERR("Wired UART for the %s header not ready", port_names[p - ports]);
@@ -925,6 +942,8 @@ static void print_port(int i)
 		printk("  frames %u, bad %u, line errors %u, bytes %u; wake edges %u, probes %u (found %u), "
 		       "UART starts %u (failed %u)\n", p->st_frames, p->st_bad, p->st_line_err, p->st_rx_bytes,
 		       p->st_wakes, p->st_probes, p->st_probe_found, p->st_rx_starts, p->st_rx_enable_err);
+		if (p->st_rx_enable_err)
+			printk("  last UART start error %d\n", p->last_rx_enable_err);
 		if (!atomic_get(&p->rx_on)) {
 			// Sample the data pin directly: a sending tracker pulls it low for part of the time.
 			uint32_t low = 0;
@@ -985,6 +1004,7 @@ void wired_print_status(void)
 	}
 	if (!any && inputs)
 		printk("Wired trackers heard: none\n");
+	crash_print();
 	if (wired_is_hub()) {
 		hub_print_status();
 		return;
@@ -1072,6 +1092,10 @@ static int wired_init(void)
 									       : WIRED_IN_LEFT;
 	if (!wired_mode_valid(mode)) {
 		LOG_ERR("wired_mode %d is not valid, running wireless", mode);
+		mode = 0;
+	}
+	if (crash_safe_mode() && mode != 0) {
+		LOG_ERR("Safe mode after %d crashes at boot: wired link and hub not started (see wired)", CRASH_SAFE_COUNT);
 		mode = 0;
 	}
 	out_port = (mode & WIRED_OUT_LEFT) ? PORT_LEFT : (mode & WIRED_OUT_RIGHT) ? PORT_RIGHT : -1;

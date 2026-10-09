@@ -1,6 +1,7 @@
 #include "globals.h"
 #include "system/system.h"
 #include "system/battery_tracker.h"
+#include "system/crash.h"
 #include "sensor/sensor.h"
 #include "sensor/calibration.h"
 #include "connection/esb.h"
@@ -744,6 +745,7 @@ static void console_thread(void)
 			}
 			wired_mode_format(m, name, sizeof(name));
 			config_2_settings_write(CONFIG_2_WIRED_MODE, m);
+			crash_clear(); // leave safe mode: try the mode again
 			printk("Mode set to %s, rebooting\n", name);
 			k_msleep(100);
 			sys_request_system_reboot(false);
