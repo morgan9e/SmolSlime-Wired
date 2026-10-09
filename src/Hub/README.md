@@ -35,8 +35,7 @@ Optional hub battery voltage: two 220 kOhm resistors from BAT+ to GND, midpoint 
 
 ## Receiver link contract (for the receiver fork)
 
-The receiver side is implemented in `src/Receiver` (branch `hub-uart-mirror`, see its
-`HUB.md`). A prebuilt image for the ProMicro is
+The receiver side is implemented in `src/Receiver` (see its `HUB.md`). A prebuilt image for the ProMicro is
 `dist/SlimeNRF_ProMicro_HubReceiver.uf2`.
 
 

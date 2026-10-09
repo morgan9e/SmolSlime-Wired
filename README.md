@@ -14,12 +14,24 @@ thigh, hip, chest ──── radio (ESB) ┴─► receiver ── UART (D0 �
 
 | Folder | Contents |
 | --- | --- |
-| `src/Tracker` | SlimeVR-Tracker-nRF fork, branch `hub-wired` (git). Details: `src/Tracker/WIRED.md` |
-| `src/Receiver` | SlimeVR-Tracker-nRF-Receiver fork, branch `hub-uart-mirror` (git). Details: `src/Receiver/HUB.md` |
+| `src/Tracker` | SlimeVR-Tracker-nRF fork (wired link, relay and hub modes). Details: `src/Tracker/WIRED.md` |
+| `src/Receiver` | SlimeVR-Tracker-nRF-Receiver fork (UART mirror, link diagnostics). Details: `src/Receiver/HUB.md` |
 | `src/Hub` | ESP32 hub firmware (ESP-IDF). Details: `src/Hub/README.md` |
+| `slime_view.py` | live view of the trackers' data on the PC |
 | `slime_diag.py` | radio link diagnostics from the receiver, relayed by the hub to UDP 6971 (`diag hub on` on the receiver) |
 | `dist` | flashable images, written by `make` |
-| `docs` | the plan, and a backup patch of earlier tracker UART work (also in `src/Tracker`'s `stash@{0}`) |
+| `docs` | the plan, and a backup patch of earlier tracker UART work |
+
+One git repository. `src/Tracker`, `src/Receiver` and `src/Hub` were separate repositories;
+their full histories (including the upstream SlimeVR commits of the two forks) are merged
+into `main`, rewritten so every commit has its files under its folder. Also kept:
+
+- branch `hub/full-wired`: the ESP32 hub reading wired tracker chains directly (no receiver), not merged
+- tag `hub-mode-ok`: the tracker firmware of the working hub-mode setup (`dist/hub-mode/SETUP.md`)
+- tag `tracker/0.0.1`: upstream SlimeVR-Tracker-nRF `tdma` branch (time-slotted radio), for reference
+
+Upstream: https://github.com/SlimeVR/SlimeVR-Tracker-nRF and
+https://github.com/SlimeVR/SlimeVR-Tracker-nRF-Receiver.
 
 ## Firmware
 
@@ -74,4 +86,3 @@ the command line (`make NCS_TRACKER=... tracker`):
 - Wired ankle to thigh link: working on hardware (UART, pairing through the thigh).
 - Still to measure (plan steps 4-5): thigh gap statistics while relaying versus not
   (D8 is a "low frequency I/O only" pin), and a full-body session.
-- The tracker and receiver changes are uncommitted on their branches.

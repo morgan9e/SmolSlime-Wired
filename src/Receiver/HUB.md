@@ -80,7 +80,7 @@ spoils the RSSI byte of a tracker packet (it reads -127).
 `radio 1m` / `radio 2m` stores the ESB bit rate and reboots (default 2 Mbps; `info` shows it).
 1 Mbps reaches about 3 dB further but doubles the airtime per frame. Every tracker must use the
 same rate: `write_config radio_1mbps 1` (or `0`) and `reboot` on its console, with a tracker
-firmware from `hub-wired` that has the setting. Trackers on the other rate get no ACKs at all,
+tracker firmware (src/Tracker) that has the setting. Trackers on the other rate get no ACKs at all,
 pairing included.
 
 ## Pairing
@@ -97,7 +97,7 @@ every board built from this branch.
 `clear` also moves the receiver to a new radio address (a pairing generation stored in NVS;
 generation 0 is the stock address, so flashing this firmware changes nothing until the first
 clear). Trackers paired before can no longer reach it, so they cannot keep sending with ids the
-receiver has since handed to someone else. Trackers built from `hub-wired` notice the missing
+receiver has since handed to someone else. Trackers built from src/Tracker notice the missing
 ACKs and re-pair by themselves while the receiver is in pairing mode (it is, right after `clear`);
 a thigh then re-pairs its ankle too. Run `exit` once `list` shows every tracker.
 

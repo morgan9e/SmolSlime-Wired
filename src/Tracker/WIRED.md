@@ -1,4 +1,4 @@
-# Wired link (branch `hip-relay`)
+# Wired link
 
 Trackers can pass their data over short UART cables instead of their own radio. Each board
 has two headers, and the `mode` setting makes each one an input, an output or unused. A
