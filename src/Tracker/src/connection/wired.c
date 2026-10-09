@@ -29,7 +29,6 @@
 #include "build_defines.h"
 
 #include <ctype.h>
-#include <stdio.h>
 #include <string.h>
 #include <zephyr/kernel.h>
 
@@ -73,19 +72,35 @@ int wired_mode_parse(int argc, char **argv)
 	return wired_mode_valid(mode) ? mode : -1;
 }
 
+// No snprintf: the C library's printf family needs far more stack than the 512-byte main stack
+// that runs SYS_INIT functions.
 void wired_mode_format(int mode, char *buf, size_t len)
 {
 	static const char *const sides[] = {"", "left", "right", "both"};
+	const char *parts[5];
+	int n = 0;
 	if (mode == 0) {
-		snprintf(buf, len, "wireless");
-		return;
+		parts[n++] = "wireless";
+	} else if (mode & WIRED_HUB) {
+		parts[n++] = "hub";
+	} else {
+		int in = mode & 3, out = (mode >> 2) & 3;
+		parts[n++] = "wired";
+		if (in) {
+			parts[n++] = " in ";
+			parts[n++] = sides[in];
+		}
+		if (out) {
+			parts[n++] = " out ";
+			parts[n++] = sides[out];
+		}
 	}
-	if (mode & WIRED_HUB) {
-		snprintf(buf, len, "hub");
-		return;
-	}
-	int in = mode & 3, out = (mode >> 2) & 3;
-	snprintf(buf, len, "wired%s%s%s%s", in ? " in " : "", sides[in], out ? " out " : "", sides[out]);
+	size_t w = 0;
+	for (int i = 0; i < n; i++)
+		for (const char *s = parts[i]; *s && w + 1 < len; s++)
+			buf[w++] = *s;
+	if (len)
+		buf[w] = '\0';
 }
 
 #if CONFIG_WIRED_LINK
@@ -1006,8 +1021,49 @@ static int wired_gnd_init(void)
 SYS_INIT(wired_gnd_init, PRE_KERNEL_1, 0);
 #endif
 
-// Priority 99: after the settings were loaded from retained RAM / NVS (system.c),
-// and before the ESB and connection threads start.
+// Starts the UARTs (and the hub) for the mode. Needs more stack than SYS_INIT's 512-byte main
+// stack has (device init, pin control, logging), so it runs in its own thread right after boot.
+static void wired_start(void)
+{
+	char name[40];
+	wired_mode_format(mode, name, sizeof(name));
+	LOG_INF("Mode: %s, radio %s", name, out_port >= 0 ? "off" : wired_is_hub() ? "receiving" : "on");
+	if (wired_is_hub()) {
+		int err = use_hub_pins();
+		if (err)
+			LOG_ERR("Hub output pins not set: %d", err);
+	}
+	if (out_port >= 0)
+		out_start(&ports[out_port]);
+	for (int i = 0; i < PORT_COUNT; i++)
+		if (ports[i].in)
+			in_start(&ports[i]);
+	if (wired_is_hub())
+		hub_start();
+}
+
+#if defined(WIRED_HOST_TEST)
+#define wired_start_later() wired_start()
+#else
+static K_SEM_DEFINE(wired_start_sem, 0, 1);
+
+static void wired_start_thread(void)
+{
+	k_sem_take(&wired_start_sem, K_FOREVER);
+	wired_start();
+}
+
+K_THREAD_DEFINE(wired_start_thread_id, 1536, wired_start_thread, NULL, NULL, NULL, 5, 0, 0);
+
+static void wired_start_later(void)
+{
+	k_sem_give(&wired_start_sem);
+}
+#endif
+
+// Priority 99: after the settings were loaded from retained RAM / NVS (system.c), and before
+// the ESB and connection threads start, which ask wired_is_ankle() / wired_is_hub(). Keep this
+// light: it runs on the 512-byte main stack.
 static int wired_init(void)
 {
 	mode = CONFIG_2_SETTINGS_READ(CONFIG_2_WIRED_MODE);
@@ -1023,24 +1079,9 @@ static int wired_init(void)
 	ports[PORT_RIGHT].in = mode & WIRED_IN_RIGHT;
 	ports[PORT_LEFT].out = out_port == PORT_LEFT;
 	ports[PORT_RIGHT].out = out_port == PORT_RIGHT;
+	ports[PORT_LEFT].always_on = ports[PORT_RIGHT].always_on = wired_is_hub();
 	sys_read(WIRED_ANKLES_ID, ankles, sizeof(ankles));
-
-	char name[40];
-	wired_mode_format(mode, name, sizeof(name));
-	LOG_INF("Mode: %s, radio %s", name, out_port >= 0 ? "off" : wired_is_hub() ? "receiving" : "on");
-	if (wired_is_hub()) {
-		ports[PORT_LEFT].always_on = ports[PORT_RIGHT].always_on = true;
-		int err = use_hub_pins();
-		if (err)
-			LOG_ERR("Hub output pins not set: %d", err);
-	}
-	if (out_port >= 0)
-		out_start(&ports[out_port]);
-	for (int i = 0; i < PORT_COUNT; i++)
-		if (ports[i].in)
-			in_start(&ports[i]);
-	if (wired_is_hub())
-		hub_start();
+	wired_start_later();
 	return 0;
 }
 
