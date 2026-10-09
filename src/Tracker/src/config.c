@@ -28,6 +28,7 @@ const char *config_settings_names[] = {
 	"delay_sleep_on_status",
 	"connection_over_hid",
 	"connection_over_uart",
+	"radio_1mbps",
 	"sensor_use_low_power_2", // 1
 	"use_imu_timeout",
 	"use_active_timeout",
@@ -61,6 +62,7 @@ const bool config_0_settings_defaults[16] = {
 	IS_ENABLED(CONFIG_DELAY_SLEEP_ON_STATUS),
 	IS_ENABLED(CONFIG_CONNECTION_OVER_HID),
 	IS_ENABLED(CONFIG_CONNECTION_OVER_UART),
+	IS_ENABLED(CONFIG_RADIO_1MBPS),
 };
 
 const bool config_1_settings_defaults[16] = {
