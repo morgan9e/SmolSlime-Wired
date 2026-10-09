@@ -1,0 +1,15 @@
+# Copyright (c) 2024 Nordic Semiconductor ASA
+# SPDX-License-Identifier: Apache-2.0
+
+# The 'stacked' variant is the stacked ProMicro tracker build used as a receiver:
+# pairing button on P0.06, and every tracker packet mirrored on UART TX P0.08 (D0) for the
+# ESP32 hub (src/mirror.c).
+
+board:
+  name: promicro_uf2
+  full_name: Pro Micro
+  vendor: nordic
+  socs:
+    - name: nrf52840
+      variants:
+      - name: 'stacked'

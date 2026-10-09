@@ -1,0 +1,17 @@
+# SPDX-License-Identifier: Apache-2.0
+
+CONFIG_ARM_MPU=y
+CONFIG_HW_STACK_PROTECTION=y
+
+CONFIG_USB_DEVICE_MANUFACTURER="SlimeVR"
+CONFIG_USB_DEVICE_PRODUCT="SlimeNRF Receiver ProMicro"
+
+#generate for adafruit uf2 bootloader flashing
+CONFIG_BUILD_OUTPUT_UF2=y
+CONFIG_FLASH_LOAD_OFFSET=0x1000
+
+# UART mirror to the ESP32 hub and the pairing button
+CONFIG_HUB_UART_MIRROR=y
+CONFIG_PAIRING_BUTTON=y
+# uart0 uses the async API (DMA TX); the CDC ACM console keeps interrupt-driven mode.
+CONFIG_UART_0_INTERRUPT_DRIVEN=n

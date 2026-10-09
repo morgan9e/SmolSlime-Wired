@@ -1,0 +1,603 @@
+/*
+	SlimeVR Code is placed under the MIT license
+	Copyright (c) 2026 SlimeVR Contributors
+
+	Permission is hereby granted, free of charge, to any person obtaining a copy
+	of this software and associated documentation files (the "Software"), to deal
+	in the Software without restriction, including without limitation the rights
+	to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+	copies of the Software, and to permit persons to whom the Software is
+	furnished to do so, subject to the following conditions:
+
+	The above copyright notice and this permission notice shall be included in
+	all copies or substantial portions of the Software.
+
+	THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+	IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+	FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+	AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+	LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+	OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+	THE SOFTWARE.
+*/
+// Brief per tracker log of received orientations, for checking the radio link on the bench:
+//     Tracker 2 (3CA1B2C4D5E6): orientation X 12.3 Y -4.5 Z 170.2 deg, 98 pkt/s
+// plus packets the ESB handler dropped (a tracker gets its radio ACK for those too):
+//     Tracker 1: 35 pkt/s ignored, id 1 is not stored on this receiver (1 stored)
+// and every SILENT_LOG_MS the stored trackers nothing arrived from:
+//     No packets in 10 s from: 1 (D81D4F94B220)
+// X, Y, Z are roll, pitch and yaw (ZYX order) of the tracker's own quaternion, before any
+// mounting or reset the server applies.
+//
+// With "diag on", the orientation lines are replaced by link diagnostics, every interval:
+//     diag noise: median -94 dBm, quietest 10% -97, loudest 10% -72, 6.1% of samples above -80 dBm (990 samples)
+//     diag radio: 1180 frames with a good CRC, 35 with a bad CRC (2.9%)
+//     diag id 2: rx 186, lost 4 (2.1%), dup 3, late 0, max gap 21 ms, RSSI -68 (worst -79) |#########..x########|
+//     diag gap: id 2 silent 180 ms, 34 frames lost, RSSI -71 before, -83 after
+// lost counts the tracker's sequence numbers that never arrived, so a tracker that simply sent
+// less (still, low rate) shows gaps without loss. Slots are 1/20 of the interval:
+// '#' frames arrived, 'x' frames arrived after lost ones, '.' nothing arrived.
+#include "globals.h"
+#include "packet_log.h"
+
+#if CONFIG_PACKET_LOG
+
+#include <math.h>
+#include <string.h>
+#include <zephyr/kernel.h>
+#include <zephyr/spinlock.h>
+#include <zephyr/sys/crc.h>
+#include <hal/nrf_radio.h>
+#include <hal/nrf_timer.h>
+#include <helpers/nrfx_gppi.h>
+
+#include "mirror.h"
+#include "connection/esb.h"
+#include "system/system.h"
+
+LOG_MODULE_REGISTER(packet_log, LOG_LEVEL_INF);
+
+#define PKT_LEN 16
+#define RAD_TO_DEG 57.29577951f
+#define HALF_PI_F 1.57079632679489661923f
+#define SILENT_LOG_MS 10000
+
+static struct k_spinlock lock;
+static uint8_t last_rot[MAX_TRACKERS][PKT_LEN]; // latest packet carrying a rotation
+static uint16_t pkt_count[MAX_TRACKERS]; // all packets since the last log
+// Signal strength of those packets, as the radio reports it (magnitude: 60 means -60 dBm)
+static uint32_t rssi_sum[MAX_TRACKERS];
+static uint8_t rssi_best[MAX_TRACKERS], rssi_worst[MAX_TRACKERS];
+static ATOMIC_DEFINE(fresh, MAX_TRACKERS); // last_rot changed since the last log
+static ATOMIC_DEFINE(heard, MAX_TRACKERS); // any packet since the last silent check
+static uint16_t drops[256][PACKET_DROP_COUNT]; // by the id byte as received, stored or not
+
+void packet_log_put(const uint8_t *packet, uint8_t rssi)
+{
+	uint8_t id = packet[1];
+	if (id >= MAX_TRACKERS)
+		return;
+	k_spinlock_key_t key = k_spin_lock(&lock);
+	if (pkt_count[id] == 0 || rssi < rssi_best[id])
+		rssi_best[id] = rssi;
+	if (pkt_count[id] == 0 || rssi > rssi_worst[id])
+		rssi_worst[id] = rssi;
+	rssi_sum[id] += rssi;
+	pkt_count[id]++;
+	atomic_set_bit(heard, id);
+	switch (packet[0]) {
+	case 1: case 2: case 4: case 7:
+		memcpy(last_rot[id], packet, PKT_LEN);
+		atomic_set_bit(fresh, id);
+		break;
+	default:
+		break;
+	}
+	k_spin_unlock(&lock, key);
+}
+
+void packet_log_drop(uint8_t id, enum packet_drop reason)
+{
+	k_spinlock_key_t key = k_spin_lock(&lock);
+	if (drops[id][reason] < UINT16_MAX)
+		drops[id][reason]++;
+	k_spin_unlock(&lock, key);
+}
+
+#define DIAG_SLOTS 20
+#define DIAG_GAP_LOG_MS 50 // log silences at least this long that lost frames
+#define DIAG_OUTAGE_MS 1000 // the 8-bit sequence may have wrapped: loss unknown, always logged
+#define DIAG_LATE_MS 100 // repeats and older frames come right after the newer one
+#define DIAG_GAPS 16
+#define SLOT_RX BIT(0)
+#define SLOT_LOSS BIT(1)
+
+// Statistics are collected while either output is on: the console log ("diag on", off at boot)
+// or the hub ("diag hub on", stored), which gets them as packets 253 and 254 (see HUB.md).
+static atomic_t diag_console, diag_hub;
+static int64_t diag_start; // start of the current interval, for the slots
+static uint16_t diag_report_num; // report number in the hub packets
+
+static inline bool diag_collecting(void)
+{
+	return atomic_get(&diag_console) || atomic_get(&diag_hub);
+}
+
+static struct diag_stat {
+	int64_t last_time; // 0: nothing received yet
+	uint8_t last_seq, last_rssi;
+	uint16_t rx, lost, dup, late, max_gap_ms;
+	uint32_t rssi_sum;
+	uint8_t rssi_worst;
+	uint8_t gaps, outages; // silences that lost frames, and those of a second or more
+	uint8_t slots[DIAG_SLOTS];
+} diag[MAX_TRACKERS];
+
+static struct diag_gap {
+	uint8_t id, rssi_before, rssi_after;
+	uint16_t ms;
+	int16_t lost; // -1: unknown (outage)
+} gaps[DIAG_GAPS];
+static uint8_t gap_count;
+static uint16_t gaps_missed;
+
+void packet_log_frame(const uint8_t *frame, uint8_t rssi)
+{
+	if (!diag_collecting())
+		return;
+	uint8_t id = frame[1];
+	if (id >= MAX_TRACKERS)
+		return;
+	uint32_t crc;
+	memcpy(&crc, frame + 16, sizeof(crc));
+	if (crc != crc32_k_4_2_update(0x93a409eb, frame, 16))
+		return; // the ESB handler logs bad checksums
+	uint8_t seq = frame[20];
+	int64_t now = k_uptime_get();
+	k_spinlock_key_t key = k_spin_lock(&lock);
+	struct diag_stat *d = &diag[id];
+	int slot = CLAMP((now - diag_start) * DIAG_SLOTS / CONFIG_PACKET_LOG_INTERVAL_MS, 0, DIAG_SLOTS - 1);
+	if (d->last_time) {
+		uint8_t step = seq - d->last_seq;
+		int64_t gap = now - d->last_time;
+		// Only shortly after the last frame can the sequence tell repeats and older frames apart;
+		// after a longer silence it may have moved on by more than half its range.
+		if (step == 0 && gap < DIAG_LATE_MS) { // repeat: the tracker missed the ACK and sent the frame again
+			d->dup++;
+			goto out;
+		}
+		if (step > 128 && gap < DIAG_LATE_MS) { // older than the last one
+			d->late++;
+			goto out;
+		}
+		int lost = (gap >= DIAG_OUTAGE_MS || step == 0 || step > 128) ? -1 : step - 1;
+		if (lost > 0) {
+			d->lost += lost;
+			d->slots[slot] |= SLOT_LOSS;
+		}
+		d->max_gap_ms = MAX(d->max_gap_ms, MIN(gap, UINT16_MAX));
+		if ((gap >= DIAG_GAP_LOG_MS && lost > 0) || lost < 0) {
+			if (lost < 0 && d->outages < UINT8_MAX)
+				d->outages++;
+			else if (lost > 0 && d->gaps < UINT8_MAX)
+				d->gaps++;
+			if (gap_count < DIAG_GAPS)
+				gaps[gap_count++] = (struct diag_gap){id, d->last_rssi, rssi, MIN(gap, UINT16_MAX), lost};
+			else
+				gaps_missed++;
+		}
+	}
+	if (d->rx == 0 || rssi > d->rssi_worst)
+		d->rssi_worst = rssi;
+	d->rssi_sum += rssi;
+	d->rx++;
+	d->slots[slot] |= SLOT_RX;
+	d->last_time = now;
+	d->last_seq = seq;
+	d->last_rssi = rssi;
+out:
+	k_spin_unlock(&lock, key);
+}
+
+// Radio CRC results for every packet the radio picked up on the receiver's addresses, counted in
+// hardware: RADIO CRCOK / CRCERROR events drive two TIMERs in counter mode through PPI. Bad CRCs
+// with good signal point at collisions or interference; frames that never show up at all (lost,
+// but few bad CRCs) point at signal too weak to be detected.
+#if defined(NRF_TIMER3) && defined(NRF_TIMER4)
+#define DIAG_RADIO 1
+static NRF_TIMER_Type *const crc_ok_timer = NRF_TIMER3;
+static NRF_TIMER_Type *const crc_err_timer = NRF_TIMER4;
+static bool radio_counters;
+static uint32_t last_crc_ok, last_crc_err;
+
+static int counter_start(NRF_TIMER_Type *timer, nrf_radio_event_t event)
+{
+	nrf_timer_task_trigger(timer, NRF_TIMER_TASK_STOP);
+	nrf_timer_mode_set(timer, NRF_TIMER_MODE_COUNTER);
+	nrf_timer_bit_width_set(timer, NRF_TIMER_BIT_WIDTH_32);
+	nrf_timer_task_trigger(timer, NRF_TIMER_TASK_CLEAR);
+	nrf_timer_task_trigger(timer, NRF_TIMER_TASK_START);
+	nrfx_gppi_handle_t handle;
+	int err = nrfx_gppi_conn_alloc(nrf_radio_event_address_get(NRF_RADIO, event),
+				       nrf_timer_task_address_get(timer, NRF_TIMER_TASK_COUNT), &handle);
+	if (err)
+		return err;
+	nrfx_gppi_conn_enable(handle);
+	return 0;
+}
+
+static uint32_t counter_read(NRF_TIMER_Type *timer)
+{
+	nrf_timer_task_trigger(timer, NRF_TIMER_TASK_CAPTURE0);
+	return nrf_timer_cc_get(timer, NRF_TIMER_CC_CHANNEL0);
+}
+
+static void radio_counters_init(void)
+{
+	if (radio_counters)
+		return;
+	int err = counter_start(crc_ok_timer, NRF_RADIO_EVENT_CRCOK);
+	if (!err)
+		err = counter_start(crc_err_timer, NRF_RADIO_EVENT_CRCERROR);
+	if (err) {
+		LOG_WRN("diag: no PPI channel for the radio CRC counters (%d)", err);
+		return;
+	}
+	radio_counters = true;
+}
+#endif
+
+// Background noise on the receiver's channel: while diag is on, a 1 kHz timer samples the radio's
+// RSSI whenever it is listening. Packets fill only a small part of the time, so the median is the
+// noise floor: about -95 dBm on a clean channel. Every dB above that comes straight off the range,
+// e.g. from a USB 3 port or Wi-Fi next to the receiver.
+static uint16_t noise_hist[128]; // by RSSI magnitude: 70 means -70 dBm
+
+static void noise_sample(struct k_timer *timer)
+{
+	ARG_UNUSED(timer);
+	if (nrf_radio_state_get(NRF_RADIO) != NRF_RADIO_STATE_RX)
+		return; // sending an ACK, or switching
+	nrf_radio_task_trigger(NRF_RADIO, NRF_RADIO_TASK_RSSISTART);
+	k_busy_wait(1); // one sample takes 0.25 us
+	uint8_t s = nrf_radio_rssi_sample_get(NRF_RADIO) & 0x7F;
+	k_spinlock_key_t key = k_spin_lock(&lock);
+	if (noise_hist[s] < UINT16_MAX)
+		noise_hist[s]++;
+	k_spin_unlock(&lock, key);
+}
+
+static K_TIMER_DEFINE(noise_timer, noise_sample, NULL);
+static uint32_t last_mirror_dropped; // hub UART packets dropped, at the last report
+
+// Starts or stops the collection when the first output turns on or the last one turns off.
+static void diag_switch(atomic_t *output, bool on)
+{
+	bool was = diag_collecting();
+	atomic_set(output, on);
+	bool now = diag_collecting();
+	if (was == now)
+		return;
+	if (now) {
+#ifdef DIAG_RADIO
+		radio_counters_init();
+		if (radio_counters) {
+			last_crc_ok = counter_read(crc_ok_timer);
+			last_crc_err = counter_read(crc_err_timer);
+		}
+#endif
+		last_mirror_dropped = mirror_dropped_count();
+		k_spinlock_key_t key = k_spin_lock(&lock);
+		memset(diag, 0, sizeof(diag));
+		memset(noise_hist, 0, sizeof(noise_hist));
+		gap_count = 0;
+		gaps_missed = 0;
+		diag_start = k_uptime_get();
+		k_spin_unlock(&lock, key);
+		k_timer_start(&noise_timer, K_MSEC(1), K_MSEC(1));
+	} else {
+		k_timer_stop(&noise_timer);
+	}
+}
+
+void packet_log_set_diag(bool on)
+{
+	diag_switch(&diag_console, on);
+}
+
+bool packet_log_diag(void)
+{
+	return atomic_get(&diag_console);
+}
+
+void packet_log_set_diag_hub(bool on)
+{
+	uint8_t v = on;
+	sys_write(DIAG_HUB, NULL, &v, sizeof(v));
+	diag_switch(&diag_hub, on);
+}
+
+bool packet_log_diag_hub(void)
+{
+	return atomic_get(&diag_hub);
+}
+
+static inline unsigned permille(uint32_t part, uint32_t total)
+{
+	return total ? (part * 1000u + total / 2) / total : 0;
+}
+
+// RSSI magnitude below which the given share (per mille) of the samples lies, strongest first
+static unsigned noise_level(const uint16_t *hist, uint32_t n, unsigned pm)
+{
+	uint32_t cum = 0;
+	for (unsigned s = 0; s < 128; s++) {
+		cum += hist[s];
+		if (cum * 1000u >= n * pm)
+			return s;
+	}
+	return 127;
+}
+
+static inline void put_u16(uint8_t *p, uint32_t v)
+{
+	v = MIN(v, UINT16_MAX);
+	p[0] = v & 0xFF;
+	p[1] = v >> 8;
+}
+
+// Once per interval: logs the statistics ("diag on") and/or sends them to the hub ("diag hub on")
+// as one type 253 packet for the receiver and one type 254 packet per tracker.
+static void diag_report(uint8_t stored, bool console, bool hub)
+{
+	struct diag_gap g[DIAG_GAPS];
+	uint16_t hist[ARRAY_SIZE(noise_hist)];
+	k_spinlock_key_t key = k_spin_lock(&lock);
+	uint8_t ng = gap_count;
+	uint16_t missed = gaps_missed;
+	memcpy(g, gaps, ng * sizeof(g[0]));
+	gap_count = 0;
+	gaps_missed = 0;
+	memcpy(hist, noise_hist, sizeof(hist));
+	memset(noise_hist, 0, sizeof(noise_hist));
+	diag_start = k_uptime_get();
+	k_spin_unlock(&lock, key);
+	uint16_t report = diag_report_num++;
+
+	uint32_t n = 0, loud = 0;
+	for (unsigned s = 0; s < 128; s++) {
+		n += hist[s];
+		if (s < 80)
+			loud += hist[s];
+	}
+	unsigned noise_med = n ? noise_level(hist, n, 500) : 0, noise_quiet = n ? noise_level(hist, n, 900) : 0;
+	unsigned noise_loud = n ? noise_level(hist, n, 100) : 0, loud_pm = permille(loud, n);
+	if (console && n)
+		LOG_INF("diag noise: median -%u dBm, quietest 10%% -%u, loudest 10%% -%u, %u.%u%% of samples above -80 dBm (%u samples)",
+			noise_med, noise_quiet, noise_loud, loud_pm / 10, loud_pm % 10, n);
+
+	uint32_t d_ok = 0, d_err = 0;
+	bool counters = false;
+#ifdef DIAG_RADIO
+	if (radio_counters) {
+		uint32_t ok = counter_read(crc_ok_timer), err = counter_read(crc_err_timer);
+		d_ok = ok - last_crc_ok;
+		d_err = err - last_crc_err;
+		last_crc_ok = ok;
+		last_crc_err = err;
+		counters = true;
+	}
+#endif
+	// The radio needs the crystal (HFXO); on the internal RC oscillator it is off frequency
+	uint32_t hf = NRF_CLOCK->HFCLKSTAT;
+	bool crystal = (hf & CLOCK_HFCLKSTAT_STATE_Msk) && (hf & CLOCK_HFCLKSTAT_SRC_Msk);
+	if (console && counters) {
+		unsigned pm = permille(d_err, d_ok + d_err);
+		LOG_INF("diag radio: %u frames with a good CRC, %u with a bad CRC (%u.%u%%), HF clock %s", d_ok,
+			d_err, pm / 10, pm % 10,
+			!(hf & CLOCK_HFCLKSTAT_STATE_Msk) ? "off" : crystal ? "crystal" : "RC");
+	}
+	uint32_t dropped = mirror_dropped_count();
+	if (hub) {
+		uint8_t p[PKT_LEN] = {253};
+		p[1] = (crystal ? BIT(0) : 0) | (esb_1mbps() ? BIT(1) : 0) | (counters ? BIT(2) : 0);
+		put_u16(p + 2, d_ok);
+		put_u16(p + 4, d_err);
+		p[6] = noise_med;
+		p[7] = noise_quiet;
+		p[8] = noise_loud;
+		p[9] = (loud_pm + 5) / 10;
+		p[10] = stored;
+		put_u16(p + 12, report);
+		put_u16(p + 14, dropped - last_mirror_dropped);
+		mirror_put(p);
+	}
+	last_mirror_dropped = dropped;
+
+	for (int id = 0; id < MAX_TRACKERS; id++) {
+		key = k_spin_lock(&lock);
+		struct diag_stat d = diag[id];
+		diag[id].rx = diag[id].lost = diag[id].dup = diag[id].late = diag[id].max_gap_ms = 0;
+		diag[id].rssi_sum = 0;
+		diag[id].gaps = diag[id].outages = 0;
+		memset(diag[id].slots, 0, sizeof(diag[id].slots));
+		k_spin_unlock(&lock, key);
+		if (id >= stored && !d.rx && !d.lost && !d.dup && !d.late)
+			continue; // not stored and nothing heard
+		if (!d.last_time)
+			continue; // never heard since the diagnostics started
+		unsigned rssi_avg = d.rx ? d.rssi_sum / d.rx : 0, rssi_worst = d.rx ? d.rssi_worst : 0;
+		if (console) {
+			char slots[DIAG_SLOTS + 1];
+			for (int i = 0; i < DIAG_SLOTS; i++)
+				slots[i] = (d.slots[i] & SLOT_LOSS) ? 'x' : (d.slots[i] & SLOT_RX) ? '#' : '.';
+			slots[DIAG_SLOTS] = '\0';
+			unsigned pm = permille(d.lost, d.rx + d.lost);
+			LOG_INF("diag id %d: rx %u, lost %u (%u.%u%%), dup %u, late %u, max gap %u ms, RSSI -%u (worst -%u) |%s|%s",
+				id, d.rx, d.lost, pm / 10, pm % 10, d.dup, d.late, d.max_gap_ms, rssi_avg, rssi_worst,
+				slots, id < stored ? "" : " (not stored)");
+		}
+		if (hub) {
+			uint8_t p[PKT_LEN] = {254, id};
+			put_u16(p + 2, d.rx);
+			put_u16(p + 4, d.lost);
+			p[6] = MIN(d.dup, UINT8_MAX);
+			p[7] = MIN(d.late, UINT8_MAX);
+			put_u16(p + 8, d.max_gap_ms);
+			p[10] = rssi_avg;
+			p[11] = rssi_worst;
+			put_u16(p + 12, report);
+			p[14] = d.gaps;
+			p[15] = d.outages;
+			mirror_put(p);
+		}
+	}
+
+	if (!console)
+		return;
+	for (int i = 0; i < ng; i++) {
+		if (g[i].lost < 0)
+			LOG_WRN("diag outage: id %u silent %u ms, loss unknown, RSSI -%u before, -%u after", g[i].id, g[i].ms,
+				g[i].rssi_before, g[i].rssi_after);
+		else
+			LOG_WRN("diag gap: id %u silent %u ms, %d frames lost, RSSI -%u before, -%u after", g[i].id,
+				g[i].ms, g[i].lost, g[i].rssi_before, g[i].rssi_after);
+	}
+	if (missed)
+		LOG_WRN("diag: %u more gaps not shown", missed);
+}
+
+static inline int16_t rd_i16(const uint8_t *p)
+{
+	return (int16_t)(p[0] | (p[1] << 8));
+}
+
+// Quaternion as x, y, z, w; layouts as in the packet table in hid.c.
+static void packet_quat(const uint8_t *p, float q[4])
+{
+	if (p[0] == 1 || p[0] == 4) { // Q15, wire order x, y, z, w
+		for (int i = 0; i < 4; i++)
+			q[i] = rd_i16(p + 2 + 2 * i) / 32768.0f;
+		return;
+	}
+	// types 2 and 7: exponential map in q_buf, same maths as the tracker's q_iem()
+	uint32_t b = (uint32_t)p[5] | ((uint32_t)p[6] << 8) | ((uint32_t)p[7] << 16) | ((uint32_t)p[8] << 24);
+	float v[3] = {
+		(float)(b & 1023u) / 1024.0f * 2.0f - 1.0f,
+		(float)((b >> 10) & 2047u) / 2048.0f * 2.0f - 1.0f,
+		(float)((b >> 21) & 2047u) / 2048.0f * 2.0f - 1.0f,
+	};
+	float d = v[0] * v[0] + v[1] * v[1] + v[2] * v[2];
+	float inv_sqrt_d = 1.0f / sqrtf(d + 1e-6f);
+	float a = HALF_PI_F * d * inv_sqrt_d;
+	float k = sinf(a) * inv_sqrt_d;
+	q[0] = k * v[0];
+	q[1] = k * v[1];
+	q[2] = k * v[2];
+	q[3] = cosf(a);
+}
+
+static inline unsigned per_s(uint32_t n)
+{
+	return n * 1000u / CONFIG_PACKET_LOG_INTERVAL_MS;
+}
+
+struct rssi_stat {
+	uint32_t sum;
+	uint8_t best, worst;
+};
+
+static void log_tracker(uint8_t id, const uint8_t *pkt, uint16_t count, struct rssi_stat r)
+{
+	float q[4];
+	packet_quat(pkt, q);
+	float x = q[0], y = q[1], z = q[2], w = q[3];
+	float sp = 2.0f * (w * y - z * x);
+	sp = sp > 1.0f ? 1.0f : (sp < -1.0f ? -1.0f : sp);
+	float roll = atan2f(2.0f * (w * x + y * z), 1.0f - 2.0f * (x * x + y * y)) * RAD_TO_DEG;
+	float pitch = asinf(sp) * RAD_TO_DEG;
+	float yaw = atan2f(2.0f * (w * z + x * y), 1.0f - 2.0f * (y * y + z * z)) * RAD_TO_DEG;
+	LOG_INF("Tracker %u (%012llX): orientation X %.1f Y %.1f Z %.1f deg, %u pkt/s, RSSI -%u dBm (best -%u, worst -%u)",
+		id, stored_tracker_addr[id], (double)roll, (double)pitch, (double)yaw,
+		per_s(count), count ? (unsigned)(r.sum / count) : 0, r.best, r.worst);
+}
+
+static void log_drops(uint8_t stored)
+{
+	for (int id = 0; id < 256; id++) {
+		uint16_t d[PACKET_DROP_COUNT];
+		k_spinlock_key_t key = k_spin_lock(&lock);
+		memcpy(d, drops[id], sizeof(d));
+		memset(drops[id], 0, sizeof(drops[id]));
+		// packets that passed the sequence check; pkt_count is reset later in this interval
+		uint32_t passed = d[PACKET_DROP_UNKNOWN_ID] + (id < MAX_TRACKERS ? pkt_count[id] : 0);
+		k_spin_unlock(&lock, key);
+		// Radio loss gives the odd out-of-order packet. Two devices paired as the same id give two
+		// interleaved counters, so about as many packets fail the check as pass it.
+		if (d[PACKET_DROP_SEQUENCE] >= 5 && d[PACKET_DROP_SEQUENCE] * 4u >= passed)
+			LOG_WRN("Tracker %d: two devices send as id %d (two sequence counters, %u and %u pkt/s); "
+				"clearing the receiver does not change a tracker's id, re-pair every tracker",
+				id, id, per_s(passed), per_s(d[PACKET_DROP_SEQUENCE]));
+		if (d[PACKET_DROP_UNKNOWN_ID])
+			LOG_WRN("Tracker %d: %u pkt/s ignored, id %d is not stored on this receiver (%u stored)",
+				id, per_s(d[PACKET_DROP_UNKNOWN_ID]), id, stored);
+		if (d[PACKET_DROP_DUPLICATE])
+			LOG_INF("Tracker %d: %u duplicates dropped (it missed the ACK and sent again)", id,
+				d[PACKET_DROP_DUPLICATE]);
+		if (d[PACKET_DROP_CHECKSUM] || d[PACKET_DROP_SEQUENCE])
+			LOG_WRN("Tracker %d: dropped %u bad checksum, %u out of sequence", id,
+				d[PACKET_DROP_CHECKSUM], d[PACKET_DROP_SEQUENCE]);
+	}
+}
+
+static void log_silent(uint8_t stored)
+{
+	char buf[128];
+	size_t len = 0;
+	for (uint16_t id = 0; id < stored && len < sizeof(buf) - 24; id++)
+		if (!atomic_test_and_clear_bit(heard, id))
+			len += snprintk(buf + len, sizeof(buf) - len, "%s%u (%012llX)", len ? ", " : "", id,
+					stored_tracker_addr[id]);
+	if (len)
+		LOG_WRN("No packets in %u s from: %s", SILENT_LOG_MS / 1000, buf);
+}
+
+static void packet_log_thread(void)
+{
+	uint8_t pkt[PKT_LEN];
+	int64_t next_silent = k_uptime_get() + SILENT_LOG_MS;
+	uint8_t hub_on = 0;
+	sys_read(DIAG_HUB, &hub_on, sizeof(hub_on));
+	if (hub_on)
+		diag_switch(&diag_hub, true);
+	while (1) {
+		k_msleep(CONFIG_PACKET_LOG_INTERVAL_MS);
+		uint8_t count = stored_trackers;
+		log_drops(count);
+		if (k_uptime_get() >= next_silent) {
+			next_silent += SILENT_LOG_MS;
+			log_silent(count);
+		}
+		bool diag_mode = atomic_get(&diag_console); // the diag lines replace the orientation lines
+		if (diag_collecting())
+			diag_report(count, diag_mode, atomic_get(&diag_hub));
+		for (uint16_t id = 0; id < count; id++) {
+			k_spinlock_key_t key = k_spin_lock(&lock);
+			bool have = atomic_test_and_clear_bit(fresh, id);
+			if (have)
+				memcpy(pkt, last_rot[id], PKT_LEN);
+			uint16_t n = pkt_count[id];
+			struct rssi_stat r = {rssi_sum[id], rssi_best[id], rssi_worst[id]};
+			pkt_count[id] = 0;
+			rssi_sum[id] = 0;
+			k_spin_unlock(&lock, key);
+			if (have && !diag_mode) // the diag lines carry rate and RSSI instead
+				log_tracker(id, pkt, n, r);
+		}
+	}
+}
+
+// Lowest priority of the app threads: logging must never delay radio, HID or the hub mirror.
+K_THREAD_DEFINE(packet_log_thread_id, 1536, packet_log_thread, NULL, NULL, NULL, 10, 0, 0);
+
+#endif
