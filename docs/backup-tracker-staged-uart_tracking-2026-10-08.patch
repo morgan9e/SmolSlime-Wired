@@ -1,0 +1,618 @@
+diff --git a/.github/workflows/workflow.yml b/.github/workflows/workflow.yml
+index a36b848..bd99f74 100644
+--- a/.github/workflows/workflow.yml
++++ b/.github/workflows/workflow.yml
+@@ -193,6 +193,7 @@ jobs:
+                   {boardname: "promicro_uf2/nrf52840/spi", fileformat: "uf2", filename: "SlimeNRF_ProMicro_SPI_Tracker"},
+                   {boardname: "promicro_uf2/nrf52840/smspi", fileformat: "uf2", filename: "SlimeNRF_ProMicro_smSPI_Tracker"},
+                   {boardname: "promicro_uf2/nrf52840/chrysalis", fileformat: "uf2", filename: "SlimeNRF_ProMicro_Chrysalis_Tracker"},
++                  {boardname: "promicro_uf2/nrf52840/stackedspiuart", fileformat: "uf2", filename: "SlimeNRF_ProMicro_StackedSPI_UART_Tracker"},
+                   {boardname: "xiao_ble/nrf52840", fileformat: "uf2", filename: "SlimeNRF_XIAO_Tracker"},
+                   {boardname: "xiao_ble/nrf52840/sense", fileformat: "uf2", filename: "SlimeNRF_XIAO_Sense_Tracker"},
+                   {boardname: "slimenrf_r1/nrf52840", fileformat: "hex", filename: "SlimeNRF_slimenrf_r1_Tracker"},
+diff --git a/Kconfig b/Kconfig
+index 5e0b423..8394a86 100644
+--- a/Kconfig
++++ b/Kconfig
+@@ -321,4 +321,39 @@ config CONNECTION_OVER_HID
+         Use HID if available.
+         Otherwise, use ESB only.
+ 
++menu "UART tracking output"
++
++config CONNECTION_OVER_UART
++    bool "Use UART for data output"
++    depends on SERIAL && UART_INTERRUPT_DRIVEN
++    select RING_BUFFER
++    help
++        Mirror every tracker packet to the UART selected by the
++        "slimenrf,tracking-uart" chosen node.
++        Each frame is 0xA5 0x5A <len> followed by the radio payload
++        (16 byte packet, CRC32, sequence number).
++
++config CONNECTION_UART_ONLY
++    bool "Disable ESB radio"
++    depends on CONNECTION_OVER_UART
++    help
++        Do not pair or transmit over ESB, only output data over UART.
++
++config CONNECTION_UART_BUFFER_SIZE
++    int "UART transmit buffer size (bytes)"
++    default 512
++    depends on CONNECTION_OVER_UART
++    help
++        Frames are dropped while the buffer is full.
++
++config CONNECTION_UART_ADDR_INTERVAL
++    int "Device address frame interval (ms)"
++    default 1000
++    depends on CONNECTION_OVER_UART
++    help
++        Interval for sending the device address packet (type 255), used
++        by the host to identify the tracker. 0 disables it.
++
++endmenu
++
+ source "Kconfig.zephyr"
+diff --git a/README.md b/README.md
+index 890ad72..c4850c7 100644
+--- a/README.md
++++ b/README.md
+@@ -7,6 +7,17 @@ Please see https://docs.slimevr.dev/smol-slimes for more information and usage.
+ - https://github.com/SlimeVR/SlimeVR-Tracker-nRF-PCB
+ - https://oshwlab.com/sctanf/slimenrf3
+ 
++## UART tracking output (mod)
++Build `promicro_uf2/nrf52840/stackedspiuart` (ProMicro, stacked SPI module) to also send every tracker packet over UART.
++
++- TX on **P0.29**, 460800 baud 8N1, TX only (pin and baud are set in `promicro_uf2_stackedspiuart.dts`)
++- Frame: `0xA5 0x5A <len=21>`, then the same payload sent over ESB: 16 byte packet, CRC32-K/4.2 (LE), sequence number
++- A device address packet (type 255) is sent every second
++- ESB still works as normal, set `CONFIG_CONNECTION_UART_ONLY=y` to disable it
++- Decode on a PC with `python3 tools/uart_tracking_decode.py <port>`
++
++Other boards can enable it with `CONFIG_CONNECTION_OVER_UART=y` and a `slimenrf,tracking-uart` chosen node.
++
+ ## License
+ Unless otherwise specified, all code in this repository is dual-licensed under either:
+ 
+diff --git a/boards/nordic/promicro_uf2/board.yml b/boards/nordic/promicro_uf2/board.yml
+index 61de4c2..ddeea15 100644
+--- a/boards/nordic/promicro_uf2/board.yml
++++ b/boards/nordic/promicro_uf2/board.yml
+@@ -4,6 +4,8 @@
+ # The 'smspi' board variant is targeted promico stack with the SM-ICM45686-AK09940A
+ # where ICM is on SPI, AK is on I2C, external clock disabled.
+ 
++# The 'stackedspiuart' variant is 'stackedspi' with tracking data also sent over UART (TX on P0.29).
++
+ board:
+   name: promicro_uf2
+   full_name: Pro Micro
+@@ -16,4 +18,5 @@ board:
+       - name: 'smspi'
+       - name: 'chrysalis'
+       - name: 'stackedi2c'
+-      - name: 'stackedspi'
+\ No newline at end of file
++      - name: 'stackedspi'
++      - name: 'stackedspiuart'
+diff --git a/boards/nordic/promicro_uf2/promicro_uf2_stackedspiuart.dts b/boards/nordic/promicro_uf2/promicro_uf2_stackedspiuart.dts
+new file mode 100644
+index 0000000..b9bb057
+--- /dev/null
++++ b/boards/nordic/promicro_uf2/promicro_uf2_stackedspiuart.dts
+@@ -0,0 +1,39 @@
++// Copyright (c) 2024 Nordic Semiconductor ASA
++// SPDX-License-Identifier: Apache-2.0
++
++/dts-v1/;
++#include "promicro_uf2_stackedspi.dts"
++
++// Tracking data output, TX only on P0.29 (right side, next to P0.02)
++// P0.29 is not used by the stacked SPI module, change the pin here if needed
++
++&pinctrl {
++	uart0_default: uart0_default {
++		group1 {
++			psels = <NRF_PSEL(UART_TX, 0, 29)>;
++		};
++	};
++
++	uart0_sleep: uart0_sleep {
++		group1 {
++			psels = <NRF_PSEL(UART_TX, 0, 29)>;
++			low-power-enable;
++		};
++	};
++};
++
++/ {
++	chosen {
++		slimenrf,tracking-uart = &uart0;
++	};
++};
++
++&uart0 {
++	compatible = "nordic,nrf-uarte";
++	status = "okay";
++	current-speed = <460800>;
++	disable-rx;
++	pinctrl-0 = <&uart0_default>;
++	pinctrl-1 = <&uart0_sleep>;
++	pinctrl-names = "default", "sleep";
++};
+diff --git a/boards/nordic/promicro_uf2/promicro_uf2_stackedspiuart.yaml b/boards/nordic/promicro_uf2/promicro_uf2_stackedspiuart.yaml
+new file mode 100644
+index 0000000..23ae0fb
+--- /dev/null
++++ b/boards/nordic/promicro_uf2/promicro_uf2_stackedspiuart.yaml
+@@ -0,0 +1,14 @@
++# Copyright (c) 2024 Nordic Semiconductor ASA
++# SPDX-License-Identifier: Apache-2.0
++
++identifier: promicro_uf2/nrf52840/stackedspiuart
++name: promicro_uf2_stackedspiuart
++vendor: nordic
++type: mcu
++arch: arm
++ram: 256
++flash: 1024
++toolchain:
++  - zephyr
++  - gnuarmemb
++  - xtools
+diff --git a/boards/nordic/promicro_uf2/promicro_uf2_stackedspiuart_defconfig b/boards/nordic/promicro_uf2/promicro_uf2_stackedspiuart_defconfig
+new file mode 100644
+index 0000000..79541f4
+--- /dev/null
++++ b/boards/nordic/promicro_uf2/promicro_uf2_stackedspiuart_defconfig
+@@ -0,0 +1,21 @@
++# Copyright (c) 2024 Nordic Semiconductor ASA
++# SPDX-License-Identifier: Apache-2.0
++
++CONFIG_ARM_MPU=y
++CONFIG_HW_STACK_PROTECTION=y
++
++CONFIG_USB_DEVICE_STACK=y
++CONFIG_USB_DEVICE_MANUFACTURER="SlimeVR"
++CONFIG_USB_DEVICE_PRODUCT="SlimeNRF Tracker ProMicro UART"
++
++CONFIG_BATTERY_USE_REG_LDO_MAPPING=y
++CONFIG_SENSOR_ROTATION_270=y
++
++#generate for adafruit uf2 bootloader flashing
++CONFIG_BUILD_OUTPUT_UF2=y
++CONFIG_FLASH_LOAD_OFFSET=0x1000
++
++# Tracking data over UART (see slimenrf,tracking-uart in promicro_uf2_stackedspiuart.dts)
++CONFIG_CONNECTION_OVER_UART=y
++# Uncomment to disable the ESB radio and only use UART
++# CONFIG_CONNECTION_UART_ONLY=y
+diff --git a/src/connection/connection.c b/src/connection/connection.c
+index a22f5e5..d7ab463 100644
+--- a/src/connection/connection.c
++++ b/src/connection/connection.c
+@@ -25,6 +25,7 @@
+ #include "esb.h"
+ #include "build_defines.h"
+ #include "hid.h"
++#include "uart_tracking.h"
+ #include "system/battery_tracker.h"
+ 
+ #include <zephyr/kernel.h>
+@@ -497,6 +498,7 @@ void connection_thread(void)
+ 			uint32_t *crc_ptr = (uint32_t *)&data_copy[16];
+ 			*crc_ptr = crc32_k_4_2_update(0x93a409eb, data_copy, 16);
+ 			esb_write(data_copy);
++			uart_tracking_write(data_copy, sizeof(data_copy));
+ 		}
+ 		// mag is higher priority (skip accel, quat is full precision)
+ 		else if (mag_update_time && k_uptime_get() - last_mag_time > 200)
+diff --git a/src/connection/esb.c b/src/connection/esb.c
+index 7859b68..c9aadff 100644
+--- a/src/connection/esb.c
++++ b/src/connection/esb.c
+@@ -504,6 +504,10 @@ bool esb_ready(void)
+ 
+ static void esb_thread(void)
+ {
++#if CONFIG_CONNECTION_UART_ONLY
++	LOG_INF("ESB disabled, using UART only");
++	return;
++#endif
+ 	bool use_hid = CONFIG_0_SETTINGS_READ(CONFIG_0_CONNECTION_OVER_HID);
+ 	bool use_shutdown = CONFIG_0_SETTINGS_READ(CONFIG_0_USER_SHUTDOWN);
+ 	int64_t start_time = k_uptime_get();
+diff --git a/src/connection/uart_tracking.c b/src/connection/uart_tracking.c
+new file mode 100644
+index 0000000..b22e479
+--- /dev/null
++++ b/src/connection/uart_tracking.c
+@@ -0,0 +1,156 @@
++/*
++	SlimeVR Code is placed under the MIT license
++	Copyright (c) 2025 SlimeVR Contributors
++
++	Permission is hereby granted, free of charge, to any person obtaining a copy
++	of this software and associated documentation files (the "Software"), to deal
++	in the Software without restriction, including without limitation the rights
++	to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
++	copies of the Software, and to permit persons to whom the Software is
++	furnished to do so, subject to the following conditions:
++
++	The above copyright notice and this permission notice shall be included in
++	all copies or substantial portions of the Software.
++
++	THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
++	IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
++	FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
++	AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
++	LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
++	OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
++	THE SOFTWARE.
++*/
++#include "globals.h"
++#include "connection.h"
++#include "uart_tracking.h"
++
++#include <string.h>
++#include <zephyr/kernel.h>
++
++#if CONFIG_CONNECTION_OVER_UART
++
++#include <soc.h>
++#include <zephyr/drivers/uart.h>
++#include <zephyr/sys/ring_buffer.h>
++#include <zephyr/sys/crc.h>
++
++#if !DT_HAS_CHOSEN(slimenrf_tracking_uart)
++#error "CONFIG_CONNECTION_OVER_UART requires a \"slimenrf,tracking-uart\" chosen node"
++#endif
++
++#define TRACKING_UART_NODE DT_CHOSEN(slimenrf_tracking_uart)
++
++BUILD_ASSERT(DT_NODE_HAS_STATUS(TRACKING_UART_NODE, okay), "\"slimenrf,tracking-uart\" UART is not enabled");
++
++static const struct device *const uart_dev = DEVICE_DT_GET(TRACKING_UART_NODE);
++
++RING_BUF_DECLARE(uart_tx_rb, CONFIG_CONNECTION_UART_BUFFER_SIZE);
++static struct k_spinlock uart_tx_lock;
++
++static bool uart_ready = false;
++static uint32_t dropped_frames = 0;
++static int64_t last_addr_time = 0;
++static int64_t last_dropped_log_time = 0;
++
++#define DROPPED_FRAME_LOG_INTERVAL 5000
++
++LOG_MODULE_REGISTER(uart_tracking, LOG_LEVEL_INF);
++
++static void uart_tracking_isr(const struct device *dev, void *user_data)
++{
++	ARG_UNUSED(user_data);
++
++	if (!uart_irq_update(dev))
++		return;
++
++	if (uart_irq_tx_ready(dev))
++	{
++		k_spinlock_key_t key = k_spin_lock(&uart_tx_lock);
++		uint8_t *data;
++		uint32_t size = ring_buf_get_claim(&uart_tx_rb, &data, CONFIG_CONNECTION_UART_BUFFER_SIZE);
++		if (size == 0)
++		{
++			ring_buf_get_finish(&uart_tx_rb, 0);
++			uart_irq_tx_disable(dev); // nothing left to send
++		}
++		else
++		{
++			int sent = uart_fifo_fill(dev, data, size);
++			ring_buf_get_finish(&uart_tx_rb, sent > 0 ? sent : 0);
++		}
++		k_spin_unlock(&uart_tx_lock, key);
++	}
++}
++
++static int uart_tracking_init(void)
++{
++	if (!device_is_ready(uart_dev))
++	{
++		LOG_ERR("Tracking UART not ready");
++		return -ENODEV;
++	}
++	int err = uart_irq_callback_user_data_set(uart_dev, uart_tracking_isr, NULL);
++	if (err)
++	{
++		LOG_ERR("Failed to set UART callback: %d", err);
++		return err;
++	}
++	uart_ready = true;
++	LOG_INF("Tracking UART: %s", uart_dev->name);
++	return 0;
++}
++
++SYS_INIT(uart_tracking_init, APPLICATION, CONFIG_APPLICATION_INIT_PRIORITY);
++
++static void uart_tracking_queue(const uint8_t *payload, uint8_t len)
++{
++	const uint8_t header[3] = {UART_TRACKING_SYNC_0, UART_TRACKING_SYNC_1, len};
++	k_spinlock_key_t key = k_spin_lock(&uart_tx_lock);
++	if (ring_buf_space_get(&uart_tx_rb) < sizeof(header) + len)
++	{
++		dropped_frames++; // only queue complete frames
++	}
++	else
++	{
++		ring_buf_put(&uart_tx_rb, header, sizeof(header));
++		ring_buf_put(&uart_tx_rb, payload, len);
++	}
++	k_spin_unlock(&uart_tx_lock, key);
++	uart_irq_tx_enable(uart_dev);
++}
++
++//|b0      |b1      |b2      |b3      |b4      |b5      |b6      |b7      |b8      |b9      |b10     |b11     |b12     |b13     |b14     |b15     |b16-b19 |b20     |
++//|255     |id      |device_addr                                          |resv-------------------------------------------------------------------|crc32   |seq (0) |
++static void uart_tracking_write_addr(void)
++{
++	uint8_t data[21] = {0};
++	data[0] = 255; // same as receiver packet 0, associate id and tracker address
++	data[1] = connection_get_id();
++	uint64_t *addr = (uint64_t *)NRF_FICR->DEVICEADDR; // Use device address as unique identifier (although it is not actually guaranteed, see datasheet)
++	memcpy(&data[2], addr, 6);
++	uint32_t crc = crc32_k_4_2_update(0x93a409eb, data, 16);
++	memcpy(&data[16], &crc, sizeof(crc));
++	data[20] = 0; // sequence 0 is not checked
++	uart_tracking_queue(data, sizeof(data));
++}
++#endif
++
++void uart_tracking_write(const uint8_t *payload, uint8_t len)
++{
++#if CONFIG_CONNECTION_OVER_UART
++	if (!uart_ready)
++		return;
++	if (CONFIG_CONNECTION_UART_ADDR_INTERVAL > 0 && k_uptime_get() - last_addr_time >= CONFIG_CONNECTION_UART_ADDR_INTERVAL)
++	{
++		last_addr_time = k_uptime_get();
++		uart_tracking_write_addr();
++	}
++	uart_tracking_queue(payload, len);
++	if (dropped_frames && k_uptime_get() - last_dropped_log_time > DROPPED_FRAME_LOG_INTERVAL)
++	{
++		LOG_WRN("Dropped UART frames: %u", dropped_frames);
++		dropped_frames = 0;
++		last_dropped_log_time = k_uptime_get();
++	}
++#endif
++}
+diff --git a/src/connection/uart_tracking.h b/src/connection/uart_tracking.h
+new file mode 100644
+index 0000000..473aef4
+--- /dev/null
++++ b/src/connection/uart_tracking.h
+@@ -0,0 +1,37 @@
++/*
++	SlimeVR Code is placed under the MIT license
++	Copyright (c) 2025 SlimeVR Contributors
++
++	Permission is hereby granted, free of charge, to any person obtaining a copy
++	of this software and associated documentation files (the "Software"), to deal
++	in the Software without restriction, including without limitation the rights
++	to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
++	copies of the Software, and to permit persons to whom the Software is
++	furnished to do so, subject to the following conditions:
++
++	The above copyright notice and this permission notice shall be included in
++	all copies or substantial portions of the Software.
++
++	THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
++	IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
++	FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
++	AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
++	LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
++	OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
++	THE SOFTWARE.
++*/
++#ifndef SLIMENRF_UART_TRACKING
++#define SLIMENRF_UART_TRACKING
++
++#include <stddef.h>
++#include <stdint.h>
++
++#define UART_TRACKING_SYNC_0 0xA5
++#define UART_TRACKING_SYNC_1 0x5A
++
++//|b0      |b1      |b2      |b3 ... b(2+len)
++//|0xA5    |0x5A    |len     |payload, same as ESB: 16 byte packet, CRC32 of packet (LE), sequence number
++
++void uart_tracking_write(const uint8_t *payload, uint8_t len);
++
++#endif
+diff --git a/src/system/power.c b/src/system/power.c
+index ab5de90..31d426b 100644
+--- a/src/system/power.c
++++ b/src/system/power.c
+@@ -293,7 +293,7 @@ static void sys_WOM(bool force) // TODO: if IMU interrupt does not exist what do
+ {
+ 	LOG_INF("IMU wake up requested");
+ #if IMU_INT_EXISTS
+-	if (CONFIG_0_SETTINGS_READ(CONFIG_0_DELAY_SLEEP_ON_STATUS) && !force && (!esb_ready() || !status_ready())) // Wait for esb to pair in case the user is still trying to pair the device
++	if (CONFIG_0_SETTINGS_READ(CONFIG_0_DELAY_SLEEP_ON_STATUS) && !force && ((!IS_ENABLED(CONFIG_CONNECTION_UART_ONLY) && !esb_ready()) || !status_ready())) // Wait for esb to pair in case the user is still trying to pair the device
+ 	{
+ 		if (!system_off_timeout)
+ 			system_off_timeout = k_uptime_get() + 30000; // allow system off after 30 seconds if status errors are still active
+diff --git a/tools/uart_tracking_decode.py b/tools/uart_tracking_decode.py
+new file mode 100644
+index 0000000..bbdb60e
+--- /dev/null
++++ b/tools/uart_tracking_decode.py
+@@ -0,0 +1,168 @@
++#!/usr/bin/env python3
++"""Decode tracking frames sent by CONFIG_CONNECTION_OVER_UART.
++
++Frame: 0xA5 0x5A <len> <payload[len]>
++Payload (len 21): 16 byte tracker packet, CRC32-K/4.2 of the packet (LE), sequence number.
++
++Usage:
++    uart_tracking_decode.py COM5            (needs pyserial: pip install pyserial)
++    uart_tracking_decode.py /dev/ttyUSB0 --baud 460800
++    uart_tracking_decode.py capture.bin     (decode a raw capture file)
++"""
++import argparse
++import math
++import os
++import struct
++import sys
++
++SYNC = b"\xa5\x5a"
++CRC_POLY = 0x93A409EB
++CRC_SEED = 0x93A409EB
++
++
++def crc32_k_4_2(data, crc=CRC_SEED):
++    for b in data:
++        crc ^= b << 24
++        for _ in range(8):
++            crc = ((crc << 1) ^ CRC_POLY) if crc & 0x80000000 else (crc << 1)
++            crc &= 0xFFFFFFFF
++    return crc
++
++
++def q_iem(v):
++    """Inverse of the firmware's exponential map (util.c q_iem), returns wxyz."""
++    d = v[0] * v[0] + v[1] * v[1] + v[2] * v[2]
++    inv_sqrt_d = 1 / math.sqrt(d + 1e-6)
++    a = (math.pi / 2) * d * inv_sqrt_d
++    k = math.sin(a) * inv_sqrt_d
++    return (math.cos(a), k * v[0], k * v[1], k * v[2])
++
++
++def decode_q_buf(raw):
++    q_buf = struct.unpack_from("<I", raw)[0]
++    v = (
++        (q_buf & 1023) / (1 << 10),
++        ((q_buf >> 10) & 2047) / (1 << 11),
++        ((q_buf >> 21) & 2047) / (1 << 11),
++    )
++    return q_iem([x * 2 - 1 for x in v])
++
++
++def fmt_q(q):
++    return "q(w=%.4f x=%.4f y=%.4f z=%.4f)" % q
++
++
++def fmt_v(name, v):
++    return "%s(%.3f %.3f %.3f)" % ((name,) + tuple(v))
++
++
++def decode_batt(batt, batt_v):
++    if batt == 0:
++        return "batt=none"
++    pct = "full" if batt == 255 else "%d%%" % (batt & 0x7F)
++    return "batt=%s %.2fV" % (pct, (batt_v + 245) / 100)
++
++
++def decode_temp(t):
++    return "temp=none" if t == 0 else "temp=%.1fC" % ((t - 128) / 2 + 25)
++
++
++def decode_packet(p):
++    t, tid = p[0], p[1]
++    head = "id=%d type=%d" % (tid, t)
++    if t == 0:
++        date = struct.unpack_from("<H", p, 10)[0]
++        return "%s info %s %s board=%d mcu=%d imu=%d mag=%d fw=%d.%d.%d (%04d-%02d-%02d)" % (
++            head, decode_batt(p[2], p[3]), decode_temp(p[4]), p[5], p[6], p[8], p[9],
++            p[12], p[13], p[14], (date >> 9) + 2020, (date >> 5) & 15, date & 31)
++    if t in (1, 4):
++        x, y, z, w = (v / (1 << 15) for v in struct.unpack_from("<4h", p, 2))
++        if t == 1:
++            extra = fmt_v("lin_a", (v / (1 << 7) for v in struct.unpack_from("<3h", p, 10)))
++        else:
++            extra = fmt_v("mag", (v / (1 << 10) for v in struct.unpack_from("<3h", p, 10)))
++        return "%s %s %s" % (head, fmt_q((w, x, y, z)), extra)
++    if t in (2, 7):
++        a = fmt_v("lin_a", (v / (1 << 7) for v in struct.unpack_from("<3h", p, 9)))
++        q = fmt_q(decode_q_buf(p[5:9]))
++        if t == 2:
++            return "%s %s %s %s %s" % (head, q, a, decode_batt(p[2], p[3]), decode_temp(p[4]))
++        return "%s %s %s button=%d sleep=%dms" % (head, q, a, p[2], struct.unpack_from("<H", p, 3)[0])
++    if t == 3:
++        return "%s status svr=%d status=%d" % (head, p[2], p[3])
++    if t == 5:
++        runtime = struct.unpack_from("<q", p, 2)[0]
++        return "%s runtime=%s" % (head, "unknown" if runtime < 0 else "%.1fmin" % (runtime / 60e6))
++    if t == 6:
++        return "%s button=%d sleep=%dms" % (head, p[2], struct.unpack_from("<H", p, 3)[0])
++    if t == 255:
++        addr = int.from_bytes(p[2:8], "little")
++        return "%s addr=%012X" % (head, addr)
++    return "%s unknown %s" % (head, p.hex())
++
++
++class Decoder:
++    def __init__(self):
++        self.buf = bytearray()
++        self.bad_crc = 0
++
++    def feed(self, data):
++        self.buf += data
++        while True:
++            i = self.buf.find(SYNC)
++            if i < 0:
++                del self.buf[:-1]  # keep a possible partial sync byte
++                return
++            del self.buf[:i]
++            if len(self.buf) < 3:
++                return
++            n = self.buf[2]
++            if len(self.buf) < 3 + n:
++                return
++            payload = bytes(self.buf[3:3 + n])
++            if n >= 20 and struct.unpack_from("<I", payload, 16)[0] != crc32_k_4_2(payload[:16]):
++                self.bad_crc += 1
++                del self.buf[:1]  # false sync, resync on next byte
++                continue
++            del self.buf[:3 + n]
++            yield payload
++
++
++def main():
++    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
++    ap.add_argument("port", help="serial port, or a file with a raw capture")
++    ap.add_argument("--baud", type=int, default=460800)
++    ap.add_argument("--raw", action="store_true", help="print payload hex instead of decoding")
++    args = ap.parse_args()
++
++    if os.path.isfile(args.port):
++        src = open(args.port, "rb")
++        read = lambda: src.read(4096)
++    else:
++        try:
++            import serial
++        except ImportError:
++            sys.exit("pyserial is required to read a serial port: pip install pyserial")
++        src = serial.Serial(args.port, args.baud, timeout=0.1)
++        read = lambda: src.read(src.in_waiting or 1)
++
++    dec = Decoder()
++    try:
++        while True:
++            data = read()
++            if not data:
++                if not hasattr(src, "in_waiting"):
++                    break  # end of file
++                continue
++            for payload in dec.feed(data):
++                seq = payload[20] if len(payload) > 20 else None
++                line = payload.hex() if args.raw else decode_packet(payload[:16])
++                print("seq=%3s %s" % (seq, line), flush=True)
++    except KeyboardInterrupt:
++        pass
++    if dec.bad_crc:
++        print("CRC errors: %d" % dec.bad_crc, file=sys.stderr)
++
++
++if __name__ == "__main__":
++    main()

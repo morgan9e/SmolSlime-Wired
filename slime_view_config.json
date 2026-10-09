@@ -1,0 +1,31 @@
+{
+  "version": 3,
+  "assignments": {
+    "Chest": [
+      "mac",
+      "D235DBBB9B7A"
+    ],
+    "Left lower leg": [
+      "mac",
+      "D81D4F94B220"
+    ],
+    "Left thigh": [
+      "mac",
+      "847BEBC50791"
+    ],
+    "Right lower leg": [
+      "mac",
+      "628DCFC6318A"
+    ],
+    "Right thigh": [
+      "mac",
+      "DEE876FA4759"
+    ],
+    "Hips": [
+      "mac",
+      "6DF7EC0CB8C8"
+    ]
+  },
+  "calibration": {},
+  "mounting": {}
+}
