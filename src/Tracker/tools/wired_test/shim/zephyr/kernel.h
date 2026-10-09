@@ -36,6 +36,7 @@ static inline void k_work_init(struct k_work *w, void (*fn)(struct k_work *)) { 
 static inline void k_work_init_delayable(struct k_work_delayable *w, void (*fn)(struct k_work *)) { w->work.fn = fn; w->delay_ms = 0; w->scheduled = 0; }
 static inline struct k_work_delayable *k_work_delayable_from_work(struct k_work *w) { return CONTAINER_OF(w, struct k_work_delayable, work); }
 static inline int k_work_submit(struct k_work *w) { w->submitted++; return 0; }
+static inline int k_work_cancel(struct k_work *w) { w->submitted = 0; return 0; }
 static inline int k_work_reschedule(struct k_work_delayable *w, k_timeout_t t) { w->delay_ms = t.ms; w->scheduled++; return 0; }
 static inline int k_work_cancel_delayable(struct k_work_delayable *w) { w->scheduled = 0; return 0; }
 struct k_sem { int count; };

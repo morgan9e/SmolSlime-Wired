@@ -632,6 +632,11 @@ static void rearm_work_fn(struct k_work *work)
 	struct port *p = CONTAINER_OF(work, struct port, rearm_work);
 	if (p->always_on)
 		return; // never suspended, see start_rx()
+	// RX was started again (probe or wake edge) after this was queued: suspending now would switch
+	// off a running UART, failing an assert in the UARTE driver, or leave the port "on" for good
+	// with the peripheral disabled (an input that never hears its tracker again).
+	if (atomic_get(&p->rx_on))
+		return;
 	// Release the pin: a suspended UARTE leaves it to the GPIO, so the edge detector sees it.
 	pm_device_action_run(p->uart, PM_DEVICE_ACTION_SUSPEND);
 	gpio_pin_configure_dt(&p->data_pin, GPIO_INPUT);
@@ -642,6 +647,7 @@ static void start_rx(struct port *p, bool from_probe)
 {
 	if (!atomic_cas(&p->rx_on, 0, 1))
 		return;
+	k_work_cancel(&p->rearm_work); // a suspend queued by the last RX_DISABLED is stale now
 	gpio_pin_interrupt_configure_dt(&p->data_pin, GPIO_INT_DISABLE);
 	p->session_from_probe = from_probe;
 	p->session_found = false;
