@@ -103,12 +103,11 @@ static int crash_init(void)
 SYS_INIT(crash_init, PRE_KERNEL_1, 0);
 
 // Not a crash loop once the board has run this long; safe mode itself stays until "mode".
+// Runs on the system workqueue (256-byte stack): no printing here, "wired" shows the record.
 static void early_over_fn(struct k_work *work)
 {
 	if (!safe_mode)
 		rec->count = 0;
-	if (last.total)
-		crash_print();
 }
 static K_WORK_DELAYABLE_DEFINE(early_over_work, early_over_fn);
 
