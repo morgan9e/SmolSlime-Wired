@@ -66,6 +66,7 @@ static struct hub_stat {
 static int self_id = -1;
 static atomic_t started;
 static atomic_t pairing;
+static int64_t pair_deadline; // the output thread closes pairing then (not the 256-byte system workqueue)
 static uint32_t st_sent, st_qdrop, st_full, st_bad_crc, st_unknown_id, st_pair_requests;
 
 // Set when the id table changed; the output thread writes it to NVS. Not the system workqueue:
@@ -254,6 +255,11 @@ static void hub_thread(void)
 			k_sem_give(&tx_idle); // nothing in flight
 		if (atomic_cas(&persist_pending, 1, 0))
 			sys_write(HUB_IDS_ID, NULL, ids, sizeof(ids));
+		if (atomic_get(&pairing) && k_uptime_get() >= pair_deadline) {
+			atomic_clear(&pairing);
+			set_led(SYS_LED_PATTERN_OFF, SYS_LED_PRIORITY_PAIR);
+			LOG_INF("Pairing closed");
+		}
 	}
 }
 
@@ -278,13 +284,6 @@ static void flush_work_fn(struct k_work *work)
 }
 static K_WORK_DELAYABLE_DEFINE(flush_work, flush_work_fn);
 
-static void pair_close_fn(struct k_work *work)
-{
-	atomic_clear(&pairing);
-	set_led(SYS_LED_PATTERN_OFF, SYS_LED_PRIORITY_PAIR);
-	LOG_INF("Pairing closed");
-}
-static K_WORK_DELAYABLE_DEFINE(pair_close_work, pair_close_fn);
 
 // A pairing request: [crc8 of address][0 request / 1 fetch][device address 6].
 // The reply goes out with the ACK of the next packet on pipe 0: [crc8][id][hub address 6].
@@ -393,9 +392,9 @@ void hub_pair_open(void)
 {
 	if (!atomic_get(&started))
 		return;
+	pair_deadline = k_uptime_get() + PAIR_WINDOW_MS;
 	atomic_set(&pairing, 1);
 	set_led(SYS_LED_PATTERN_SHORT, SYS_LED_PRIORITY_PAIR);
-	k_work_reschedule(&pair_close_work, K_MSEC(PAIR_WINDOW_MS));
 	LOG_INF("Pairing open for %d s: pair the wireless trackers now", PAIR_WINDOW_MS / 1000);
 }
 
