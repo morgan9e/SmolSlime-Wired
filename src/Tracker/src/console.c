@@ -505,7 +505,7 @@ static void print_help(void)
 #if CONFIG_WIRED_LINK
 	printk("\nmode [wireless|hub|wired [in left|right|both] [out left|right]]\n");
 	printk("                             Wired link roles of the two headers (stored, reboots):\n");
-	printk("                             left = D8 ground, D9 data; right = D16 ground, D10 data.\n");
+	printk("                             left = D8 data, D9 ground; right = D16 data, D10 ground.\n");
 	printk("                             With an output the radio is off; without one, the inputs\n");
 	printk("                             are relayed over the radio. e.g. ankle: wired out right,\n");
 	printk("                             thigh: wired in left out right, hip: wired in both\n");

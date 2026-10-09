@@ -29,7 +29,7 @@ console; it is stored and the tracker reboots:
 | Command | Radio | Used for |
 | --- | --- | --- |
 | `mode wireless` | on | chest, or any tracker on its own |
-| `mode wired out right` | off | ankle |
+| `mode wired out right` | off | ankle (or an ankle still on the older firmware: it sends on D8) |
 | `mode wired in left out right` | off | thigh: ankle in on the left, upstream on the right |
 | `mode wired in left` | on | a thigh relaying its ankle by radio (the older setup) |
 | `mode wired in both` | on | hip: both legs in, everything relayed by radio to the receiver |
@@ -43,14 +43,15 @@ default, follows the older `connection_over_uart` setting: on = `in left out rig
 
 ## Headers and cables
 
-| Header | Ground reference | Data | UART |
+| Header | Data | Ground reference | UART |
 | --- | --- | --- | --- |
 | Left | D8 (P1.04) | D9 (P1.06) | uart1 |
 | Right | D16 (P0.10) | D10 (P0.09) | uart0 |
 
-A cable joins the two ground pins and the two data pins, so any straight cable works between
-any two headers: D8/D16 to D8/D16, D9/D10 to D9/D10. 1,000,000 baud 8N1, upstream only (the
-ESP32 hub's rate, so the hub output can share a UART with an input).
+A cable joins the two data pins and the two ground pins, so any straight cable works between
+any two headers: D8/D16 to D8/D16, D9/D10 to D9/D10. 460800 baud 8N1, upstream only. The left
+header is the same as in the older wired ankle firmware (data D8, ground D9, 460800 baud), so
+ankles still running it plug into a thigh's left header as before.
 
 - Both trackers keep their own battery. The ground pins are driven low on both headers from
   boot; they carry only the UART's return current, so a GPIO is enough. Do not share power.
@@ -69,7 +70,9 @@ ESP32 hub's rate, so the hub output can share a UART with an input).
 `mode hub` on the hip. Both headers are inputs and stay on, the radio listens like the receiver
 (same discovery address, pairing exchange and frame checks, on pipe addresses derived from the
 hip's own device address), and the left header's UART also sends on **D0 (P0.08)**, a full-speed pin (the radio is listening at the same time). Wire D0 to
-the ESP32's RX pin (XIAO D7) and the hip's GND to the ESP32's GND. The output is the receiver's
+the ESP32's RX pin (XIAO D7) and the hip's GND to the ESP32's GND. The output shares the left
+header's UART and so runs at 460800 baud: build the ESP32 hub with `CONFIG_HUB_UART_BAUD=460800`
+(the nRF receiver uses 1,000,000, so switch the ESP32 together with the hip). The output is the receiver's
 mirror format byte for byte (`src/connection/hub.h`): every tracker packet with its id, and a
 type 255 packet per id every 100 ms that tells the ESP32 hub the tracker's address.
 
@@ -138,7 +141,7 @@ divider)`, `usb hid`.
 ## Wire format
 
 ```
-COBS( [type][body] ) + 0x00          1,000,000 baud 8N1, upstream only
+COBS( [type][body] ) + 0x00          460800 baud 8N1, upstream only
 0x02 HELLO: FICR device address[6], fw major, minor, patch                     (1 per second)
 0x03 ADATA: address[6], packet[16] (id byte 0xFF), CRC32-K/4.2 LE over address + packet, sequence
 0x01 DATA : legacy, the 21-byte ESB frame without address (older ankle firmware)

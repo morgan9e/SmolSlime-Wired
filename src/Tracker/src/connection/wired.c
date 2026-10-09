@@ -117,7 +117,7 @@ LOG_MODULE_REGISTER(wired, LOG_LEVEL_DBG);
 
 enum { PORT_LEFT, PORT_RIGHT, PORT_COUNT };
 static const char *const port_names[PORT_COUNT] = {"left", "right"};
-static const char *const port_pins[PORT_COUNT] = {"D9", "D10"}; // data pins
+static const char *const port_pins[PORT_COUNT] = {"D8", "D16"}; // data pins
 
 // One header: its UART (an input receives, an output transmits) and its data pin, which is
 // watched as a GPIO while an input's UART is off.
@@ -740,7 +740,7 @@ static int use_tx_pins(int port)
 				     right_tx_states, ARRAY_SIZE(right_tx_states));
 }
 
-// Hub mode: the left UART receives the left header (D9) and sends the hub output (D0).
+// Hub mode: the left UART receives the left header (D8) and sends the hub output (D0).
 PINCTRL_DT_STATE_PINS_DEFINE(DT_PATH(zephyr_user), wired_hub_default);
 #ifdef CONFIG_PM_DEVICE
 PINCTRL_DT_STATE_PINS_DEFINE(DT_PATH(zephyr_user), wired_hub_sleep);
@@ -936,6 +936,11 @@ void wired_print_status(void)
 	       CONFIG_2_SETTINGS_READ(CONFIG_2_WIRED_MODE) == WIRED_MODE_LEGACY ? ", from connection_over_uart" : "");
 	for (int i = 0; i < PORT_COUNT; i++)
 		print_port(i);
+#if !defined(WIRED_HOST_TEST)
+	// Bit 0 clear: D10/D16 are GPIOs; set: still NFC pins, and the right header cannot work.
+	printk("UICR NFCPINS=0x%08x (%s)\n", NRF_UICR->NFCPINS,
+	       (NRF_UICR->NFCPINS & UICR_NFCPINS_PROTECT_Msk) ? "D10/D16 are NFC pins" : "D10/D16 are GPIOs");
+#endif
 	bool inputs = mode & (WIRED_IN_LEFT | WIRED_IN_RIGHT);
 	if (inputs)
 		printk("%s %u, unpaired %u, queue drops %u\n",

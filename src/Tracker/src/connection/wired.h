@@ -28,7 +28,7 @@
 //   mode wired in left             radio on: the left header's trackers are relayed over ESB
 //   mode wired in both             radio on: both headers relayed over ESB (hip)
 //   mode hub                       both headers in, radio receives, all to the ESP32 on D0 (hip)
-// Left header: D8 ground reference, D9 data. Right header: D16 ground reference, D10 data.
+// Left header: D8 data, D9 ground reference. Right header: D16 data, D10 ground reference.
 // With an output the radio stays off and the chain ends at a radio relay (or the ESP32 hub),
 // which knows each tracker by the address in its frames. Without one, frames from the inputs
 // are stamped with the receiver id paired for their address (pair_wired) and sent over ESB.
