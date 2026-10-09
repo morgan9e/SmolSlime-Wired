@@ -329,6 +329,18 @@ void clocks_stop(void)
 BUILD_ASSERT(false, "No Clock Control driver");
 #endif
 
+void clocks_release_when_idle(void)
+{
+	// Stopping the HFXO under a frame that is still being sent or retransmitted moves the radio
+	// onto the RC oscillator, off frequency: the receiver never hears it. On USB the USB stack keeps
+	// the HFXO running anyway, so this only shows on battery (a relaying thigh lost most ankle frames).
+	if (esb_hold_clock())
+		return;
+	if (esb_initialized && !esb_is_idle())
+		return; // the TX event stops the clock when the frame is done
+	clocks_stop();
+}
+
 static struct k_thread clocks_thread_id;
 static K_THREAD_STACK_DEFINE(clocks_thread_id_stack, 128);
 
@@ -364,6 +376,9 @@ int esb_initialize(bool tx)
 	int err;
 
 	struct esb_config config = ESB_DEFAULT_CONFIG;
+	// The receiver must use the same rate ("radio 1m" on its console)
+	if (CONFIG_0_SETTINGS_READ(CONFIG_0_RADIO_1MBPS))
+		config.bitrate = ESB_BITRATE_1MBPS;
 
 	if (tx)
 	{
@@ -421,8 +436,9 @@ int esb_initialize(bool tx)
 	}
 
 #if CONFIG_WIRED_LINK
-	// Worst case for one frame: every retransmit, about 400 us of airtime each, plus margin.
-	esb_tx_timeout_us = (config.retransmit_delay + 400) * (config.retransmit_count + 1) + 500;
+	// Worst case for one frame: every retransmit, about 400 us of airtime each (650 at 1 Mbps), plus margin.
+	uint32_t airtime_us = config.bitrate == ESB_BITRATE_1MBPS ? 650 : 400;
+	esb_tx_timeout_us = (config.retransmit_delay + airtime_us) * (config.retransmit_count + 1) + 500;
 	k_sem_reset(&esb_tx_done);
 	k_sem_give(&esb_tx_done);
 #endif
@@ -691,8 +707,8 @@ void esb_print_link(void)
 	if (!esb_paired || !esb_initialized)
 		printk("Radio: %s\n", esb_paired ? "not started" : "pairing");
 	printk("Consecutive TX errors: %u (connection error at %u)\n", tx_errors, TX_ERROR_THRESHOLD);
-	printk("Radio: %s, retransmit delay %u us; restarted after a stall %u times", esb_is_idle() ? "idle" : "busy",
-		retransmit_delay_us, radio_restarts);
+	printk("Radio: %s, %s, retransmit delay %u us; restarted after a stall %u times", esb_is_idle() ? "idle" : "busy",
+		CONFIG_0_SETTINGS_READ(CONFIG_0_RADIO_1MBPS) ? "1 Mbps" : "2 Mbps", retransmit_delay_us, radio_restarts);
 	if (radio_restarts)
 		printk(", last %lld s ago", (k_uptime_get() - last_radio_restart) / 1000);
 	printk("\n");

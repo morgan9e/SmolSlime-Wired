@@ -62,7 +62,7 @@ void connection_clocks_request_start_delay_us(uint32_t delay_us)
 
 void connection_clocks_request_stop(void)
 {
-	clocks_stop();
+	clocks_release_when_idle();
 }
 
 void connection_clocks_request_stop_delay_us(uint32_t delay_us)

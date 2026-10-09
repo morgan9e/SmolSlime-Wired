@@ -43,6 +43,9 @@ int clocks_start(void);
 void clocks_stop(void);
 void clocks_request_start(uint32_t delay_us);
 void clocks_request_stop(uint32_t delay_us);
+// Releases the HF clock unless a frame is still on the air or frames come back to back
+// (relaying). The TX event releases it once the frame is done.
+void clocks_release_when_idle(void);
 int esb_initialize(bool);
 void esb_deinitialize(void);
 
