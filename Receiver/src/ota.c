@@ -45,6 +45,7 @@ static const char *const state_names[] = {"idle", "offering", "sending"};
 static atomic_t state = ATOMIC_INIT(OTA_IDLE);
 static uint32_t img_size, img_crc, img_board;
 static uint8_t target;
+static uint8_t session; // 1 - OTA_SESSIONS, new with every offer
 static volatile uint32_t received; // bytes the PC has sent
 static volatile uint32_t asked;    // offset the tracker asked for last: everything below it is done
 static uint32_t next_log;
@@ -52,8 +53,12 @@ static int64_t start_time;
 
 static void stall_fn(struct k_work *work)
 {
-	if (atomic_cas(&state, OTA_SENDING, OTA_IDLE))
+	int s = atomic_get(&state);
+	if (s == OTA_SENDING && atomic_cas(&state, OTA_SENDING, OTA_IDLE))
 		LOG_WRN("ota: tracker %u stopped asking at %u of %u bytes", target, asked, img_size);
+	else if (s == OTA_OFFERING && atomic_cas(&state, OTA_OFFERING, OTA_IDLE))
+		LOG_WRN("ota: tracker %u did not answer the offer (off, not paired, or firmware without OTA protocol %u)",
+			target, OTA_PROTOCOL);
 }
 static K_WORK_DELAYABLE_DEFINE(stall_work, stall_fn);
 
@@ -68,9 +73,11 @@ void ota_esb_tracker_frame(void)
 	struct esb_payload p = {.pipe = 1, .length = OTA_OFFER_LEN};
 	p.data[0] = OTA_MSG_OFFER;
 	p.data[1] = target;
-	ota_put_u32(&p.data[2], img_size);
-	ota_put_u32(&p.data[6], img_crc);
-	ota_put_u32(&p.data[10], img_board);
+	p.data[2] = OTA_PROTOCOL;
+	p.data[3] = session;
+	ota_put_u32(&p.data[4], img_size);
+	ota_put_u32(&p.data[8], img_crc);
+	ota_put_u32(&p.data[12], img_board);
 	esb_write_payload(&p);
 }
 
@@ -81,7 +88,10 @@ void ota_esb_rx(const struct esb_payload *payload)
 	if (payload->length == OTA_REQ_LEN && d[0] == OTA_MSG_REQ) {
 		if ((s != OTA_OFFERING && s != OTA_SENDING) || d[1] != target)
 			return;
-		uint32_t offset = ota_get_u24(&d[2]);
+		uint32_t position = ota_get_u24(&d[2]);
+		if (position >> OTA_OFFSET_BITS != session)
+			return; // left over from an earlier update
+		uint32_t offset = position & OTA_OFFSET_MASK;
 		if (s == OTA_OFFERING) {
 			atomic_set(&state, OTA_SENDING);
 			start_time = k_uptime_get();
@@ -102,22 +112,27 @@ void ota_esb_rx(const struct esb_payload *payload)
 		uint32_t n = MIN(OTA_CHUNK_MAX, img_size - offset);
 		if (offset + n > received)
 			return; // the PC has not sent it yet: the tracker asks again
+		compiler_barrier(); // the window holds everything below received (ota_hid_data)
 		struct esb_payload p = {.pipe = OTA_PIPE, .length = OTA_CHUNK_HEADER + n};
 		p.data[0] = OTA_MSG_CHUNK;
-		ota_put_u24(&p.data[1], offset);
+		ota_put_u24(&p.data[1], position);
 		for (uint32_t i = 0; i < n; i++)
 			p.data[OTA_CHUNK_HEADER + i] = window[(offset + i) % WINDOW];
 		esb_write_payload(&p);
 		return;
 	}
-	if (payload->length == OTA_DONE_LEN && d[0] == OTA_MSG_DONE && d[1] == target && s == OTA_SENDING) {
+	if (payload->length == OTA_DONE_LEN && d[0] == OTA_MSG_DONE && d[1] == target &&
+	    (s == OTA_OFFERING || s == OTA_SENDING)) {
 		atomic_set(&state, OTA_IDLE);
 		k_work_cancel_delayable(&stall_work);
 		if (d[2] == OTA_STATUS_INSTALLED)
 			LOG_INF("ota: tracker %u received the image in %lld s and reboots into it", target,
 				(k_uptime_get() - start_time) / 1000);
+		else if (s == OTA_OFFERING)
+			LOG_WRN("ota: tracker %u refused the update: %s (its OTA protocol %u, this receiver's %u)",
+				target, ota_status_name(d[2]), d[3], OTA_PROTOCOL);
 		else
-			LOG_WRN("ota: tracker %u failed (%u), it keeps its firmware", target, d[2]);
+			LOG_WRN("ota: tracker %u failed: %s, it keeps its firmware", target, ota_status_name(d[2]));
 	}
 }
 
@@ -136,6 +151,7 @@ void ota_hid_data(const uint8_t *report, int len)
 		return;
 	for (uint32_t i = 0; i < n; i++)
 		window[(offset + i) % WINDOW] = report[OTA_HID_HEADER + i];
+	compiler_barrier(); // the data is in the window before the radio interrupt sees it counted
 	received = offset + n;
 }
 
@@ -163,12 +179,14 @@ void ota_console(int argc, char **argv)
 		target = strtoul(argv[5], NULL, 0);
 		received = 0;
 		asked = 0;
-		if (img_size == 0 || img_size >= BIT(24)) {
+		if (img_size == 0 || img_size > OTA_OFFSET_MASK) {
 			printk("ota: error: size %u\n", img_size);
 			return;
 		}
+		session = session % OTA_SESSIONS + 1;
 		atomic_set(&state, OTA_OFFERING);
-		printk("ota: begin %u, offering to tracker %u\n", img_size, target);
+		k_work_reschedule(&stall_work, K_MSEC(STALL_TIMEOUT_MS)); // no answer to the offer
+		printk("ota: begin %u, offering to tracker %u, protocol %u\n", img_size, target, OTA_PROTOCOL);
 	} else if (strcmp(cmd, "stop") == 0) {
 		atomic_set(&state, OTA_IDLE);
 		k_work_cancel_delayable(&stall_work);

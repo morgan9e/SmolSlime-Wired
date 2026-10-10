@@ -24,6 +24,7 @@ import zlib
 
 RECEIVER_VID, RECEIVER_PID = 0x1209, 0x7690
 WINDOW = 16384        # the receiver's window (Receiver/src/ota.c)
+PROTOCOL = 1          # OTA_PROTOCOL (ota_proto.h): the receiver's must match
 HID_DATA = 0xF5       # OTA_HID_DATA (Receiver/src/ota.h): [type][offset u24][length][data]
 HID_PAYLOAD = 59      # 64-byte report minus the header
 AHEAD = 4096          # bytes sent before the receiver confirms them in its status
@@ -146,7 +147,12 @@ def main(argv=None):
     print(f'{args.image}: {size} bytes, crc {crc:08x}, board {board}')
 
     con.send(f'ota begin {size} {crc:08x} {zlib.crc32(board.encode()):08x} {args.tracker}')
-    con.wait_for('begin', 5)
+    begin = con.wait_for('begin', 5)
+    m = re.search(r'protocol (\d+)', begin)
+    if not m or int(m[1]) != PROTOCOL:
+        con.send('ota stop')
+        sys.exit(f'The receiver speaks OTA protocol {m[1] if m else 0}, this tool {PROTOCOL}: '
+                 'flash both from the same version (make receiver)')
     print(f'Offered to tracker {args.tracker} (on and paired; it pauses tracking while it receives)')
 
     sent = received = asked = 0
@@ -188,7 +194,7 @@ def main(argv=None):
                           'and confirms it once the receiver hears it.')
                     print('Check its version with slime_link.py (firmware column).')
                     return
-                if 'failed' in msg or 'stopped asking' in msg:
+                if any(w in msg for w in ('failed', 'refused', 'stopped asking', 'did not answer')):
                     sys.exit(1)
             while sent < size and sent - received < AHEAD and sent + HID_PAYLOAD <= asked + WINDOW:
                 part = image[sent:sent + HID_PAYLOAD]

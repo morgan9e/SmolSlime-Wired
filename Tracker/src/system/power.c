@@ -6,6 +6,7 @@
 #include "system.h"
 #include "led.h"
 #include "connection/esb.h"
+#include "ota.h"
 
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/logging/log_ctrl.h>
@@ -501,7 +502,10 @@ static void power_thread(void)
 		pm_device_action_run(uart, PM_DEVICE_ACTION_SUSPEND);
 #endif
 		int requested = sys_power_state_request(0);
-		switch (requested)
+		// No sleep or power off while a firmware update is received (a resting tracker would sleep
+		// in the middle of it): the request waits, the tracker reboots after a good update
+		bool held = ota_active() && requested != 0 && requested != 4;
+		switch (held ? 0 : requested)
 		{
 		case 1:
 			sys_WOM(false);
@@ -521,7 +525,8 @@ static void power_thread(void)
 		default:
 			break;
 		}
-		sys_power_state_request(-1); // clear request
+		if (!held)
+			sys_power_state_request(-1); // clear request
 
 		bool docked = dock_read();
 		bool charging = chg_read();
