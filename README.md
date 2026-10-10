@@ -10,7 +10,7 @@ nRF52840 Dongle as the receiver and ProMicro stacked SPI trackers.
 | `tools/slime_link.py` | link statistics per tracker from the receiver over USB-HID; runs alongside SlimeVR Server |
 | `tools/slime_view.py` | live view of the trackers (orientation, skeleton) over USB-HID (`--usb`); quit SlimeVR Server first |
 | `tools/dfu_zip.py` | DFU package from a `.hex`, for `nrfutil device program` on the dongle |
-| `tools/bump_version.py` | next tracker version (minor + 1) as a tag; see Versions |
+| `tools/bump_version.py` | next tracker version (patch + 1) as a tag; see Versions |
 | `tools/serial_monitor.py` | desktop serial monitor for the consoles (needs pyserial) |
 
 ## Changes to upstream
@@ -33,8 +33,8 @@ From WSL/Linux, with the nRF Connect SDK workspaces named in the `Makefile`:
 ## Versions
 
 The tracker reports its version (and build date) in its device info packet; `tools/slime_link.py`
-shows it per tracker. It comes from the latest git tag shaped like `0.2.0`. Before each rebuild
-that gets flashed, commit, raise the minor version with `python tools/bump_version.py` (an
+shows it per tracker. It comes from the latest git tag shaped like `0.0.3`. Before each rebuild
+that gets flashed, commit, raise the patch version with `python tools/bump_version.py` (an
 annotated tag on the current commit), then `make tracker`.
 
 ## Flash

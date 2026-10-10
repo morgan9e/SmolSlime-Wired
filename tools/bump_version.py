@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Next tracker version: minor + 1, as an annotated tag on the current commit.
+"""Next tracker version: patch + 1, as an annotated tag on the current commit.
 
 The tracker's build takes its version from `git describe` (the latest tag shaped like 1.2.3, see
 Tracker/CMakeLists.txt; it writes the git-ignored Tracker/VERSION). The trackers report it in their
 device info packet, and tools/slime_link.py shows it. Run this once before each rebuild that gets
 flashed:
 
-    python tools/bump_version.py        # 0.1.0 -> 0.2.0: tags the current commit 0.2.0
+    python tools/bump_version.py        # 0.0.3 -> 0.0.4: tags the current commit 0.0.4
 
 Commit everything first: the tag goes on the commit that is built.
 """
@@ -33,7 +33,7 @@ def main():
     m = re.fullmatch(r'v?(\d+)\.(\d+)\.(\d+)', last)
     if not m:
         sys.exit(f'Latest tag {last!r} is not a version')
-    version = f'{m.group(1)}.{int(m.group(2)) + 1}.0'
+    version = f'{m.group(1)}.{m.group(2)}.{int(m.group(3)) + 1}'
     git('tag', '-a', version, '-m', f'Tracker {version}')
     print(f'{last} -> {version} (tag on {git("rev-parse", "--short", "HEAD")})')
 

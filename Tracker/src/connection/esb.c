@@ -92,7 +92,7 @@ void event_handler(struct esb_evt const *event)
 		else
 			tx_errors = 0;
 		LOG_DBG("TX SUCCESS");
-		if (esb_paired && esb_is_idle()) // ESB already sends the next queued frame otherwise
+		if (esb_paired)
 			clocks_stop();
 		break;
 	case ESB_EVENT_TX_FAILED:
@@ -104,11 +104,6 @@ void event_handler(struct esb_evt const *event)
 			last_tx_success = k_uptime_get();
 		}
 		LOG_DBG("TX FAILED");
-		// ESB keeps a frame whose retransmits ran out at the head of the queue and stops: drop it,
-		// and go on with the frames queued behind it (esb_write no longer flushes the queue).
-		esb_pop_tx();
-		if (esb_start_tx() == 0)
-			break;
 		if (esb_paired)
 			clocks_stop();
 		break;
@@ -511,12 +506,10 @@ void esb_write(uint8_t *data)
 	tx_payload.noack = false;
 #endif
 	memcpy(tx_payload.data, data, tx_payload.length);
-	// Queue behind a frame that is still being retransmitted instead of flushing it: upstream
-	// flushed here, so a frame whose first attempt collided was lost whenever the next one came.
-	// Only a full queue (about 70 ms behind) is flushed.
-	if (esb_tx_full())
-		esb_flush_tx();
-	esb_write_payload(&tx_payload); // Add transmission to queue; starts sending when idle
+	// The newest frame replaces one still being retransmitted: keeping the old ones (tried in 0.0.2)
+	// lost more frames with six trackers on one channel, from repeats and blocked queues.
+	esb_flush_tx(); // this will clear all transmissions even if they did not complete
+	esb_write_payload(&tx_payload); // Add transmission to queue
 	send_data = true;
 }
 
