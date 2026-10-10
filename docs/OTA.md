@@ -2,7 +2,7 @@
 
 Status: works on the ProMicro (stacked SPI) trackers, all six of them run it, and on the XIAO
 nRF52840 Sense. Tested: MCUboot boot, test swap, rollback, updates over the radio (242 KB in
-21 - 27 s per tracker; 0.0.13 went to all six ProMicros one after the other, 0.0.14 to the XIAO).
+21 - 27 s per tracker; 0.0.15 went to all seven one after the other), and the failure cases below.
 
 Decided: MCUboot with rollback; unsigned images (MCUboot still checks each image's SHA-256, and the
 tracker a CRC32 of the transfer); the tracker pauses tracking while it receives an update.
@@ -75,37 +75,60 @@ tracker's frame. ESB sends a queued ACK payload with the next frame on that pipe
 the frame after.
 
 1. **Offer.** `ota.py` sends `ota begin <size> <crc32> <board crc32> <tracker id>` on the
-   receiver's console. The receiver queues an OFFER on pipe 1 with every tracker frame; whichever
-   tracker sends next gets it, and only the addressed one, with the matching board (crc32 of
-   `CONFIG_BOARD_TARGET`), accepts.
-2. **Fetch.** The tracker pauses tracking, keeps the radio clock on and sends REQ(offset) on pipe
-   7 (only it uses that pipe). The receiver queues exactly that chunk (28 bytes); it comes with the
-   ACK of the tracker's next request, and the tracker asks again as soon as a frame is done
-   without its chunk: about two frames per chunk, no timeouts. (A look-ahead version, queueing the
-   next chunk early, fell out of step whenever the receiver's handler ran late: 118 s instead of
-   26 s.)
-3. **Stream.** `ota.py` streams the image into the receiver's 16 KB RAM window as HID OUT reports
+   receiver's console and checks the OTA protocol version in its answer. The receiver queues an
+   OFFER on pipe 1 with every tracker frame; whichever tracker sends next gets it, and only the
+   addressed one takes it. The offer carries the protocol version and a session number (1 - 15,
+   new with every offer).
+2. **Check.** The tracker takes the offer, or answers DONE with the reason and keeps tracking:
+   another protocol version, another board (crc32 of `CONFIG_BOARD_TARGET`), too large, running
+   image not confirmed yet (slot 1 still holds its fallback), already running this image (CRC32 of
+   slot 0). The receiver reports it and `ota.py` stops; an offer nobody answers ends after 10 s.
+3. **Fetch.** The tracker pauses tracking (and any sleep request waits), keeps the radio clock on
+   and sends REQ(position) on pipe 7 (only it uses that pipe); position = session << 20 | offset,
+   so nothing left over from an aborted update is taken for this one. The receiver queues exactly
+   that chunk (28 bytes); it comes with the ACK of the tracker's next request, and the tracker asks
+   again as soon as a frame is done without its chunk: about two frames per chunk, no timeouts.
+   (A look-ahead version, queueing the next chunk early, fell out of step whenever the receiver's
+   handler ran late: 118 s instead of 26 s.)
+4. **Stream.** `ota.py` streams the image into the receiver's 16 KB RAM window as HID OUT reports
    (`[0xF5][offset u24][length][59 bytes]`), polling `ota status` (received / asked) to stay within
    the window. The console carries only begin / stop / status: streaming the data through it
-   jammed it (every line is echoed and answered).
-4. **Install.** The tracker writes slot 1 as it goes (pages erased progressively), checks the
+   jammed it (every line is echoed and answered). The status also says how the last update ended,
+   as a log line on the console can be cut by the echo.
+5. **Install.** The tracker writes slot 1 as it goes (pages erased progressively), checks the
    CRC32, marks a test swap, sends DONE and reboots; MCUboot checks the SHA-256 and swaps.
-5. **Confirm.** The new image confirms itself after 200 frames the receiver acknowledged.
+6. **Confirm.** The new image confirms itself after 200 frames the receiver acknowledged (a
+   resting tracker sends few: that can take a minute; turned off before, it rolls back).
+
+Changing a message means bumping `OTA_PROTOCOL` (`ota_proto.h`, `PROTOCOL` in `ota.py`). Every
+version keeps the start of OFFER (`[type][tracker id][protocol]`) and all of DONE, so a tracker can
+always say which version it speaks. Trackers from before protocol 1 (0.0.14 and older) do not
+answer a protocol 1 offer: update them through a receiver of their time, or over USB.
 
 ## Failure cases
 
+Tested on a ProMicro (0.0.15 / 0.0.16) unless marked otherwise.
+
 | What happens | Result |
 |---|---|
-| Radio drops, tracker out of range or off during the transfer | Slot 1 incomplete, slot 0 untouched: after 5 s without data the tracker gives up and tracks again with its image |
-| Image for another board | The tracker ignores the offer (`info` counts these) |
-| Corrupted transfer | CRC32 mismatch: not installed; a damaged image in slot 1 is refused by MCUboot's SHA-256 check |
-| Power lost during the swap | swap-using-move resumes the swap on the next boot |
-| New image crashes or cannot reach the receiver | Not confirmed: MCUboot swaps the old one back on the next boot (tested) |
+| Transfer stopped half way (offer stopped at 71 of 243 KB) | Slot 0 untouched: after 5 s without data the tracker gives up (`Update: last one transfer timed out`) and tracks again with its image; the next update went through |
+| Image for another board | Refused, reported ("image for another board") |
+| Image the tracker already runs | Refused, reported |
+| Update offered while the running image is not confirmed | Refused, reported (with a test image that never confirms itself) |
+| Tracker off, not paired, or firmware without protocol 1 | No answer: the offer ends after 10 s, reported |
+| Other protocol version | Refused, reported with both versions (not tested: needs a second version) |
+| Corrupted transfer | CRC32 mismatch: not installed; a damaged image in slot 1 is refused by MCUboot's SHA-256 check (not tested) |
+| Resting tracker on battery during an update | Sleep and power off wait for the update (not tested on battery: all tests ran on USB power) |
+| Power lost during the swap | swap-using-move resumes the swap on the next boot (MCUboot's guarantee, not tested here) |
+| New image does not confirm itself | MCUboot swaps the old one back on the next boot (tested over USB and over the radio) |
+| New image hangs without crashing | Stays until switched off and on (no watchdog), then rolled back |
 | MCUboot or both slots broken | UF2 bootloader: double-tap reset, flash the `_OTA.uf2` over USB |
 | Settings | NVS area untouched by every step: pairing and calibration survive (tested) |
 
 ## Open
 
+- No authentication: anyone who knows the receiver's address could offer an image (MCUboot
+  signing would close it, with a key to keep).
 - Speed: 26 s for 242 KB (about 9 KB/s). The PC side is not the limit; more would take larger ESB
   payloads, which change the radio format for every tracker on the receiver.
 - The standard alternative for the transfer is MCUmgr/SMP (Zephyr's image management, with the
