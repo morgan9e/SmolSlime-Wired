@@ -51,13 +51,22 @@ static volatile uint32_t asked;    // offset the tracker asked for last: everyth
 static uint32_t next_log;
 static int64_t start_time;
 
+// How the last update ended, logged and kept for the status: a log line can be lost on the
+// console (cut by the echo of a command), the status is asked for again
+static char outcome[112];
+#define OUTCOME(level, ...)                                         \
+	do {                                                        \
+		snprintk(outcome, sizeof(outcome), __VA_ARGS__);    \
+		LOG_##level("ota: %s", outcome);                    \
+	} while (0)
+
 static void stall_fn(struct k_work *work)
 {
 	int s = atomic_get(&state);
 	if (s == OTA_SENDING && atomic_cas(&state, OTA_SENDING, OTA_IDLE))
-		LOG_WRN("ota: tracker %u stopped asking at %u of %u bytes", target, asked, img_size);
+		OUTCOME(WRN, "tracker %u stopped asking at %u of %u bytes", target, asked, img_size);
 	else if (s == OTA_OFFERING && atomic_cas(&state, OTA_OFFERING, OTA_IDLE))
-		LOG_WRN("ota: tracker %u did not answer the offer (off, not paired, or firmware without OTA protocol %u)",
+		OUTCOME(WRN, "tracker %u did not answer the offer (off, not paired, or firmware without OTA protocol %u)",
 			target, OTA_PROTOCOL);
 }
 static K_WORK_DELAYABLE_DEFINE(stall_work, stall_fn);
@@ -126,13 +135,13 @@ void ota_esb_rx(const struct esb_payload *payload)
 		atomic_set(&state, OTA_IDLE);
 		k_work_cancel_delayable(&stall_work);
 		if (d[2] == OTA_STATUS_INSTALLED)
-			LOG_INF("ota: tracker %u received the image in %lld s and reboots into it", target,
-				(k_uptime_get() - start_time) / 1000);
+			OUTCOME(INF, "tracker %u received the image in %u s and reboots into it", target,
+				(uint32_t)((k_uptime_get() - start_time) / 1000));
 		else if (s == OTA_OFFERING)
-			LOG_WRN("ota: tracker %u refused the update: %s (its OTA protocol %u, this receiver's %u)",
+			OUTCOME(WRN, "tracker %u refused the update: %s (its OTA protocol %u, this receiver's %u)",
 				target, ota_status_name(d[2]), d[3], OTA_PROTOCOL);
 		else
-			LOG_WRN("ota: tracker %u failed: %s, it keeps its firmware", target, ota_status_name(d[2]));
+			OUTCOME(WRN, "tracker %u failed: %s, it keeps its firmware", target, ota_status_name(d[2]));
 	}
 }
 
@@ -163,6 +172,8 @@ static void print_status(void)
 	printk("ota: %s", state_names[s]);
 	if (s != OTA_IDLE)
 		printk(", tracker %u, %u bytes, received %u, asked %u", target, img_size, received, asked);
+	else if (outcome[0])
+		printk(", last: %s", outcome);
 	printk("\n");
 }
 
@@ -184,11 +195,13 @@ void ota_console(int argc, char **argv)
 			return;
 		}
 		session = session % OTA_SESSIONS + 1;
+		outcome[0] = '\0';
 		atomic_set(&state, OTA_OFFERING);
 		k_work_reschedule(&stall_work, K_MSEC(STALL_TIMEOUT_MS)); // no answer to the offer
 		printk("ota: begin %u, offering to tracker %u, protocol %u\n", img_size, target, OTA_PROTOCOL);
 	} else if (strcmp(cmd, "stop") == 0) {
-		atomic_set(&state, OTA_IDLE);
+		if (atomic_set(&state, OTA_IDLE) != OTA_IDLE)
+			snprintk(outcome, sizeof(outcome), "stopped from the console");
 		k_work_cancel_delayable(&stall_work);
 		print_status();
 	} else if (strcmp(cmd, "status") == 0) {

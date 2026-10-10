@@ -181,7 +181,10 @@ def main(argv=None):
                     continue
                 if msg.startswith('error'):
                     sys.exit(f'receiver: {msg}')
-                if msg.startswith(('idle', 'offering', 'sending', 'ota status')) or not msg.strip():
+                last = re.match(r'idle, last: (.+)', msg)
+                if last:
+                    msg = last[1]  # how it ended, from the status: its log line may have been cut
+                elif msg.startswith(('idle', 'offering', 'sending')) or 'ota status' in msg or not msg.strip():
                     continue  # a status line cut by the echo
                 if re.match(r'tracker \d+ at \d+%', msg):
                     continue  # the progress line shows it
@@ -194,7 +197,7 @@ def main(argv=None):
                           'and confirms it once the receiver hears it.')
                     print('Check its version with slime_link.py (firmware column).')
                     return
-                if any(w in msg for w in ('failed', 'refused', 'stopped asking', 'did not answer')):
+                if any(w in msg for w in ('failed', 'refused', 'stopped', 'did not answer')):
                     sys.exit(1)
             while sent < size and sent - received < AHEAD and sent + HID_PAYLOAD <= asked + WINDOW:
                 part = image[sent:sent + HID_PAYLOAD]
@@ -204,6 +207,10 @@ def main(argv=None):
             time.sleep(0.002)
         con.send('ota stop')
         sys.exit(f'No result within {args.timeout:.0f} s; offer stopped (tracker at {asked} of {size} bytes)')
+    except KeyboardInterrupt:
+        con.send('ota stop')  # the tracker gives up after a few seconds and tracks again
+        progress.end()
+        sys.exit('Stopped')
     finally:
         dev.close()
 
