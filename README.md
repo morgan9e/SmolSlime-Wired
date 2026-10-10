@@ -19,6 +19,7 @@ thigh, hip, chest ──── radio (ESB) ┴─► receiver ── UART (D0 �
 | `src/Hub` | ESP32 hub firmware (ESP-IDF). Details: `src/Hub/README.md` |
 | `slime_view.py` | live view of the trackers' data on the PC |
 | `slime_diag.py` | radio link diagnostics from the receiver, relayed by the hub to UDP 6971 (`diag hub on` on the receiver) |
+| `slime_link.py` | link statistics per tracker (rate, RSSI, gaps, offline, battery) from any nRF receiver over USB-HID, stock firmware included; runs alongside SlimeVR Server |
 | `dist` | flashable images, written by `make` |
 | `docs` | the plan, and a backup patch of earlier tracker UART work |
 
