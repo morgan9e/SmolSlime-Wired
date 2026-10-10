@@ -3,6 +3,7 @@
 #
 #   make            tracker and receiver
 #   make tracker    ProMicro stacked SPI tracker (.uf2)
+#   make tracker-xiao  Seeed XIAO nRF52840 Sense tracker (.uf2)
 #   make receiver   nRF52840 Dongle receiver (.hex for nRF Connect Programmer, .zip for nrfutil)
 #   make test       PC tool tests
 #   make clean      remove the build directories
@@ -26,7 +27,7 @@ PRISTINE      ?= auto
 
 ZEPHYR_ENV = PATH="$(HOST_TOOLS):$(WEST_VENV)/bin:$$PATH" ZEPHYR_SDK_INSTALL_DIR="$(ZEPHYR_SDK)" ZEPHYR_TOOLCHAIN_VARIANT=zephyr
 
-# The tracker's version comes from `git describe` (tags like 0.2.0, see tools/bump_version.py),
+# The tracker's version comes from `git describe` (tags like 0.0.3, see tools/bump_version.py),
 # handed to its build in FW_GIT_DESCRIBE / FW_GIT_BRANCH. In WSL, Linux git cannot read a worktree
 # that Windows git created (its .git file holds a Windows path): git.exe then.
 GIT ?= $(shell git -C "$(ROOT)" rev-parse --git-dir >/dev/null 2>&1 && command -v git || command -v git.exe || echo "/mnt/c/Program Files/Git/cmd/git.exe")
@@ -34,9 +35,10 @@ FW_GIT_DESCRIBE = $(shell cd "$(ROOT)" && "$(GIT)" describe --dirty --tags --lon
 FW_GIT_BRANCH = $(shell cd "$(ROOT)" && "$(GIT)" branch --show-current 2>/dev/null | tr -d '\r')
 
 TRACKER_UF2   := $(DIST)/SlimeNRF_ProMicro_StackedSPI_Tracker.uf2
+TRACKER_XIAO_UF2 := $(DIST)/SlimeNRF_XIAO_Sense_Tracker.uf2
 RECEIVER_HEX  := $(DIST)/SlimeNRF_Nordic_Dongle_Receiver.hex
 
-.PHONY: all tracker receiver test clean
+.PHONY: all tracker tracker-xiao receiver test clean
 
 all: tracker receiver
 
@@ -48,6 +50,15 @@ tracker:
 		-- -DNCS_TOOLCHAIN_VERSION=NONE -DBOARD_ROOT="$(ROOT)/Tracker"
 	cp "$(BUILD)/tracker/Tracker/zephyr/zephyr.uf2" "$(TRACKER_UF2)"
 	@echo "-> $(TRACKER_UF2)"
+
+tracker-xiao:
+	@mkdir -p $(DIST)
+	cd "$(NCS_TRACKER)" && $(ZEPHYR_ENV) FW_GIT_DESCRIBE="$(FW_GIT_DESCRIBE)" FW_GIT_BRANCH="$(FW_GIT_BRANCH)" \
+		west build --board xiao_ble/nrf52840/sense --pristine=$(PRISTINE) \
+		--build-dir "$(BUILD)/tracker-xiao" "$(ROOT)/Tracker" \
+		-- -DNCS_TOOLCHAIN_VERSION=NONE -DBOARD_ROOT="$(ROOT)/Tracker"
+	cp "$(BUILD)/tracker-xiao/Tracker/zephyr/zephyr.uf2" "$(TRACKER_XIAO_UF2)"
+	@echo "-> $(TRACKER_XIAO_UF2)"
 
 # The dongle board's own USB console (new USB stack) clashes with the receiver's legacy one in
 # this SDK: BOARD_SERIAL_BACKEND_CDC_ACM off.
