@@ -1,0 +1,2 @@
+# Patch files byte for byte
+*.patch -text
