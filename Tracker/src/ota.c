@@ -240,9 +240,12 @@ void ota_print_status(void)
 	// BOOT_SWAP_TYPE_NONE is 1, the others follow (zephyr/dfu/mcuboot.h)
 	static const char *const swap_names[] = {"none", "test", "perm", "revert", "fail"};
 	int swap = mcuboot_swap_type();
-	printk("Image: %s (%ld of %d frames acknowledged), next boot: swap %s\n",
-	       boot_is_img_confirmed() ? "confirmed" : "pending", (long)atomic_get(&acked),
-	       CONFIG_TRACKER_OTA_CONFIRM_ACKS,
+	if (boot_is_img_confirmed())
+		printk("Image: confirmed");
+	else
+		printk("Image: pending (%ld of %d frames acknowledged)", (long)atomic_get(&acked),
+		       CONFIG_TRACKER_OTA_CONFIRM_ACKS);
+	printk(", next boot: swap %s\n",
 	       swap >= BOOT_SWAP_TYPE_NONE && swap <= BOOT_SWAP_TYPE_FAIL ? swap_names[swap - BOOT_SWAP_TYPE_NONE] : "unknown");
 	if (ota_active())
 		printk("Update: receiving, %u of %u bytes\n", received, offer_size);
