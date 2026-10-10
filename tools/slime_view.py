@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Slime View: a small stand-in for SlimeVR Server to check the hub's trackers.
 
-Quit SlimeVR Server first so it does not compete for tracker data. In Wi-Fi mode the hub
-finds this program on UDP 6969 and relays every tracker to it. Shows per tracker: 3D orientation, last
+By default it picks one source by itself: an nRF receiver on USB when one is plugged in, else
+the ESP32 hub over Wi-Fi (the hub finds this program on UDP 6969 and relays every tracker to it).
+It checks every 2 s and switches when a receiver is plugged in or unplugged. Over Wi-Fi, quit
+SlimeVR Server first so it does not compete for tracker data. Shows per tracker: 3D orientation, last
 real data, status, battery, signal, temperature and packet rates.
 For a simple skeleton, select a body part on each of six tracker cards (chest, hips,
 thighs and lower legs). Click Calibrate, then stand upright with straight legs during
@@ -16,11 +18,12 @@ must still represent the requested pose. The status reports when older data is u
 The preview uses fixed proportions and a stationary hip position; arms and head
 follow the chest, and feet follow the lower legs.
 
-    python slime_view.py [--port 6969]
-    python slime_view.py --usb
+    python slime_view.py              USB if a receiver is plugged in, else Wi-Fi
+    python slime_view.py --usb        USB receivers only
+    python slime_view.py --wifi [--port 6969]   Wi-Fi only
 
 Wi-Fi needs only the standard library. USB needs: python -m pip install hidapi
-Plug the nRF receiver into the PC for USB mode; no Wi-Fi or ESP32 hub is needed.
+Plug the nRF receiver into the PC for USB; no Wi-Fi or ESP32 hub is needed.
 On Windows, allow Python through the firewall for private networks when asked.
 """
 import argparse
@@ -52,6 +55,7 @@ class Tracker:
     def __init__(self, addr):
         self.addr = addr  # (ip, port) of the hub socket for this tracker
         self.id = addr[1] - PORT_BASE if 0 <= addr[1] - PORT_BASE < 64 else None
+        self.source = 'wifi'  # or 'usb'
         self.mac = None
         self.fw = None
         self.status = None
@@ -170,7 +174,9 @@ def decode_hid_packet(t, p):
     """Decode receiver firmware's 16-byte record (see src/Hub/main/decoder.c)."""
     kind = p[0]
     if kind == 255:
-        t.mac = p[2:8].hex().upper()
+        # little-endian in the packet; reversed it matches the hub's Wi-Fi handshake and the
+        # receiver's "list", so saved assignments work over both
+        t.mac = p[2:8][::-1].hex().upper()
         return  # receiver address announcements are not evidence of a live tracker
     t.last_any = time.time()
     if kind in (0, 2):
@@ -253,6 +259,7 @@ class USBServer:
                 if t is None:
                     t = self.trackers[key] = Tracker(key)
                     t.id = p[1]
+                    t.source = 'usb'
                     t.last_any = 0
                 decode_hid_packet(t, p)
 
@@ -306,6 +313,76 @@ class USBServer:
         finally:
             for dev in devices.values():
                 dev.close()
+
+
+class AutoServer:
+    """One source at a time: an nRF receiver on USB when one is plugged in, else the Wi-Fi hub.
+    Checks every 2 s and switches when a receiver is plugged in or unplugged; only the active
+    source is open, so in USB mode UDP 6969 stays free."""
+
+    def __init__(self, port):
+        self.port = port
+        try:
+            import hid
+            self.hid = hid if hasattr(hid, 'device') else None
+        except ImportError:
+            self.hid = None
+        self.lock = threading.Lock()
+        self.active = self.kind = None
+        self.note = None if self.hid else 'USB off: python -m pip install hidapi'
+        self.switch()
+        if self.active is None:
+            raise RuntimeError(self.note)
+        self.stop = threading.Event()
+        self.thread = threading.Thread(target=self.watch, daemon=True)
+        self.thread.start()
+
+    def usb_present(self):
+        try:
+            return bool(self.hid and self.hid.enumerate(0x1209, 0x7690))
+        except (OSError, ValueError):
+            return False
+
+    def switch(self):
+        want = 'usb' if self.usb_present() else 'wifi'
+        with self.lock:
+            if want == self.kind:
+                return
+            try:
+                new = USBServer(self.hid) if want == 'usb' else Server(self.port)
+            except (OSError, RuntimeError) as e:
+                self.note = (f'Wi-Fi: UDP {self.port} busy ({getattr(e, "strerror", None) or e}); '
+                             'SlimeVR Server running?') if want == 'wifi' else f'USB: {e}'
+                return  # keep the current source; try again on the next check
+            old, self.active, self.kind = self.active, new, want
+            self.note = None if self.hid else 'USB off: python -m pip install hidapi'
+        if old is not None:
+            old.close()
+
+    def watch(self):
+        while not self.stop.wait(2):
+            self.switch()
+
+    @property
+    def description(self):
+        a = self.active
+        return f'auto: {a.description}' + (f' | {self.note}' if self.note else '')
+
+    @property
+    def error(self):
+        return self.active.error
+
+    def snapshot(self):
+        return self.active.snapshot()
+
+    def forget_stale(self):
+        self.active.forget_stale()
+
+    def close(self):
+        self.stop.set()
+        self.thread.join(timeout=3)
+        with self.lock:
+            self.active.close()
 
 
 # ---------------------------------------------------------------- 3D drawing
@@ -765,7 +842,8 @@ class App:
         return self.cards[key]
 
     def tick(self):
-        snap = sorted(self.server.snapshot(), key=lambda t: (t["addr"][0], t["id"] if t["id"] is not None else 99))
+        snap = sorted(self.server.snapshot(),
+                      key=lambda t: (t['source'], t["addr"][0], t["id"] if t["id"] is not None else 99))
         self.tracker_keys = {t['addr']: tracker_key(t) for t in snap}
         if self.skeleton.migrate_assignments(snap):
             self.save_config()
@@ -800,11 +878,11 @@ class App:
                 lines.append(f"XYZ     {r:6.1f} {p:6.1f} {y:6.1f} deg")
             if t["fw"]:
                 lines.append(f"fw      {t['fw']}")
-            if isinstance(self.server, USBServer):
-                receivers = sorted({s['addr'][0] for s in snap})
+            if t['source'] == 'usb':
+                receivers = sorted({s['addr'][0] for s in snap if s['source'] == 'usb'})
                 lines.append(f"source  USB receiver {receivers.index(t['addr'][0]) + 1}")
             else:
-                lines.append(f"hub     {t['addr'][0]}")
+                lines.append(f"source  Wi-Fi hub {t['addr'][0]}")
             info.config(text="\n".join(lines), fg="#ccc" if fresh else "#777")
         err = f"   last error: {self.server.error}" if self.server.error else ""
         self.header.config(text=f"{self.server.description} | {len(snap)} tracker(s), {seen} seen{err}")
@@ -815,12 +893,19 @@ class App:
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--port", type=int, default=6969)
-    ap.add_argument("--usb", action="store_true", help="Read nRF receivers over USB-HID, without Wi-Fi")
+    ap.add_argument("--port", type=int, default=6969, help="UDP port for the Wi-Fi hub (default 6969)")
+    only = ap.add_mutually_exclusive_group()
+    only.add_argument("--usb", action="store_true", help="Only nRF receivers over USB-HID")
+    only.add_argument("--wifi", action="store_true", help="Only the ESP32 hub over Wi-Fi")
     ap.add_argument('--config', type=Path, default=CONFIG_PATH, help='JSON assignments and calibration file')
     args = ap.parse_args()
     try:
-        server = USBServer() if args.usb else Server(args.port)
+        if args.usb:
+            server = USBServer()
+        elif args.wifi:
+            server = Server(args.port)
+        else:
+            server = AutoServer(args.port)
     except RuntimeError as e:
         raise SystemExit(str(e))
     except OSError as e:
