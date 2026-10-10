@@ -27,12 +27,45 @@ WINDOW = 16384        # the receiver's window (Receiver/src/ota.c)
 HID_DATA = 0xF5       # OTA_HID_DATA (Receiver/src/ota.h): [type][offset u24][length][data]
 HID_PAYLOAD = 59      # 64-byte report minus the header
 AHEAD = 4096          # bytes sent before the receiver confirms them in its status
-POLL_S = 0.05
+POLL_S = 0.2         # status polls; each is echoed by the console, so not too often
 BOARDS = {  # file name part -> CONFIG_BOARD_TARGET of the image
     'ProMicro_StackedSPI': 'promicro_uf2/nrf52840/stackedspi',
     'XIAO_Sense': 'xiao_ble/nrf52840/sense',
 }
-STATUS = re.compile(r'(offering|sending), tracker \d+, \d+ bytes, received (\d+), asked (\d+)')
+# The console echoes the polls, which can cut a status line: take any line with both numbers
+STATUS = re.compile(r'(offering|sending)\b.*received (\d+), asked (\d+)')
+
+
+class Progress:
+    """One line, redrawn in a terminal (a line every 10% otherwise): how far the tracker is."""
+
+    def __init__(self, size):
+        self.size, self.tty = size, sys.stdout.isatty()
+        self.start = self.shown = None
+        self.next_line = 0.1
+
+    def update(self, done):
+        now = time.monotonic()
+        if self.start is None:
+            self.start = now
+        if self.tty and self.shown and now - self.shown < 0.25 and done < self.size:
+            return
+        frac = done / self.size
+        rate = done / max(now - self.start, 1e-3)
+        left = (self.size - done) / rate if rate > 0 else 0
+        bar = '#' * int(frac * 30)
+        text = (f'  [{bar:<30}] {frac * 100:5.1f}%  {done // 1024:4d} of {self.size // 1024} KB  '
+                f'{rate / 1024:4.1f} KB/s  ~{left:3.0f} s left')
+        if self.tty:
+            print('\r' + text, end='', flush=True)
+        elif frac >= self.next_line or done >= self.size:
+            print(text, flush=True)
+            self.next_line = frac + 0.1
+        self.shown = now
+
+    def end(self):
+        if self.tty and self.shown:
+            print()
 
 
 class Console:
@@ -118,6 +151,7 @@ def main(argv=None):
 
     sent = received = asked = 0
     stuck_polls = 0
+    progress = Progress(size)
     start = time.monotonic()
     accepted = None
     next_poll = 0
@@ -136,11 +170,16 @@ def main(argv=None):
                     received = new_received
                     if stuck_polls >= 3:
                         sent, stuck_polls = received, 0
+                    if m[1] == 'sending':
+                        progress.update(asked)
                     continue
                 if msg.startswith('error'):
                     sys.exit(f'receiver: {msg}')
-                if msg.startswith('idle'):
-                    continue
+                if msg.startswith(('idle', 'offering', 'sending', 'ota status')) or not msg.strip():
+                    continue  # a status line cut by the echo
+                if re.match(r'tracker \d+ at \d+%', msg):
+                    continue  # the progress line shows it
+                progress.end()
                 print('   ', msg)
                 if 'accepted' in msg:
                     accepted = time.monotonic()
