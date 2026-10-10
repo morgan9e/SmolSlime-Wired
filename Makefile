@@ -26,6 +26,11 @@ PRISTINE      ?= auto
 
 ZEPHYR_ENV = PATH="$(HOST_TOOLS):$(WEST_VENV)/bin:$$PATH" ZEPHYR_SDK_INSTALL_DIR="$(ZEPHYR_SDK)" ZEPHYR_TOOLCHAIN_VARIANT=zephyr
 
+# The tracker's version comes from `git describe` (tags like 0.2.0, see tools/bump_version.py).
+# In WSL, Linux git cannot read a worktree that Windows git created (its .git file holds a Windows
+# path), so the build uses git.exe then.
+GIT ?= $(shell git -C "$(ROOT)" rev-parse --git-dir >/dev/null 2>&1 && command -v git || command -v git.exe || echo "/mnt/c/Program Files/Git/cmd/git.exe")
+
 TRACKER_UF2   := $(DIST)/SlimeNRF_ProMicro_StackedSPI_Tracker.uf2
 RECEIVER_HEX  := $(DIST)/SlimeNRF_Nordic_Dongle_Receiver.hex
 
@@ -37,7 +42,7 @@ tracker:
 	@mkdir -p $(DIST)
 	cd "$(NCS_TRACKER)" && $(ZEPHYR_ENV) west build --board $(TRACKER_BOARD) --pristine=$(PRISTINE) \
 		--build-dir "$(BUILD)/tracker" "$(ROOT)/Tracker" \
-		-- -DNCS_TOOLCHAIN_VERSION=NONE -DBOARD_ROOT="$(ROOT)/Tracker"
+		-- -DNCS_TOOLCHAIN_VERSION=NONE -DBOARD_ROOT="$(ROOT)/Tracker" -DGIT_EXECUTABLE="$(GIT)"
 	cp "$(BUILD)/tracker/Tracker/zephyr/zephyr.uf2" "$(TRACKER_UF2)"
 	@echo "-> $(TRACKER_UF2)"
 
