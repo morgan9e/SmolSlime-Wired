@@ -1,6 +1,7 @@
 # Plan: tracker firmware updates over the radio (OTA)
 
-Status: plan, nothing implemented yet. Goal: after one last USB flash, update every tracker from
+Status: phase 1 in progress (MCUboot build: `make tracker-ota`). Decided: MCUboot with rollback,
+unsigned images (MCUboot still checks the SHA-256), the tracker pauses tracking during an update. Goal: after one last USB flash, update every tracker from
 the PC through the nRF52840 Dongle, one tracker at a time, while the others keep tracking.
 
 ## Facts this plan rests on
@@ -31,17 +32,22 @@ the PC through the nRF52840 Dongle, one tracker at a time, while the others keep
 MCUboot goes where the app starts today; the app moves into two slots after it. The UF2
 bootloader and the settings stay where they are, so pairing and calibration survive.
 
-ProMicro (sizes to be checked against the MCUboot build):
+ProMicro (`Tracker/pm_static/mcuboot_nrf52840_uf2.yml`, built: MCUboot 24 KB, app 242 KB):
 
 | Region | Range | Size |
 |---|---|---|
 | MBR | 0x0 - 0x1000 | 4 KB |
 | MCUboot | 0x1000 - 0xD000 | 48 KB |
-| Slot 0 (running app) | 0xD000 - 0x7D000 | 448 KB |
-| Slot 1 (incoming image) | 0x7D000 - 0xED000 | 448 KB |
-| (spare) | 0xED000 - 0xEE000 | 4 KB |
+| Slot 0 (running app) | 0xD000 - 0x7C000 | 444 KB |
+| Slot 1 (incoming image) | 0x7C000 - 0xEA000 | 440 KB |
+| (unused) | 0xEA000 - 0xEE000 | 16 KB |
 | NVS settings | 0xEE000 - 0xF4000 | 24 KB, unchanged |
 | UF2 bootloader | 0xF4000 - 0x100000 | unchanged |
+
+swap-using-move needs slot 0 at least one page larger than slot 1. The UF2 bootloader (nice!nano
+0.11.0) writes only 0x1000 - 0xEA000 (the 40 KB below it are kept for app data; its CURRENT.UF2
+shows the range), so slot 1 ends there: a test image for it can be flashed over USB as well
+(`make tracker-ota-slot1`).
 
 XIAO: the same from 0x27000 (MCUboot 0x27000 - 0x33000, two slots of 374 KB each).
 

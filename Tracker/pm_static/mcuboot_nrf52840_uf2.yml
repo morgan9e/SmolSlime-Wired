@@ -2,9 +2,9 @@
 # no SoftDevice (ProMicro). Chosen by sysbuild.cmake when SB_CONFIG_BOOTLOADER_MCUBOOT is set.
 # MBR, settings (nvs_storage) and the UF2 bootloader stay where the normal build has them, so
 # pairing and calibration survive the switch. swap-using-move needs the primary slot at least one
-# page larger than the secondary one. The UF2 bootloader writes only below 0xed000 (the 28 KB below
-# it are reserved for app data, our settings among them), so the secondary slot ends there: a test
-# image for it can be flashed over USB too.
+# page larger than the secondary one. The UF2 bootloader (nice!nano 0.11.0) writes only
+# 0x1000-0xea000 (the 40 KB below it are kept for app data, our settings among them), so the
+# secondary slot ends there: a test image for it can be flashed over USB too.
 bootloader:
   address: 0x0
   end_address: 0x1000
@@ -22,36 +22,36 @@ mcuboot_pad:
   size: 0x200
 app:
   address: 0xd200
-  end_address: 0x7e000
+  end_address: 0x7c000
   region: flash_primary
-  size: 0x70e00
+  size: 0x6ee00
 mcuboot_primary:
   address: 0xd000
-  end_address: 0x7e000
+  end_address: 0x7c000
   orig_span: &id001
   - mcuboot_pad
   - app
   region: flash_primary
-  size: 0x71000
+  size: 0x6f000
   span: *id001
 mcuboot_primary_app:
   address: 0xd200
-  end_address: 0x7e000
+  end_address: 0x7c000
   orig_span: &id002
   - app
   region: flash_primary
-  size: 0x70e00
+  size: 0x6ee00
   span: *id002
 mcuboot_secondary:
-  address: 0x7e000
-  end_address: 0xed000
+  address: 0x7c000
+  end_address: 0xea000
   region: flash_primary
-  size: 0x6f000
-unused_page:
-  address: 0xed000
+  size: 0x6e000
+unused:
+  address: 0xea000
   end_address: 0xee000
   region: flash_primary
-  size: 0x1000
+  size: 0x4000
 nvs_storage:
   address: 0xee000
   end_address: 0xf4000
