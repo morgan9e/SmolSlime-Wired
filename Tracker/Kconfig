@@ -173,6 +173,26 @@ config SENSOR_UPDATE_TIME_MS
         them collide. Fusion still processes every IMU sample. Still trackers switch to 33 ms
         and 100 ms as before.
 
+config BATTERY_CHARGE_ESTIMATE_CAPACITY_MAH
+    int "Battery capacity for the charging estimate (mAh, 0: off)"
+    default 180
+    help
+        While plugged in, the battery voltage reads high (the charger pushes it up), and so does
+        the percentage computed from it. With a capacity set, the tracker reports an estimate
+        instead: the last percentage before it was plugged in, plus the charge put in since at
+        BATTERY_CHARGE_ESTIMATE_CURRENT_MA (90% of it reaching the cell), never more than the
+        voltage-based reading. Plugged in at boot there is no starting point: the voltage-based
+        percentage is sent, as upstream. 0 turns the estimate off.
+
+config BATTERY_CHARGE_ESTIMATE_CURRENT_MA
+    int "Charge current (mA)"
+    depends on BATTERY_CHARGE_ESTIMATE_CAPACITY_MAH != 0
+    range 10 2000
+    default 100
+    help
+        The charger's constant current. ProMicro (nice!nano style) boards charge at about
+        100 mA. If charges "finish" early or late against the voltage, adjust this.
+
 choice
     prompt "Sensor rotation"
     default SENSOR_ROTATION_90
