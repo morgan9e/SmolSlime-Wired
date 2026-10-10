@@ -1,8 +1,8 @@
 # Tracker firmware updates over the radio (OTA)
 
-Status: works on the ProMicro (stacked SPI) trackers, all six of them run it. Tested: MCUboot boot,
-test swap, rollback, updates over the radio (242 KB in 21 - 27 s per tracker; 0.0.13 went to all
-six one after the other). Not yet: the XIAO layout.
+Status: works on the ProMicro (stacked SPI) trackers, all six of them run it, and on the XIAO
+nRF52840 Sense. Tested: MCUboot boot, test swap, rollback, updates over the radio (242 KB in
+21 - 27 s per tracker; 0.0.13 went to all six ProMicros one after the other, 0.0.14 to the XIAO).
 
 Decided: MCUboot with rollback; unsigned images (MCUboot still checks each image's SHA-256, and the
 tracker a CRC32 of the transfer); the tracker pauses tracking while it receives an update.
@@ -10,6 +10,7 @@ tracker a CRC32 of the transfer); the tracker pauses tracking while it receives 
 ## Use
 
     make tracker-ota      # dist/..._Tracker_OTA.uf2 (MCUboot + app) and _OTA_app.bin (the update)
+    make tracker-ota-xiao # the same for the XIAO (SlimeNRF_XIAO_Sense_Tracker_OTA*)
     make receiver         # the dongle needs this repository's receiver (ota commands, HID OUT)
 
 1. Once per tracker, over USB: flash `_OTA.uf2`. With the trackers plugged in (a USB hub takes
@@ -43,6 +44,20 @@ ProMicro (`Tracker/pm_static/mcuboot_nrf52840_uf2.yml`; MCUboot 24 KB, app 242 K
 | (unused) | 0xEA000 - 0xEE000 | 16 KB |
 | NVS settings | 0xEE000 - 0xF4000 | 24 KB, as without MCUboot |
 | UF2 bootloader | 0xF4000 - 0x100000 | unchanged |
+
+XIAO nRF52840 Sense (`Tracker/pm_static/mcuboot_xiao_ble.yml`; its UF2 bootloader 0.6.1 comes with
+the SoftDevice S140 and starts the app at 0x27000, where MCUboot goes; it writes up to 0xEA000 too):
+
+| Region | Range | Size |
+|---|---|---|
+| SoftDevice (unused, kept) | 0x0 - 0x27000 | 156 KB |
+| MCUboot | 0x27000 - 0x33000 | 48 KB |
+| Slot 0 (running app) | 0x33000 - 0x8F000 | 368 KB |
+| Slot 1 (incoming image) | 0x8F000 - 0xEA000 | 364 KB |
+| NVS settings, UF2 bootloader | as on the ProMicro | |
+
+The XIAO board's own partition table names its UF2 bootloader `boot_partition`, so its overlays
+(`Tracker/ota_xiao.overlay`, `Tracker/sysbuild/mcuboot_xiao.overlay`) replace the table.
 
 - swap-using-move: power-fail safe, needs slot 0 at least one page larger than slot 1. An image
   that does not confirm itself is swapped back on the next boot.
@@ -91,7 +106,6 @@ the frame after.
 
 ## Open
 
-- XIAO: its own layout (SoftDevice area up to 0x27000, bootloader 0.6.1 limits to check).
 - Speed: 26 s for 242 KB (about 9 KB/s). The PC side is not the limit; more would take larger ESB
   payloads, which change the radio format for every tracker on the receiver.
 - The standard alternative for the transfer is MCUmgr/SMP (Zephyr's image management, with the
