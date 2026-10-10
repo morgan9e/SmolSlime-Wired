@@ -1,0 +1,9 @@
+# Copyright (c) 2024 Nordic Semiconductor ASA
+# SPDX-License-Identifier: Apache-2.0
+
+board:
+  name: butterfly_p3
+  full_name: Butterfly Receiver P3
+  vendor: slimevr
+  socs:
+    - name: nrf52820
