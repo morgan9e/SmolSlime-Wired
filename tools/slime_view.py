@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 """Slime View: a small stand-in for SlimeVR Server to check the hub's trackers.
 
-By default it takes trackers from both sources at once: the ESP32 hub over Wi-Fi (it finds this
-program on UDP 6969 and relays every tracker to it) and any nRF receiver on USB. A tracker that
-arrives both ways is shown once, from USB while that is live. If one source cannot start, e.g.
-UDP 6969 is taken because SlimeVR Server is running, the other keeps working and the header says
-why. Over Wi-Fi, quit SlimeVR Server first so it does not compete for tracker data. Shows per tracker: 3D orientation, last
+By default it picks one source by itself: an nRF receiver on USB when one is plugged in, else
+the ESP32 hub over Wi-Fi (the hub finds this program on UDP 6969 and relays every tracker to it).
+It checks every 2 s and switches when a receiver is plugged in or unplugged. Over Wi-Fi, quit
+SlimeVR Server first so it does not compete for tracker data. Shows per tracker: 3D orientation, last
 real data, status, battery, signal, temperature and packet rates.
 For a simple skeleton, select a body part on each of six tracker cards (chest, hips,
 thighs and lower legs). Click Calibrate, then stand upright with straight legs during
@@ -19,7 +18,7 @@ must still represent the requested pose. The status reports when older data is u
 The preview uses fixed proportions and a stationary hip position; arms and head
 follow the chest, and feet follow the lower legs.
 
-    python slime_view.py              Wi-Fi and USB together
+    python slime_view.py              USB if a receiver is plugged in, else Wi-Fi
     python slime_view.py --usb        USB receivers only
     python slime_view.py --wifi [--port 6969]   Wi-Fi only
 
@@ -317,58 +316,73 @@ class USBServer:
 
 
 class AutoServer:
-    """Wi-Fi and USB together. Either may fail to start; the other keeps working."""
+    """One source at a time: an nRF receiver on USB when one is plugged in, else the Wi-Fi hub.
+    Checks every 2 s and switches when a receiver is plugged in or unplugged; only the active
+    source is open, so in USB mode UDP 6969 stays free."""
 
-    def __init__(self, port, wifi=True, usb=True):
-        self.parts, self.notes = [], []
-        if wifi:
+    def __init__(self, port):
+        self.port = port
+        try:
+            import hid
+            self.hid = hid if hasattr(hid, 'device') else None
+        except ImportError:
+            self.hid = None
+        self.lock = threading.Lock()
+        self.active = self.kind = None
+        self.note = None if self.hid else 'USB off: python -m pip install hidapi'
+        self.switch()
+        if self.active is None:
+            raise RuntimeError(self.note)
+        self.stop = threading.Event()
+        self.thread = threading.Thread(target=self.watch, daemon=True)
+        self.thread.start()
+
+    def usb_present(self):
+        try:
+            return bool(self.hid and self.hid.enumerate(0x1209, 0x7690))
+        except (OSError, ValueError):
+            return False
+
+    def switch(self):
+        want = 'usb' if self.usb_present() else 'wifi'
+        with self.lock:
+            if want == self.kind:
+                return
             try:
-                self.parts.append(Server(port))
-            except OSError as e:
-                self.notes.append(f'Wi-Fi off: UDP {port} busy ({e.strerror or e}); SlimeVR Server running?')
-        if usb:
-            try:
-                self.parts.append(USBServer())
-            except RuntimeError as e:
-                self.notes.append(f'USB off: {e}')
-        if not self.parts:
-            raise RuntimeError('; '.join(self.notes))
+                new = USBServer(self.hid) if want == 'usb' else Server(self.port)
+            except (OSError, RuntimeError) as e:
+                self.note = (f'Wi-Fi: UDP {self.port} busy ({getattr(e, "strerror", None) or e}); '
+                             'SlimeVR Server running?') if want == 'wifi' else f'USB: {e}'
+                return  # keep the current source; try again on the next check
+            old, self.active, self.kind = self.active, new, want
+            self.note = None if self.hid else 'USB off: python -m pip install hidapi'
+        if old is not None:
+            old.close()
+
+    def watch(self):
+        while not self.stop.wait(2):
+            self.switch()
 
     @property
     def description(self):
-        return ' + '.join(p.description for p in self.parts) + ''.join(f' | {n}' for n in self.notes)
+        a = self.active
+        return f'auto: {a.description}' + (f' | {self.note}' if self.note else '')
 
     @property
     def error(self):
-        errors = [p.error for p in self.parts if p.error]
-        return '; '.join(errors) or None
+        return self.active.error
 
     def snapshot(self):
-        snap = [t for p in self.parts for t in p.snapshot()]
-        # One card per tracker: when it arrives both ways, USB while live (lower latency), else
-        # whichever has the newest real data.
-        now = time.time()
-
-        def rank(t):
-            live = t['last_real'] is not None and now - t['last_real'] < STALE_S
-            return (live, t['source'] == 'usb', t['last_real'] or 0)
-
-        best, out = {}, []
-        for t in snap:
-            mac = normalized_mac(t['mac'])
-            if mac is None:
-                out.append(t)
-            elif mac not in best or rank(t) > rank(best[mac]):
-                best[mac] = t
-        return out + list(best.values())
+        return self.active.snapshot()
 
     def forget_stale(self):
-        for p in self.parts:
-            p.forget_stale()
+        self.active.forget_stale()
 
     def close(self):
-        for p in self.parts:
-            p.close()
+        self.stop.set()
+        self.thread.join(timeout=3)
+        with self.lock:
+            self.active.close()
 
 
 # ---------------------------------------------------------------- 3D drawing
@@ -886,9 +900,16 @@ def main():
     ap.add_argument('--config', type=Path, default=CONFIG_PATH, help='JSON assignments and calibration file')
     args = ap.parse_args()
     try:
-        server = AutoServer(args.port, wifi=not args.usb, usb=not args.wifi)
+        if args.usb:
+            server = USBServer()
+        elif args.wifi:
+            server = Server(args.port)
+        else:
+            server = AutoServer(args.port)
     except RuntimeError as e:
         raise SystemExit(str(e))
+    except OSError as e:
+        raise SystemExit(f"Cannot open UDP {args.port} ({e}). Is SlimeVR Server still running?")
     try:
         root = tk.Tk()
         root.geometry("1180x820")
