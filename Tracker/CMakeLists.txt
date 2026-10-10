@@ -21,6 +21,13 @@ if(GIT_EXECUTABLE)
     )
 endif()
 
+# Or from the environment, when git cannot read the checkout (e.g. a Windows git worktree built
+# in WSL): FW_GIT_DESCRIBE as the describe command above prints it, and FW_GIT_BRANCH
+if(DEFINED ENV{FW_GIT_DESCRIBE})
+  set(GIT_VERSION "$ENV{FW_GIT_DESCRIBE}")
+  set(GIT_BRANCH "$ENV{FW_GIT_BRANCH}")
+endif()
+
 if(GIT_BRANCH STREQUAL "")
   set(GIT_BRANCH unknown)
   message(WARNING "Unknown Git Branch")
