@@ -1,8 +1,10 @@
 # Flash layout of the MCUboot (OTA) build on nRF52840 boards with the Adafruit UF2 bootloader and
 # no SoftDevice (ProMicro). Chosen by sysbuild.cmake when SB_CONFIG_BOOTLOADER_MCUBOOT is set.
 # MBR, settings (nvs_storage) and the UF2 bootloader stay where the normal build has them, so
-# pairing and calibration survive the switch. swap-using-move needs one more page in the primary
-# slot than in the secondary one.
+# pairing and calibration survive the switch. swap-using-move needs the primary slot at least one
+# page larger than the secondary one. The UF2 bootloader writes only below 0xed000 (the 28 KB below
+# it are reserved for app data, our settings among them), so the secondary slot ends there: a test
+# image for it can be flashed over USB too.
 bootloader:
   address: 0x0
   end_address: 0x1000
@@ -42,9 +44,14 @@ mcuboot_primary_app:
   span: *id002
 mcuboot_secondary:
   address: 0x7e000
+  end_address: 0xed000
+  region: flash_primary
+  size: 0x6f000
+unused_page:
+  address: 0xed000
   end_address: 0xee000
   region: flash_primary
-  size: 0x70000
+  size: 0x1000
 nvs_storage:
   address: 0xee000
   end_address: 0xf4000

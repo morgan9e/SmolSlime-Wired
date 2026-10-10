@@ -17,7 +17,7 @@
 		};
 		slot1_partition: partition@7e000 {
 			label = "image-1";
-			reg = <0x0007e000 0x00070000>;
+			reg = <0x0007e000 0x0006f000>;
 		};
 		storage_partition: partition@ee000 {
 			label = "storage";

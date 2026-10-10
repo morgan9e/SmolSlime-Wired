@@ -48,7 +48,7 @@ OTA_CONF      := $(ROOT)/Tracker/ota.conf$(if $(OTA_NOCONFIRM),;$(ROOT)/Tracker/
 IMGTOOL       := $(NCS_TRACKER)/bootloader/mcuboot/scripts/imgtool.py
 # Secondary slot of pm_static/mcuboot_nrf52840_uf2.yml
 OTA_SLOT1_ADDR := 0x7e000
-OTA_SLOT1_SIZE := 0x70000
+OTA_SLOT1_SIZE := 0x6f000
 UF2CONV       := $(NCS_TRACKER)/zephyr/scripts/build/uf2conv.py
 UF2_FAMILY_NRF52840 := 0xADA52840
 RECEIVER_HEX  := $(DIST)/SlimeNRF_Nordic_Dongle_Receiver.hex
