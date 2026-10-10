@@ -1,8 +1,8 @@
 # Tracker firmware updates over the radio (OTA)
 
-Status: works on the ProMicro (stacked SPI) trackers. Tested on one tracker: MCUboot boot, test
-swap, rollback, and updates over the radio (0.0.9 -> 0.0.10 -> 0.0.11 -> 0.0.12; the last one,
-242 KB, in 26 s). Not yet: the XIAO layout, rolling it out to every tracker.
+Status: works on the ProMicro (stacked SPI) trackers, all six of them run it. Tested: MCUboot boot,
+test swap, rollback, updates over the radio (242 KB in 21 - 27 s per tracker; 0.0.13 went to all
+six one after the other). Not yet: the XIAO layout.
 
 Decided: MCUboot with rollback; unsigned images (MCUboot still checks each image's SHA-256, and the
 tracker a CRC32 of the transfer); the tracker pauses tracking while it receives an update.
@@ -12,7 +12,9 @@ tracker a CRC32 of the transfer); the tracker pauses tracking while it receives 
     make tracker-ota      # dist/..._Tracker_OTA.uf2 (MCUboot + app) and _OTA_app.bin (the update)
     make receiver         # the dongle needs this repository's receiver (ota commands, HID OUT)
 
-1. Once per tracker, over USB: flash `_OTA.uf2` (`dfu` on its console, copy to the drive).
+1. Once per tracker, over USB: flash `_OTA.uf2`. With the trackers plugged in (a USB hub takes
+   them all), `python tools/flash_usb.py dist/SlimeNRF_ProMicro_StackedSPI_Tracker_OTA.uf2`
+   does each in turn (`dfu`, copy to its drive, show the new version; `--only 0,3` for some).
    Pairing and calibration are kept.
 2. After that, for each new version: commit, `python tools/bump_version.py`, `make tracker-ota`, and
 
@@ -90,7 +92,6 @@ the frame after.
 ## Open
 
 - XIAO: its own layout (SoftDevice area up to 0x27000, bootloader 0.6.1 limits to check).
-- Rolling out: one `_OTA.uf2` USB flash per tracker.
 - Speed: 26 s for 242 KB (about 9 KB/s). The PC side is not the limit; more would take larger ESB
   payloads, which change the radio format for every tracker on the receiver.
 - The standard alternative for the transfer is MCUmgr/SMP (Zephyr's image management, with the

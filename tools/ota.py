@@ -88,7 +88,7 @@ class Console:
             text = re.sub(r'\x1b\[[0-9;]*m', '', raw.decode(errors='replace')).strip()
             if text.startswith('Too many parameters') or text.startswith('Invalid'):
                 raise RuntimeError(f'receiver console: {text}')
-            i = text.find('ota: ')
+            i = text.rfind('ota: ')  # log lines carry the module name too: '<inf> ota: ota: ...'
             if i >= 0:
                 yield text[i + 5:]
 
