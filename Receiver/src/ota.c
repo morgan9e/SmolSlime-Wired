@@ -30,10 +30,10 @@
 
 LOG_MODULE_REGISTER(ota, LOG_LEVEL_INF);
 
-// The PC streams the image into this window while the tracker fetches it. The tracker only ever
-// asks for the offset after the last chunk it has, so the window needs to hold only what lies
-// between that offset and what the PC has sent; the PC is told where the tracker is in every
-// reply and never runs more than WINDOW bytes ahead of it.
+// The PC streams the image into this window (HID OUT reports, ota_hid_data) while the tracker
+// fetches it. The tracker only ever asks for the offset after the last chunk it has, so the window
+// needs to hold only what lies between that offset and what the PC has sent; the PC reads where
+// the tracker is from the status and never runs more than WINDOW bytes ahead of it.
 #define WINDOW 16384
 #define STALL_TIMEOUT_MS 10000
 
@@ -121,30 +121,32 @@ void ota_esb_rx(const struct esb_payload *payload)
 	}
 }
 
-/* ---- console ---- */
+/* ---- image data from the PC (HID OUT reports) ---- */
 
-static int hex_decode(const char *hex, uint8_t *out, size_t max)
+void ota_hid_data(const uint8_t *report, int len)
 {
-	size_t len = strlen(hex);
-	if (len % 2 || len / 2 > max)
-		return -1;
-	for (size_t i = 0; i < len / 2; i++) {
-		char byte[3] = {hex[2 * i], hex[2 * i + 1], 0};
-		char *end;
-		out[i] = strtoul(byte, &end, 16);
-		if (*end)
-			return -1;
-	}
-	return len / 2;
+	int s = atomic_get(&state);
+	if ((s != OTA_OFFERING && s != OTA_SENDING) || len < OTA_HID_HEADER)
+		return;
+	uint32_t offset = ota_get_u24(&report[1]);
+	uint32_t n = MIN(report[4], len - OTA_HID_HEADER);
+	// Only the next part, only inside the window, never past the end: anything else is dropped,
+	// and the PC goes on from what the status says
+	if (n == 0 || offset != received || offset + n > img_size || offset + n > asked + WINDOW)
+		return;
+	for (uint32_t i = 0; i < n; i++)
+		window[(offset + i) % WINDOW] = report[OTA_HID_HEADER + i];
+	received = offset + n;
 }
+
+/* ---- console ---- */
 
 static void print_status(void)
 {
 	int s = atomic_get(&state);
 	printk("ota: %s", state_names[s]);
 	if (s != OTA_IDLE)
-		printk(", tracker %u, %u bytes, %u received from the PC, tracker at %u", target, img_size, received,
-		       asked);
+		printk(", tracker %u, %u bytes, received %u, asked %u", target, img_size, received, asked);
 	printk("\n");
 }
 
@@ -167,25 +169,6 @@ void ota_console(int argc, char **argv)
 		}
 		atomic_set(&state, OTA_OFFERING);
 		printk("ota: begin %u, offering to tracker %u\n", img_size, target);
-	} else if (strcmp(cmd, "d") == 0 && argc == 4) {
-		// ota d <offset> <hex>: the next part of the image; the answer says where the tracker is
-		uint8_t buf[64];
-		uint32_t offset = strtoul(argv[2], NULL, 0);
-		int n = hex_decode(argv[3], buf, sizeof(buf));
-		int s = atomic_get(&state);
-		if ((s != OTA_OFFERING && s != OTA_SENDING) || n <= 0 || offset != received ||
-		    offset + n > img_size) {
-			printk("ota: error: data at %u, expected %u\n", offset, received);
-			return;
-		}
-		if (offset + n > asked + WINDOW) {
-			printk("ota: full %u %u\n", received, asked); // ahead of the tracker: send it again later
-			return;
-		}
-		for (int i = 0; i < n; i++)
-			window[(offset + i) % WINDOW] = buf[i];
-		received = offset + n;
-		printk("ota: ok %u %u\n", received, asked);
 	} else if (strcmp(cmd, "stop") == 0) {
 		atomic_set(&state, OTA_IDLE);
 		k_work_cancel_delayable(&stall_work);
@@ -193,7 +176,7 @@ void ota_console(int argc, char **argv)
 	} else if (strcmp(cmd, "status") == 0) {
 		print_status();
 	} else {
-		printk("Usage: ota begin <size> <crc32 hex> <board crc32 hex> <tracker id> | ota d <offset> <hex> |\n"
-		       "       ota stop | ota status (tools/ota.py does all of it)\n");
+		printk("Usage: ota begin <size> <crc32 hex> <board crc32 hex> <tracker id> | ota stop | ota status\n"
+		       "       (tools/ota.py does all of it; the image comes as HID OUT reports)\n");
 	}
 }

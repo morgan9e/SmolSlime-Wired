@@ -22,6 +22,7 @@
 */
 #include "globals.h"
 #include "packet_log.h"
+#include "ota.h"
 
 #include <zephyr/kernel.h>
 #include <zephyr/usb/usb_device.h>
@@ -193,6 +194,8 @@ static void read_report(struct k_work *work)
 
 		if (ret != 0) {
 			LOG_ERR("hid_int_ep_read: %d", ret);
+		} else if (read > 0 && ep_read_buffer[0] == OTA_HID_DATA) {
+			ota_hid_data(ep_read_buffer, read); // a tracker firmware update streamed by the PC
 		} else {
 			LOG_INF("hid_int_ep_read: %d", read);
 			// do something here
