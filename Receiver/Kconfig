@@ -52,4 +52,30 @@ config LED_DEFAULT_COLOR_B
 
 endmenu
 
+config PACKET_LOG
+    bool "Link diagnostics and packet log"
+    default y
+    help
+        "diag on" on the console logs radio link diagnostics every interval: frames received and
+        lost per tracker (from the frame sequence numbers), repeats, longest silence, RSSI, the
+        radio's good/bad CRC counts and the channel's noise floor. Always logged: packets dropped
+        by the receiver (unknown id, bad checksum, out of sequence) and trackers gone silent.
+
+config PACKET_LOG_INTERVAL_MS
+    int "Log interval (ms)"
+    depends on PACKET_LOG
+    range 100 60000
+    default 1000
+
+config PACKET_LOG_ORIENTATION
+    bool "Log each tracker's orientation and packet rate every interval"
+    depends on PACKET_LOG
+    help
+        "Tracker 2 (3CA1B2C4D5E6): orientation X 12.3 Y -4.5 Z 170.2 deg, 98 pkt/s, RSSI ..."
+        while "diag" is off.
+
+# "diag on" logs a block of lines every interval; the default 1 KB drops some of them.
+config LOG_BUFFER_SIZE
+    default 4096 if PACKET_LOG && !SOC_NRF52820
+
 source "Kconfig.zephyr"

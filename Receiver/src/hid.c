@@ -21,6 +21,7 @@
 	THE SOFTWARE.
 */
 #include "globals.h"
+#include "packet_log.h"
 
 #include <zephyr/kernel.h>
 #include <zephyr/usb/usb_device.h>
@@ -357,6 +358,7 @@ void hid_write_packet_n(uint8_t *data, uint8_t rssi)
 	memcpy(&report.data, data, sizeof(report)); // all data can be passed through
 	if (data[0] != 1 && data[0] != 4) // packet 1 and 4 are full precision quat and accel/mag, no room for rssi
 		report.data[15] = rssi;
+	packet_log_put(report.data, rssi);
 	// Get current FIFO status atomically
 	size_t write_idx = (size_t)atomic_get(&report_write_index);
 	size_t read_idx = (size_t)atomic_get(&report_read_index);

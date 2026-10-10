@@ -24,6 +24,7 @@
 #include "system/system.h"
 #include "hid.h"
 #include "tdma.h"
+#include "packet_log.h"
 
 #include <zephyr/drivers/clock_control/nrf_clock_control.h>
 #include <zephyr/sys/crc.h>
@@ -143,6 +144,7 @@ void event_handler(struct esb_evt const *event)
 			switch (rx_payload.length)
 			{
 			case 21: // has sequence number
+				packet_log_frame(rx_payload.data, rx_payload.rssi); // link diagnostics, before any filter
 				// TODO : It's a very crude implementation
 				// But brain hurty, will make a better one later
 				uint8_t seq = rx_payload.data[20];
@@ -154,6 +156,8 @@ void event_handler(struct esb_evt const *event)
 						: ((seq < next) && (seq >= next - 128)))) // next 128-255: seq is below next and above or equal to next -128
 					{
 						LOG_WRN("Sequence missmatch for tracker %d, expected %d, got %d. Discarding.", tracker_id, next, seq);
+						// a repeat of the last frame: the tracker missed the ACK and sent it again
+						packet_log_drop(tracker_id, seq == sequences[tracker_id] ? PACKET_DROP_DUPLICATE : PACKET_DROP_SEQUENCE);
 						break;
 					}
 				}
@@ -166,6 +170,7 @@ void event_handler(struct esb_evt const *event)
 				if (*crc_ptr != crc_check)
 				{
 					LOG_ERR("Incorrect checksum, computed %08X, received %08X", crc_check, *crc_ptr);
+					packet_log_drop(rx_payload.data[1], PACKET_DROP_CHECKSUM);
 					printk("%08llx%016llX%016llX\n", *(uint64_t *)&rx_payload.data[16] & 0XFFFFFFFF, *(uint64_t *)&rx_payload.data[8], *(uint64_t *)rx_payload.data);
 					break;
 				}
@@ -173,7 +178,10 @@ void event_handler(struct esb_evt const *event)
 			case 16:
 				uint8_t imu_id = rx_payload.data[1];
 				if (imu_id >= stored_trackers) // not a stored tracker
+				{
+					packet_log_drop(imu_id, PACKET_DROP_UNKNOWN_ID);
 					continue;
+				}
 				if (discovered_trackers[imu_id] < DETECTION_THRESHOLD) // garbage filtering of nonexistent tracker
 				{
 					discovered_trackers[imu_id]++;

@@ -24,6 +24,7 @@
 #include "system/system.h"
 #include "build_defines.h"
 #include "parse_args.h"
+#include "packet_log.h"
 
 #define USB DT_NODELABEL(usbd)
 #if DT_NODE_HAS_STATUS(USB, okay)
@@ -179,6 +180,9 @@ static void print_help(void)
 	printk("pair                         Enter pairing mode\n");
 	printk("exit                         Exit pairing mode\n");
 	printk("clear                        Clear stored devices\n");
+#if CONFIG_PACKET_LOG
+	printk("\ndiag [on|off]                Log radio link diagnostics every second (off at boot)\n");
+#endif
 #if DFU_EXISTS
 	printk("\ndfu                          Enter DFU bootloader\n");
 #endif
@@ -210,6 +214,7 @@ static void console_thread(void)
 	const char command_dfu[] = "dfu";
 #endif
 	const char command_meow[] = "meow";
+	const char command_diag[] = "diag";
 
 	while (1) {
 		char *line = console_getline();
@@ -291,6 +296,28 @@ static void console_thread(void)
 		else if (strcmp(line, command_meow) == 0)
 		{
 			print_meow();
+		}
+		else if (strcmp(argv[0], command_diag) == 0)
+		{
+			if (!IS_ENABLED(CONFIG_PACKET_LOG))
+				printk("This build has no link diagnostics\n");
+			else
+			{
+				if (argc > 1 && (strcmp(argv[1], "on") == 0 || strcmp(argv[1], "off") == 0))
+					packet_log_set_diag(strcmp(argv[1], "on") == 0);
+				else if (argc > 1)
+					printk("Usage: diag [on|off]\n");
+				printk("Link diagnostics %s\n", packet_log_diag() ? "on" : "off");
+				if (packet_log_diag())
+					printk("Every second:\n"
+					       "  diag noise: background RSSI while listening; the median is the noise floor (clean: about -95)\n"
+					       "  diag radio: frames the radio received with a good / bad CRC, all trackers\n"
+					       "  diag id N: rx frames, lost = sequence numbers that never arrived,\n"
+					       "    dup = repeats (tracker missed the ACK), late = older after newer,\n"
+					       "    max gap = longest silence, RSSI average (worst),\n"
+					       "    |...| = 50 ms slots: # frames, x frames after lost ones, . nothing\n"
+					       "  diag gap / outage: a silence that lost frames, or over 1 s\n");
+			}
 		}
 		else
 		{
