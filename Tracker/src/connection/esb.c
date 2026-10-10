@@ -92,7 +92,7 @@ void event_handler(struct esb_evt const *event)
 		else
 			tx_errors = 0;
 		LOG_DBG("TX SUCCESS");
-		if (esb_paired)
+		if (esb_paired && esb_is_idle()) // ESB already sends the next queued frame otherwise
 			clocks_stop();
 		break;
 	case ESB_EVENT_TX_FAILED:
@@ -104,6 +104,11 @@ void event_handler(struct esb_evt const *event)
 			last_tx_success = k_uptime_get();
 		}
 		LOG_DBG("TX FAILED");
+		// ESB keeps a frame whose retransmits ran out at the head of the queue and stops: drop it,
+		// and go on with the frames queued behind it (esb_write no longer flushes the queue).
+		esb_pop_tx();
+		if (esb_start_tx() == 0)
+			break;
 		if (esb_paired)
 			clocks_stop();
 		break;
@@ -217,6 +222,16 @@ void clocks_stop(void)
 	onoff_release(clk_mgr);
 
 	LOG_DBG("HF clock stop request");
+}
+
+void clocks_release_when_idle(void)
+{
+	// Stopping the HFXO under a frame that is still being sent or retransmitted moves the radio
+	// onto the RC oscillator, off frequency: the receiver never hears it. The TX events stop the
+	// clock when the queue is done.
+	if (esb_initialized && !esb_is_idle())
+		return;
+	clocks_stop();
 }
 
 #else
@@ -496,8 +511,12 @@ void esb_write(uint8_t *data)
 	tx_payload.noack = false;
 #endif
 	memcpy(tx_payload.data, data, tx_payload.length);
-	esb_flush_tx(); // this will clear all transmissions even if they did not complete
-	esb_write_payload(&tx_payload); // Add transmission to queue
+	// Queue behind a frame that is still being retransmitted instead of flushing it: upstream
+	// flushed here, so a frame whose first attempt collided was lost whenever the next one came.
+	// Only a full queue (about 70 ms behind) is flushed.
+	if (esb_tx_full())
+		esb_flush_tx();
+	esb_write_payload(&tx_payload); // Add transmission to queue; starts sending when idle
 	send_data = true;
 }
 

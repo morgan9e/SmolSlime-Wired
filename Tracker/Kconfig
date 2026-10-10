@@ -145,10 +145,12 @@ config SENSOR_UPDATE_TIME_MS
     default 10
     help
         The sensor loop wakes up this often while the tracker moves, and sends the orientation
-        when it changed: 10 ms is 100 Hz. Fusion still processes every IMU sample from the FIFO;
-        only how often orientations are sent changes. Upstream uses 6 ms (about 166 Hz), which
-        with several trackers on one channel fills it and makes them collide. Still trackers
-        switch to 33 ms and 100 ms as before.
+        when it changed. The IMU wakes it after a whole number of samples (the FIFO threshold is
+        this period over the sample period, rounded down), so with the gyro at 240 Hz (200
+        requested) 10 ms gives 2 samples, 8.33 ms, 120 Hz; 13 ms gives 3, 80 Hz. Upstream's 6 ms
+        gives 1 sample, 240 Hz, which with several trackers on one channel fills it and makes
+        them collide. Fusion still processes every IMU sample. Still trackers switch to 33 ms
+        and 100 ms as before.
 
 choice
     prompt "Sensor rotation"

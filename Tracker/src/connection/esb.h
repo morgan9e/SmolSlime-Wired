@@ -41,6 +41,7 @@ extern uint32_t led_clock_offset;
 void event_handler(struct esb_evt const *event);
 int clocks_start(void);
 void clocks_stop(void);
+void clocks_release_when_idle(void); // clocks_stop() unless ESB is still sending
 void clocks_request_start(uint32_t delay_us);
 void clocks_request_stop(uint32_t delay_us);
 int esb_initialize(bool);
