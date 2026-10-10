@@ -93,7 +93,7 @@ tracker-ota:
 # The tracker-ota app padded to the secondary slot, with the trailer that asks MCUboot for a test
 # swap on the next boot, as a UF2 for that slot (same imgtool arguments as the build, plus --pad)
 tracker-ota-slot1: tracker-ota
-	version=$$(grep -o -m1 -- '--version [^ ]*' "$(BUILD)/tracker-ota/Tracker/build.ninja" | cut -d' ' -f2); \
+	version=$$(grep -o -m1 -- '--version [^ ]*' "$(BUILD)/tracker-ota/Tracker/build.ninja" | head -1 | cut -d' ' -f2); \
 	"$(WEST_VENV)/bin/python" "$(IMGTOOL)" sign --version "$$version" --align 4 --slot-size $(OTA_SLOT1_SIZE) \
 		--pad-header --header-size 0x200 --pad \
 		"$(BUILD)/tracker-ota/Tracker/zephyr/zephyr.bin" "$(BUILD)/tracker-ota/slot1_test.bin"
