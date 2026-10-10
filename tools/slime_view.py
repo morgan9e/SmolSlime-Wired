@@ -472,6 +472,16 @@ def q_inverse(q):
     return (q[0], -q[1], -q[2], -q[3])
 
 
+def battery_text(pct, volts):
+    """While plugged in, the tracker forces the voltage to at least 4.31 V (no battery gets
+    there), so the server can show charging. Its percentage is then computed from a voltage the
+    charger pushes up, and reads too high until charging is nearly done."""
+    if volts is not None and volts >= 4.3:
+        return 'charging' + (f'  ({min(100, pct):.0f}% shown, reads high)' if pct is not None else '')
+    text = f'{min(100, pct):.0f}%' if pct is not None else '?'
+    return text + (f'  {volts:.2f} V' if volts is not None else '')
+
+
 def normalized_mac(value):
     if not isinstance(value, str):
         return None
@@ -867,8 +877,7 @@ class App:
                 f"seen    {age_text(t['last_real'])}",
                 f"status  {STATUS.get(t['status'], '?') if t['status'] is not None else '?'}"
                 + ("" if fresh else "  (not seen)"),
-                "battery " + (f"{t['batt_pct']:.0f}%" if t["batt_pct"] is not None else "?")
-                + (f"  {t['batt_v']:.2f} V" if t["batt_v"] is not None else ""),
+                "battery " + battery_text(t["batt_pct"], t["batt_v"]),
                 "signal  " + (f"{t['rssi']} dBm" if t["rssi"] is not None else "?")
                 + ("   temp " + f"{t['temp']:.1f} C" if t["temp"] is not None else ""),
                 f"rate    {t['real_rate']}/s real, {t['held_rate']}/s held",
