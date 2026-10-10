@@ -96,12 +96,16 @@ void event_handler(struct esb_evt const *event)
 		LOG_DBG("TX SUCCESS");
 		if (esb_paired)
 			ota_tx_acked(); // a new image confirms itself once the receiver hears it
+		ota_tx_done();
 		if (esb_paired && !ota_active()) // an update keeps the radio clock on
 			clocks_stop();
 		break;
 	case ESB_EVENT_TX_FAILED:
 		if (ota_active())
+		{
+			ota_tx_done();
 			break; // an update asks again by itself; not a connection error
+		}
 		if (tx_errors < TX_ERROR_MAX)
 			tx_errors++;
 		if (tx_errors == TX_ERROR_THRESHOLD && last_tx_success == 0) // consecutive failure to transmit

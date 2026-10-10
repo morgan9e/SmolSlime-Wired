@@ -26,40 +26,34 @@
 #include <stdlib.h>
 #include <string.h>
 #include <zephyr/kernel.h>
-#include <zephyr/device.h>
-#include <zephyr/drivers/flash.h>
 #include <zephyr/logging/log.h>
-#include <zephyr/sys/crc.h>
 
 LOG_MODULE_REGISTER(ota, LOG_LEVEL_INF);
 
-// The image store: flash the receiver firmware does not use, below its settings (0xda000 on the
-// nRF52840 Dongle). The Nordic bootloader may overwrite it while updating the receiver itself:
-// upload the image again afterwards.
-#define STORE_ADDR 0x9a000
-#define STORE_SIZE 0x40000
-#define PAGE_SIZE 0x1000
+// The PC streams the image into this window while the tracker fetches it. The tracker only ever
+// asks for the offset after the last chunk it has, so the window needs to hold only what lies
+// between that offset and what the PC has sent; the PC is told where the tracker is in every
+// reply and never runs more than WINDOW bytes ahead of it.
+#define WINDOW 16384
 #define STALL_TIMEOUT_MS 10000
 
-extern char __rom_region_start[];
-extern char _flash_used[];
+static uint8_t window[WINDOW];
 
-static const struct device *const flash_dev = DEVICE_DT_GET(DT_CHOSEN(zephyr_flash_controller));
+enum { OTA_IDLE, OTA_OFFERING, OTA_SENDING };
+static const char *const state_names[] = {"idle", "offering", "sending"};
 
-enum { OTA_EMPTY, OTA_UPLOADING, OTA_READY, OTA_OFFERING, OTA_SERVING };
-static const char *const state_names[] = {"empty", "uploading", "stored", "offering", "sending"};
-
-static atomic_t state = ATOMIC_INIT(OTA_EMPTY);
-static uint32_t img_size, img_crc, img_board, written;
+static atomic_t state = ATOMIC_INIT(OTA_IDLE);
+static uint32_t img_size, img_crc, img_board;
 static uint8_t target;
-static int32_t last_queued = -1; // offset of the chunk queued at the previous request
-static uint32_t served, next_log;
-static int64_t serve_start;
+static volatile uint32_t received; // bytes the PC has sent
+static volatile uint32_t asked;    // offset the tracker asked for last: everything below it is done
+static uint32_t next_log;
+static int64_t start_time;
 
 static void stall_fn(struct k_work *work)
 {
-	if (atomic_cas(&state, OTA_SERVING, OTA_READY))
-		LOG_WRN("ota: tracker %u stopped asking at %u of %u bytes", target, served, img_size);
+	if (atomic_cas(&state, OTA_SENDING, OTA_IDLE))
+		LOG_WRN("ota: tracker %u stopped asking at %u of %u bytes", target, asked, img_size);
 }
 static K_WORK_DELAYABLE_DEFINE(stall_work, stall_fn);
 
@@ -70,7 +64,7 @@ void ota_esb_tracker_frame(void)
 	if (atomic_get(&state) != OTA_OFFERING)
 		return;
 	// Rides on the ACK of the next frame on pipe 1, from whichever tracker sends next; one is
-	// queued per frame, as the ACK of each frame uses up the one queued before.
+	// queued per frame, as each ACK uses up the payload of the one before.
 	struct esb_payload p = {.pipe = 1, .length = OTA_OFFER_LEN};
 	p.data[0] = OTA_MSG_OFFER;
 	p.data[1] = target;
@@ -80,54 +74,48 @@ void ota_esb_tracker_frame(void)
 	esb_write_payload(&p);
 }
 
-static void queue_chunk(uint32_t offset)
-{
-	struct esb_payload p = {.pipe = OTA_PIPE};
-	uint32_t n = MIN(OTA_CHUNK_MAX, img_size - offset);
-	p.data[0] = OTA_MSG_CHUNK;
-	ota_put_u24(&p.data[1], offset);
-	memcpy(&p.data[OTA_CHUNK_HEADER], (const uint8_t *)STORE_ADDR + offset, n);
-	p.length = OTA_CHUNK_HEADER + n;
-	last_queued = esb_write_payload(&p) == 0 ? (int32_t)offset : -1;
-}
-
 void ota_esb_rx(const struct esb_payload *payload)
 {
 	const uint8_t *d = payload->data;
 	int s = atomic_get(&state);
 	if (payload->length == OTA_REQ_LEN && d[0] == OTA_MSG_REQ) {
-		if ((s != OTA_OFFERING && s != OTA_SERVING) || d[1] != target)
+		if ((s != OTA_OFFERING && s != OTA_SENDING) || d[1] != target)
 			return;
 		uint32_t offset = ota_get_u24(&d[2]);
 		if (s == OTA_OFFERING) {
-			atomic_set(&state, OTA_SERVING);
-			serve_start = k_uptime_get();
+			atomic_set(&state, OTA_SENDING);
+			start_time = k_uptime_get();
 			next_log = img_size / 10;
 			LOG_INF("ota: tracker %u accepted, sending %u bytes", target, img_size);
 		}
 		k_work_reschedule(&stall_work, K_MSEC(STALL_TIMEOUT_MS));
 		if (offset >= img_size)
 			return;
-		served = MAX(served, offset);
-		if (served >= next_log) {
-			LOG_INF("ota: tracker %u at %u%%", target, (uint32_t)((uint64_t)served * 100 / img_size));
+		asked = offset;
+		if (offset >= next_log) {
+			LOG_INF("ota: tracker %u at %u%%", target, (uint32_t)((uint64_t)offset * 100 / img_size));
 			next_log += img_size / 10;
 		}
-		// The ACK to this request carried the chunk queued at the previous one: if that is the
-		// one asked for, the tracker has it now and asks for the next one next.
-		uint32_t next = last_queued == (int32_t)offset ? offset + OTA_CHUNK_MAX : offset;
-		if (next < img_size)
-			queue_chunk(next);
-		else
-			last_queued = -1;
+		// Queue exactly the chunk asked for. It rides on the ACK of the tracker's next frame (the
+		// ACK of this one is already out), and the tracker asks again at once whenever an ACK did
+		// not bring its chunk: two frames per chunk, and nothing to get out of step.
+		uint32_t n = MIN(OTA_CHUNK_MAX, img_size - offset);
+		if (offset + n > received)
+			return; // the PC has not sent it yet: the tracker asks again
+		struct esb_payload p = {.pipe = OTA_PIPE, .length = OTA_CHUNK_HEADER + n};
+		p.data[0] = OTA_MSG_CHUNK;
+		ota_put_u24(&p.data[1], offset);
+		for (uint32_t i = 0; i < n; i++)
+			p.data[OTA_CHUNK_HEADER + i] = window[(offset + i) % WINDOW];
+		esb_write_payload(&p);
 		return;
 	}
-	if (payload->length == OTA_DONE_LEN && d[0] == OTA_MSG_DONE && d[1] == target && s == OTA_SERVING) {
-		atomic_set(&state, OTA_READY);
+	if (payload->length == OTA_DONE_LEN && d[0] == OTA_MSG_DONE && d[1] == target && s == OTA_SENDING) {
+		atomic_set(&state, OTA_IDLE);
 		k_work_cancel_delayable(&stall_work);
 		if (d[2] == OTA_STATUS_INSTALLED)
 			LOG_INF("ota: tracker %u received the image in %lld s and reboots into it", target,
-				(k_uptime_get() - serve_start) / 1000);
+				(k_uptime_get() - start_time) / 1000);
 		else
 			LOG_WRN("ota: tracker %u failed (%u), it keeps its firmware", target, d[2]);
 	}
@@ -154,91 +142,58 @@ static void print_status(void)
 {
 	int s = atomic_get(&state);
 	printk("ota: %s", state_names[s]);
-	if (s != OTA_EMPTY)
-		printk(", %u of %u bytes, crc %08x, board %08x", s == OTA_UPLOADING ? written : img_size, img_size,
-		       img_crc, img_board);
-	if (s == OTA_OFFERING || s == OTA_SERVING)
-		printk(", tracker %u, %u bytes sent", target, served);
+	if (s != OTA_IDLE)
+		printk(", tracker %u, %u bytes, %u received from the PC, tracker at %u", target, img_size, received,
+		       asked);
 	printk("\n");
 }
 
 void ota_console(int argc, char **argv)
 {
 	const char *cmd = argc > 1 ? argv[1] : "status";
-	if (strcmp(cmd, "begin") == 0 && argc == 5) {
-		uint32_t size = strtoul(argv[2], NULL, 0);
-		uint32_t used_end = (uintptr_t)__rom_region_start + (uintptr_t)_flash_used;
-		if (size == 0 || size > STORE_SIZE) {
-			printk("ota: error: size %u, the store holds %u\n", size, STORE_SIZE);
-			return;
-		}
-		if (used_end > STORE_ADDR) {
-			printk("ota: error: this firmware reaches 0x%x, the store starts at 0x%x\n", used_end, STORE_ADDR);
-			return;
-		}
-		atomic_set(&state, OTA_UPLOADING);
-		img_size = size;
+	if (strcmp(cmd, "begin") == 0 && argc == 6) {
+		// ota begin <size> <crc32 hex> <board crc32 hex> <tracker id>: offer at once, data follows
+		atomic_set(&state, OTA_IDLE);
+		k_work_cancel_delayable(&stall_work);
+		img_size = strtoul(argv[2], NULL, 0);
 		img_crc = strtoul(argv[3], NULL, 16);
 		img_board = strtoul(argv[4], NULL, 16);
-		written = 0;
-		int err = flash_erase(flash_dev, STORE_ADDR, ROUND_UP(size, PAGE_SIZE));
-		if (err) {
-			atomic_set(&state, OTA_EMPTY);
-			printk("ota: error: erase failed (%d)\n", err);
+		target = strtoul(argv[5], NULL, 0);
+		received = 0;
+		asked = 0;
+		if (img_size == 0 || img_size >= BIT(24)) {
+			printk("ota: error: size %u\n", img_size);
 			return;
 		}
-		printk("ota: begin %u\n", size);
-	} else if (strcmp(cmd, "d") == 0 && argc == 4) {
-		uint8_t buf[60];
-		uint32_t offset = strtoul(argv[2], NULL, 0);
-		int n = hex_decode(argv[3], buf, 56);
-		if (atomic_get(&state) != OTA_UPLOADING || n <= 0 || offset != written || written + n > img_size) {
-			printk("ota: error: data at %u, expected %u\n", offset, written);
-			return;
-		}
-		int len = ROUND_UP(n, 4); // flash writes whole words
-		memset(&buf[n], 0xff, len - n);
-		int err = flash_write(flash_dev, STORE_ADDR + offset, buf, len);
-		if (err) {
-			printk("ota: error: write failed at %u (%d)\n", offset, err);
-			return;
-		}
-		written += n;
-		printk("ota: ok %u\n", written);
-	} else if (strcmp(cmd, "end") == 0) {
-		if (atomic_get(&state) != OTA_UPLOADING || written != img_size) {
-			printk("ota: error: %u of %u bytes uploaded\n", written, img_size);
-			return;
-		}
-		uint32_t crc = crc32_ieee((const uint8_t *)STORE_ADDR, img_size);
-		if (crc != img_crc) {
-			atomic_set(&state, OTA_EMPTY);
-			printk("ota: error: stored crc %08x, expected %08x\n", crc, img_crc);
-			return;
-		}
-		atomic_set(&state, OTA_READY);
-		printk("ota: stored %u bytes, crc %08x\n", img_size, crc);
-	} else if (strcmp(cmd, "send") == 0 && argc == 3) {
-		int s = atomic_get(&state);
-		if (s != OTA_READY && s != OTA_OFFERING) {
-			printk("ota: error: no image stored (%s)\n", state_names[s]);
-			return;
-		}
-		target = strtoul(argv[2], NULL, 0);
-		last_queued = -1;
-		served = 0;
 		atomic_set(&state, OTA_OFFERING);
-		printk("ota: offering to tracker %u\n", target);
-	} else if (strcmp(cmd, "stop") == 0) {
+		printk("ota: begin %u, offering to tracker %u\n", img_size, target);
+	} else if (strcmp(cmd, "d") == 0 && argc == 4) {
+		// ota d <offset> <hex>: the next part of the image; the answer says where the tracker is
+		uint8_t buf[64];
+		uint32_t offset = strtoul(argv[2], NULL, 0);
+		int n = hex_decode(argv[3], buf, sizeof(buf));
 		int s = atomic_get(&state);
-		if (s == OTA_OFFERING || s == OTA_SERVING)
-			atomic_set(&state, OTA_READY);
+		if ((s != OTA_OFFERING && s != OTA_SENDING) || n <= 0 || offset != received ||
+		    offset + n > img_size) {
+			printk("ota: error: data at %u, expected %u\n", offset, received);
+			return;
+		}
+		if (offset + n > asked + WINDOW) {
+			printk("ota: full %u %u\n", received, asked); // ahead of the tracker: send it again later
+			return;
+		}
+		for (int i = 0; i < n; i++)
+			window[(offset + i) % WINDOW] = buf[i];
+		received = offset + n;
+		printk("ota: ok %u %u\n", received, asked);
+	} else if (strcmp(cmd, "stop") == 0) {
+		atomic_set(&state, OTA_IDLE);
 		k_work_cancel_delayable(&stall_work);
 		print_status();
 	} else if (strcmp(cmd, "status") == 0) {
 		print_status();
 	} else {
-		printk("Usage: ota begin <size> <crc32 hex> <board crc32 hex> | ota d <offset> <hex> | ota end |\n"
-		       "       ota send <tracker id> | ota stop | ota status\n");
+		printk("Usage: ota begin <size> <crc32 hex> <board crc32 hex> <tracker id> | ota d <offset> <hex> |\n"
+		       "       ota stop | ota status (tools/ota.py does all of it)\n");
 	}
 }

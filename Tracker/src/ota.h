@@ -13,6 +13,8 @@
 void ota_tx_acked(void);
 // An ACK payload from the receiver while paired (ESB event handler): update offers and chunks.
 void ota_rx_ack(const uint8_t *data, uint8_t len, uint8_t tracker_id);
+// A frame sent during an update is done, acknowledged or not (ESB event handler)
+void ota_tx_done(void);
 // An update is being received: tracking is paused (esb_write sends nothing) and the radio clock
 // stays on.
 bool ota_active(void);
@@ -27,6 +29,7 @@ static inline void ota_rx_ack(const uint8_t *data, uint8_t len, uint8_t tracker_
 	(void)len;
 	(void)tracker_id;
 }
+static inline void ota_tx_done(void) {}
 static inline bool ota_active(void) { return false; }
 static inline void ota_print_status(void) {}
 #endif

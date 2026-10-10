@@ -38,7 +38,7 @@
 
 LOG_MODULE_REGISTER(ota, LOG_LEVEL_INF);
 
-#define CHUNK_WAIT_MS 10      // the chunk comes back with the ACK, well within this
+#define FRAME_WAIT_MS 20      // a frame with its retransmits is done well within this
 #define STALL_TIMEOUT_MS 5000 // no chunk for this long: give up, keep the running image
 #define DONE_REPEATS 5
 
@@ -92,7 +92,7 @@ static uint8_t chunk[OTA_CHUNK_MAX];
 static volatile uint8_t chunk_len;
 static atomic_t chunk_ready;
 static K_SEM_DEFINE(start_sem, 0, 1);
-static K_SEM_DEFINE(chunk_sem, 0, 1);
+static K_SEM_DEFINE(tx_sem, 0, 1);
 
 static uint32_t received; // bytes written so far, for the status
 static int last_result = -1;
@@ -127,8 +127,15 @@ void ota_rx_ack(const uint8_t *data, uint8_t len, uint8_t tracker_id)
 		chunk_len = MIN(len - OTA_CHUNK_HEADER, OTA_CHUNK_MAX);
 		memcpy(chunk, &data[OTA_CHUNK_HEADER], chunk_len);
 		atomic_set(&chunk_ready, 1);
-		k_sem_give(&chunk_sem);
 	}
+}
+
+void ota_tx_done(void)
+{
+	// The ACK payload of a frame is handled in the same interrupt, right after this: by the time
+	// the thread runs, a chunk that came with this ACK is in place.
+	if (atomic_get(&state) == OTA_ACTIVE)
+		k_sem_give(&tx_sem);
 }
 
 static void send_done(uint8_t status)
@@ -157,14 +164,17 @@ static int receive_image(void)
 		ota_put_u24(&req[2], offset);
 		wanted = offset;
 		atomic_set(&chunk_ready, 0);
-		k_sem_reset(&chunk_sem);
+		k_sem_reset(&tx_sem);
 		esb_write_ota(req, sizeof(req));
-		if (k_sem_take(&chunk_sem, K_MSEC(CHUNK_WAIT_MS)) != 0) {
+		// The receiver queues the chunk asked for, and it comes with the ACK of the next request:
+		// ask again as soon as this frame is done until it is there.
+		k_sem_take(&tx_sem, K_MSEC(FRAME_WAIT_MS));
+		if (!atomic_get(&chunk_ready)) {
 			if (k_uptime_get() - last_chunk > STALL_TIMEOUT_MS) {
 				LOG_ERR("Update stalled at %u of %u bytes", offset, offer_size);
 				return OTA_STATUS_TIMEOUT;
 			}
-			continue; // ask again
+			continue;
 		}
 		uint32_t n = MIN(chunk_len, offer_size - offset);
 		crc = crc32_ieee_update(crc, chunk, n);

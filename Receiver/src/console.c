@@ -184,7 +184,7 @@ static void print_help(void)
 #if CONFIG_PACKET_LOG
 	printk("\ndiag [on|off]                Log radio link diagnostics every second (off at boot)\n");
 #endif
-	printk("ota [status|send <id>|stop]  Tracker firmware updates over the radio (tools/ota.py)\n");
+	printk("ota [status|stop]            Tracker firmware updates over the radio (tools/ota.py)\n");
 #if DFU_EXISTS
 	printk("\ndfu                          Enter DFU bootloader\n");
 #endif
