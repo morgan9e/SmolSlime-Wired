@@ -59,6 +59,8 @@ class Receiver:
             for text in self.lines():
                 if show and text:
                     print('   ', text)
+                if text.startswith('Too many parameters') or text.startswith('Invalid'):
+                    raise RuntimeError(f'receiver console: {text}')
                 i = text.find('ota: ')
                 if i < 0:
                     continue

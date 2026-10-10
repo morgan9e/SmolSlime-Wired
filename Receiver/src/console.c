@@ -221,7 +221,7 @@ static void console_thread(void)
 	while (1) {
 		char *line = console_getline();
 
-		char* argv[5] = {NULL}; // command and 4 args
+		char* argv[8] = {NULL}; // command and up to 6 args (the parser rejects a full array; ota begin has 4)
 		size_t argc = parse_args(line, argv, ARRAY_SIZE(argv));
 		if(argc == 0)
 			continue;
