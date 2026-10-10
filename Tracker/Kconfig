@@ -139,6 +139,17 @@ config CONNECTION_TIMEOUT_DELAY
     help
         Connection timeout duration when receiver is not detected.
 
+config SENSOR_UPDATE_TIME_MS
+    int "Sensor loop period while moving (ms)"
+    range 6 33
+    default 10
+    help
+        The sensor loop wakes up this often while the tracker moves, and sends the orientation
+        when it changed: 10 ms is 100 Hz. Fusion still processes every IMU sample from the FIFO;
+        only how often orientations are sent changes. Upstream uses 6 ms (about 166 Hz), which
+        with several trackers on one channel fills it and makes them collide. Still trackers
+        switch to 33 ms and 100 ms as before.
+
 choice
     prompt "Sensor rotation"
     default SENSOR_ROTATION_90
