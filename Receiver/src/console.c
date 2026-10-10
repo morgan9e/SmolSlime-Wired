@@ -25,6 +25,7 @@
 #include "build_defines.h"
 #include "parse_args.h"
 #include "packet_log.h"
+#include "ota.h"
 
 #define USB DT_NODELABEL(usbd)
 #if DT_NODE_HAS_STATUS(USB, okay)
@@ -183,6 +184,7 @@ static void print_help(void)
 #if CONFIG_PACKET_LOG
 	printk("\ndiag [on|off]                Log radio link diagnostics every second (off at boot)\n");
 #endif
+	printk("ota [status|send <id>|stop]  Tracker firmware updates over the radio (tools/ota.py)\n");
 #if DFU_EXISTS
 	printk("\ndfu                          Enter DFU bootloader\n");
 #endif
@@ -296,6 +298,10 @@ static void console_thread(void)
 		else if (strcmp(line, command_meow) == 0)
 		{
 			print_meow();
+		}
+		else if (strcmp(argv[0], "ota") == 0)
+		{
+			ota_console(argc, argv);
 		}
 		else if (strcmp(argv[0], command_diag) == 0)
 		{

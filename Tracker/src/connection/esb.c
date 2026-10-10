@@ -32,6 +32,7 @@
 
 #include "esb.h"
 #include "ota.h"
+#include "ota_proto.h"
 
 uint8_t last_reset = 0;
 //const nrfx_timer_t m_timer = NRFX_TIMER_INSTANCE(1);
@@ -95,10 +96,12 @@ void event_handler(struct esb_evt const *event)
 		LOG_DBG("TX SUCCESS");
 		if (esb_paired)
 			ota_tx_acked(); // a new image confirms itself once the receiver hears it
-		if (esb_paired)
+		if (esb_paired && !ota_active()) // an update keeps the radio clock on
 			clocks_stop();
 		break;
 	case ESB_EVENT_TX_FAILED:
+		if (ota_active())
+			break; // an update asks again by itself; not a connection error
 		if (tx_errors < TX_ERROR_MAX)
 			tx_errors++;
 		if (tx_errors == TX_ERROR_THRESHOLD && last_tx_success == 0) // consecutive failure to transmit
@@ -142,6 +145,10 @@ void event_handler(struct esb_evt const *event)
 					led_clock = (rx_payload.data[0] << 8) + rx_payload.data[1]; // sync led flashes :)
 					led_clock_offset = 0;
 					LOG_DBG("RX, timer reset");
+				}
+				else
+				{
+					ota_rx_ack(rx_payload.data, rx_payload.length, paired_addr[1]); // update offers and chunks
 				}
 			}
 		}
@@ -496,10 +503,30 @@ void esb_clear_pair(void)
 	LOG_INF("Pairing data reset");
 }
 
+#if CONFIG_TRACKER_OTA
+// A firmware update message on the OTA pipe (ota.c); tracking is paused meanwhile
+int esb_write_ota(const uint8_t *data, uint8_t len)
+{
+	static struct esb_payload ota_payload = ESB_CREATE_PAYLOAD(OTA_PIPE, 0);
+	if (!esb_initialized || !esb_paired)
+		return -ENOTCONN;
+	if (!clock_status)
+		clocks_start();
+	ota_payload.pipe = OTA_PIPE;
+	ota_payload.noack = false;
+	ota_payload.length = MIN(len, sizeof(ota_payload.data));
+	memcpy(ota_payload.data, data, ota_payload.length);
+	esb_flush_tx();
+	return esb_write_payload(&ota_payload);
+}
+#endif
+
 void esb_write(uint8_t *data)
 {
 	if (!esb_initialized || !esb_paired)
 		return;
+	if (ota_active())
+		return; // tracking is paused while a firmware update is received
 	if (!clock_status)
 		clocks_start();
 	tx_payload.pipe = 1; // using base address 1

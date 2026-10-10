@@ -147,6 +147,7 @@ config TRACKER_OTA
     select FLASH_MAP
     select STREAM_FLASH
     select IMG_MANAGER
+    select IMG_ERASE_PROGRESSIVELY
     help
         Set by the MCUboot build (make tracker-ota). The running image confirms itself once the
         receiver has acknowledged TRACKER_OTA_CONFIRM_ACKS frames; until then MCUboot swaps the
