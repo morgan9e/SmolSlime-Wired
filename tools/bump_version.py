@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
-"""Next tracker version: minor + 1, as a commit of Tracker/VERSION and a tag.
+"""Next tracker version: minor + 1, as an annotated tag on the current commit.
 
 The tracker's build takes its version from `git describe` (the latest tag shaped like 1.2.3, see
-Tracker/CMakeLists.txt) and writes Tracker/VERSION; the trackers report it in their device info
-packet, and tools/slime_link.py shows it. Run this once before each rebuild that gets flashed:
+Tracker/CMakeLists.txt; it writes the git-ignored Tracker/VERSION). The trackers report it in their
+device info packet, and tools/slime_link.py shows it. Run this once before each rebuild that gets
+flashed:
 
-    python tools/bump_version.py        # 0.1.0 -> 0.2.0: commits Tracker/VERSION, tags 0.2.0
+    python tools/bump_version.py        # 0.1.0 -> 0.2.0: tags the current commit 0.2.0
 
-Commit everything else first: the tag goes on the commit that is built.
+Commit everything first: the tag goes on the commit that is built.
 """
 import re
 import subprocess
@@ -32,17 +33,9 @@ def main():
     m = re.fullmatch(r'v?(\d+)\.(\d+)\.(\d+)', last)
     if not m:
         sys.exit(f'Latest tag {last!r} is not a version')
-    major, minor = int(m.group(1)), int(m.group(2)) + 1
-    version = f'{major}.{minor}.0'
-    branch = git('branch', '--show-current') or 'unknown'
-    # The same content the build generates from the tag, so building leaves the tree clean
-    (ROOT / 'Tracker' / 'VERSION').write_text(
-        f'VERSION_MAJOR = {major}\nVERSION_MINOR = {minor}\nPATCHLEVEL = 0\n'
-        f'VERSION_TWEAK = 0\nEXTRAVERSION = {branch}\n', newline='\n')
-    git('add', 'Tracker/VERSION')
-    git('commit', '-q', '-m', f'Tracker {version}')
-    git('tag', version)
-    print(f'{last} -> {version} (commit and tag)')
+    version = f'{m.group(1)}.{int(m.group(2)) + 1}.0'
+    git('tag', '-a', version, '-m', f'Tracker {version}')
+    print(f'{last} -> {version} (tag on {git("rev-parse", "--short", "HEAD")})')
 
 
 if __name__ == '__main__':
