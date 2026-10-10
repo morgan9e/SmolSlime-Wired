@@ -8,7 +8,7 @@ def packet(kind, tid, rssi=0, batt=None, addr=None):
     p = bytearray(16)
     p[0], p[1] = kind, tid
     if addr is not None:
-        p[2:8] = bytes.fromhex(addr)
+        p[2:8] = bytes.fromhex(addr)[::-1]  # little-endian, as the receiver sends it
     if batt is not None:
         p[2], p[3] = batt, 125  # 125 + 245 = 3.70 V
     if kind not in (1, 4, 255):

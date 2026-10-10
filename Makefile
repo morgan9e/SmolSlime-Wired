@@ -93,7 +93,9 @@ receiver-xiao:
 	@echo "-> $(RECEIVER_XIAO_UF2)"
 
 # The dongle board's own USB console (new USB stack) clashes with the receiver's legacy one in
-# this SDK: BOARD_SERIAL_BACKEND_CDC_ACM off. Flash the .hex with nRF Connect Programmer.
+# this SDK: BOARD_SERIAL_BACKEND_CDC_ACM off. Flash the .hex with nRF Connect Programmer, or the
+# .zip with nrfutil: "dfu" on the receiver's console (bootloader), then
+#   nrfutil device program --firmware <zip> --serial-number <bootloader's serial number>
 receiver-dongle-diag:
 	@mkdir -p $(DIST)
 	test -d "$(RECEIVER_STOCK_SRC)/.git" || git clone -q "$(RECEIVER_STOCK_URL)" "$(RECEIVER_STOCK_SRC)"
@@ -102,7 +104,8 @@ receiver-dongle-diag:
 	git -C "$(RECEIVER_STOCK_SRC)" -c user.name=build -c user.email=build@localhost am -q "$(ROOT)"/patches/receiver-stock/*.patch
 	cd "$(NCS_RECEIVER)" && $(ZEPHYR_ENV) west build --board nrf52840dongle/nrf52840 --pristine=always 		--build-dir "$(BUILD)/receiver-dongle-diag" "$(RECEIVER_STOCK_SRC)" 		-- -DNCS_TOOLCHAIN_VERSION=NONE -DBOARD_ROOT="$(RECEIVER_STOCK_SRC)" -DCONFIG_BOARD_SERIAL_BACKEND_CDC_ACM=n
 	cp "$(BUILD)/receiver-dongle-diag/receiver-stock-src/zephyr/zephyr.hex" "$(RECEIVER_DONGLE_DIAG_HEX)"
-	@echo "-> $(RECEIVER_DONGLE_DIAG_HEX)"
+	python3 "$(ROOT)/tools/dfu_zip.py" "$(RECEIVER_DONGLE_DIAG_HEX)" "$(RECEIVER_DONGLE_DIAG_HEX:.hex=.zip)"
+	@echo "-> $(RECEIVER_DONGLE_DIAG_HEX) (nRF Connect Programmer), $(RECEIVER_DONGLE_DIAG_HEX:.hex=.zip) (nrfutil device program)"
 
 hub:
 	@mkdir -p $(DIST)

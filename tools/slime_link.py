@@ -119,7 +119,8 @@ class Monitor:
                 continue
             kind, tid = p[0], p[1]
             if kind == 255:
-                self.addrs[(rid, tid)] = p[2:8].hex().upper()
+                # little-endian on the wire; reversed, it reads as the receiver's "list" prints it
+                self.addrs[(rid, tid)] = p[2:8][::-1].hex().upper()
                 if (rid, tid) in self.links:
                     self.links[(rid, tid)].addr = self.addrs[(rid, tid)]
                 continue

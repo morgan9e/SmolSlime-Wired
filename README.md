@@ -20,6 +20,7 @@ thigh, hip, chest ──── radio (ESB) ┴─► receiver ── UART (D0 �
 | `tools/slime_view.py` | live view of the trackers' data on the PC |
 | `tools/slime_diag.py` | radio link diagnostics from the receiver, relayed by the hub to UDP 6971 (`diag hub on` on the receiver) |
 | `tools/slime_link.py` | link statistics per tracker (rate, RSSI, gaps, offline, battery) from any nRF receiver over USB-HID, stock firmware included; runs alongside SlimeVR Server |
+| `tools/dfu_zip.py` | turns an application `.hex` into the DFU package `nrfutil device program` needs for the nRF52840 Dongle |
 | `tools/serial_monitor.py` | desktop serial monitor for the receiver and tracker consoles (needs pyserial) |
 | `dist` | flashable images, written by `make` |
 | `docs` | the plan, and a backup patch of earlier tracker UART work |
