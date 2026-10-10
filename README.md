@@ -1,51 +1,103 @@
-# SlimeVR nRF: stock firmware with small changes
+# SmolSlime-mod
 
-Stock SlimeVR nRF receiver and tracker firmware, with only the changes this setup uses: an
-nRF52840 Dongle as the receiver and ProMicro stacked SPI trackers.
+SlimeVR nRF firmware with small changes for fully wireless body tracking: a Nordic
+nRF52840 Dongle receiver, six ProMicro stacked SPI trackers, and a spare Seeed XIAO
+nRF52840 Sense. The PC runs SlimeVR Server. Trackers use ESB at 2 Mbps and can receive
+firmware updates over the radio through the dongle.
 
-| Path | What |
-|------|------|
-| `Receiver` | SlimeVR-Tracker-nRF-Receiver, git subtree of upstream `main` (e3d66d5) |
-| `Tracker` | SlimeVR-Tracker-nRF, git subtree of upstream `main` (cbfff16) |
-| `tools/slime_link.py` | link statistics per tracker from the receiver over USB-HID; runs alongside SlimeVR Server |
-| `tools/slime_view.py` | live view of the trackers (orientation, skeleton) over USB-HID (`--usb`); quit SlimeVR Server first |
-| `tools/dfu_zip.py` | DFU package from a `.hex`, for `nrfutil device program` on the dongle |
-| `tools/bump_version.py` | next tracker version (patch + 1) as a tag; see Versions |
-| `tools/serial_monitor.py` | desktop serial monitor for the consoles (needs pyserial) |
+The working firmware is in `Tracker/` and `Receiver/`. Earlier wired chains and the
+ESP32 hub belong to the separate `wired` history. They are not needed for this setup.
 
-## Changes to upstream
+## Start here
 
-- Receiver: link diagnostics. `diag on` on its console logs every second, per tracker, frames
-  received and lost (from the frame sequence numbers), repeats, longest silence and RSSI; for the
-  radio, good/bad CRC counts and the noise floor. Receiving and the HID output are unchanged.
-- Tracker: sends at 100 Hz while moving (`CONFIG_SENSOR_UPDATE_TIME_MS`, upstream 6 ms, about
-  166 Hz), and each tracker gets its own ESB retransmit delay, so trackers whose frames collide do
-  not retry in lockstep. With six stock trackers moving, the channel was busy 44% of the time
-  and 40-65% of the frames were lost.
+- [Documentation index](docs/README.md): setup, tools, development and historical notes.
+- [Project handoff](docs/MEMORY.md): decisions, working rules and outstanding work.
+- [Hardware](docs/HARDWARE.md): board identities and last recorded installed versions.
+- [OTA and recovery](docs/OTA.md): which image to flash and how to verify an update.
+- [Link testing](docs/TESTING.md): establish the current six-tracker baseline.
 
-## Build
+**On a tracker with MCUboot installed, USB-flash only its board's `_OTA.uf2`.**
+The plain tracker UF2 overwrites MCUboot. Use `_OTA_app.bin` for radio updates.
 
-From WSL/Linux, with the nRF Connect SDK workspaces named in the `Makefile`:
+## What differs from upstream
 
-    make            # dist/SlimeNRF_ProMicro_StackedSPI_Tracker.uf2, dist/SlimeNRF_Nordic_Dongle_Receiver.{hex,zip}
-    make test
+| Component | Changes |
+| --- | --- |
+| Tracker | 10 ms moving-loop setting, device-derived retry delay, radio-clock idle fix, MCUboot/OTA support, charge-time battery estimate |
+| Receiver | Per-tracker and radio diagnostics, OTA offers and streaming relay through HID OUT |
+| PC tools | Link monitor, orientation/skeleton viewer, USB flashing, OTA updater and version tagging |
 
-## Versions
+The 10 ms setting is a nominal 100 Hz target. IMU FIFO rounding gives about 120 Hz
+on the ProMicro's LSM6DSV; it is not an exact 100-packet/s limit. New frames still
+replace unsent old frames. The charge estimate is implemented but its hardware
+validation remains open.
 
-The tracker reports its version (and build date) in its device info packet; `tools/slime_link.py`
-shows it per tracker. It comes from the latest git tag shaped like `0.0.3`. Before each rebuild
-that gets flashed, commit, raise the patch version with `python tools/bump_version.py` (an
-annotated tag on the current commit), then `make tracker`.
+The recorded stock six-tracker moving test lost 53% of frames; the first rate/retry
+change reduced that to 25%. The no-flush experiment performed worse and was reverted.
+There is no recorded all-six-moving test on 0.0.3 or later. See the
+[dated measurements](docs/archive/MEASUREMENTS.md); these are not current performance claims.
 
-## Flash
+## Build and update
 
-- Tracker: `dfu` on its console (or double-tap reset), then copy the `.uf2` to the drive.
-- Receiver: `dfu` on its console starts the dongle's bootloader; then the `.hex` with nRF
-  Connect Programmer, or
-  `nrfutil device program --firmware dist/SlimeNRF_Nordic_Dongle_Receiver.zip --serial-number <bootloader's>`
-  (`nrfutil device list` shows it).
+Build in WSL/Linux using the SDK workspaces configured in the [Makefile](Makefile).
+See [development setup](docs/DEVELOPMENT.md) for versions, paths and overrides.
+Run commands from the repository root.
 
-## Upstream updates
+```bash
+make tracker-ota       # ProMicro: combined USB UF2 + OTA application BIN
+make tracker-ota-xiao  # XIAO Sense: its own combined UF2 + application BIN
+make receiver         # Nordic dongle HEX + DFU ZIP
+make test             # PC link-monitor unit tests
+```
 
-    git subtree pull --prefix=Receiver https://github.com/SlimeVR/SlimeVR-Tracker-nRF-Receiver main
-    git subtree pull --prefix=Tracker https://github.com/SlimeVR/SlimeVR-Tracker-nRF main
+**Bare `make` builds a plain ProMicro tracker and the receiver, not an OTA tracker.**
+Use the explicit OTA targets above for the installed MCUboot setup.
+
+Before a rebuild that will be flashed, commit the source and run
+`python tools/bump_version.py` to create the next annotated `0.0.N` tag, then build.
+Do not bump a firmware version for documentation-only changes.
+
+Install host dependencies in Windows:
+
+```powershell
+python -m pip install pyserial hidapi
+```
+
+For an already paired MCUboot tracker, update the test tracker first. Confirm its
+device address and current receiver ID before using the recorded ID 5:
+
+```powershell
+python tools/ota.py dist/SlimeNRF_ProMicro_StackedSPI_Tracker_OTA_app.bin --tracker 5
+```
+
+The transfer finishing is not confirmation of a successful boot. Check the new
+version, resumed tracking, and `Image: confirmed` on the tracker's `info` console.
+Follow [OTA and recovery](docs/OTA.md) for first installation, USB recovery, XIAO
+images and receiver flashing.
+
+## Observe the trackers
+
+```powershell
+python tools/slime_link.py --duration 60 --gap 50 --csv link.csv
+python tools/slime_view.py --usb
+python tools/serial_monitor.py
+```
+
+`slime_link.py` runs alongside SlimeVR Server on Windows. It measures received rate,
+RSSI and gaps; exact sequence loss requires `diag on` on the receiver console.
+The viewer chooses one input at a time: USB when available, otherwise the legacy
+Wi-Fi hub. Stop SlimeVR Server before using Wi-Fi mode. See [PC tools](docs/TOOLS.md)
+for options and calibration.
+
+## Repository and upstream
+
+This is one repository with upstream Git histories imported as subtrees:
+
+| Directory | Upstream | Imported base |
+| --- | --- | --- |
+| `Tracker/` | [SlimeVR-Tracker-nRF](https://github.com/SlimeVR/SlimeVR-Tracker-nRF) | `cbfff16` |
+| `Receiver/` | [SlimeVR-Tracker-nRF-Receiver](https://github.com/SlimeVR/SlimeVR-Tracker-nRF-Receiver) | `e3d66d5` |
+
+The configured origin is [morgan9e/SmolSlime-mod](https://github.com/morgan9e/SmolSlime-mod).
+The subtree READMEs retain upstream information and license terms. See
+[development](docs/DEVELOPMENT.md) before integrating upstream changes.

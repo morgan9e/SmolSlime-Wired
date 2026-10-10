@@ -1,4 +1,9 @@
 # Receiver firmware for SlimeNRF
+
+For this fork's Nordic dongle setup, diagnostics and OTA relay, start with the
+[project README](../README.md) and [documentation index](../docs/README.md).
+The information below describes the upstream project.
+
 Firmware for Nordic nRF52833 / nRF52840 SoC.
 
 Please see https://docs.slimevr.dev/smol-slimes for more information and usage.

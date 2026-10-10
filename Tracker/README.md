@@ -1,4 +1,10 @@
 # Tracker firmware for SlimeNRF
+
+For this fork's supported setup, builds and OTA recovery, start with the
+[project README](../README.md) and [OTA guide](../docs/OTA.md). The information
+below describes the upstream project; plain upstream flashing instructions may
+not preserve this fork's installed MCUboot layout.
+
 Firmware for Nordic nRF52 / nRF54L Series SoC.
 
 Please see https://docs.slimevr.dev/smol-slimes for more information and usage.
