@@ -6,6 +6,7 @@
 #   make tracker-xiao  Seeed XIAO nRF52840 Sense tracker (.uf2)
 #   make tracker-ota   ProMicro tracker with MCUboot (docs/OTA.md): _OTA.uf2 (MCUboot + app, USB
 #                   flash and recovery) and _OTA_app.bin (the image an update installs)
+#   make tracker-ota-xiao  the same for the XIAO nRF52840 Sense
 #   make tracker-ota-slot1  that app as a UF2 for the secondary slot, marked for a test swap
 #                   (tests MCUboot over USB); with OTA_NOCONFIRM=1 an image that never confirms
 #                   itself (rollback test)
@@ -41,8 +42,13 @@ FW_GIT_BRANCH = $(shell cd "$(ROOT)" && "$(GIT)" branch --show-current 2>/dev/nu
 
 TRACKER_UF2   := $(DIST)/SlimeNRF_ProMicro_StackedSPI_Tracker.uf2
 TRACKER_XIAO_UF2 := $(DIST)/SlimeNRF_XIAO_Sense_Tracker.uf2
-TRACKER_OTA_UF2 := $(DIST)/SlimeNRF_ProMicro_StackedSPI_Tracker_OTA.uf2
-TRACKER_OTA_BIN := $(DIST)/SlimeNRF_ProMicro_StackedSPI_Tracker_OTA_app.bin
+# The OTA build per board: OTA_LAYOUT picks Tracker/ota<layout>.overlay and
+# Tracker/sysbuild/mcuboot<layout>.overlay (the pm_static file goes by the board, sysbuild.cmake)
+OTA_BOARD     ?= $(TRACKER_BOARD)
+OTA_NAME      ?= ProMicro_StackedSPI
+OTA_LAYOUT    ?=
+TRACKER_OTA_UF2 = $(DIST)/SlimeNRF_$(OTA_NAME)_Tracker_OTA.uf2
+TRACKER_OTA_BIN = $(DIST)/SlimeNRF_$(OTA_NAME)_Tracker_OTA_app.bin
 TRACKER_OTA_SLOT1_UF2 := $(DIST)/SlimeNRF_ProMicro_StackedSPI_Tracker_OTA_slot1_test.uf2
 OTA_CONF      := $(ROOT)/Tracker/ota.conf$(if $(OTA_NOCONFIRM),;$(ROOT)/Tracker/ota_noconfirm.conf)
 IMGTOOL       := $(NCS_TRACKER)/bootloader/mcuboot/scripts/imgtool.py
@@ -53,7 +59,7 @@ UF2CONV       := $(NCS_TRACKER)/zephyr/scripts/build/uf2conv.py
 UF2_FAMILY_NRF52840 := 0xADA52840
 RECEIVER_HEX  := $(DIST)/SlimeNRF_Nordic_Dongle_Receiver.hex
 
-.PHONY: all tracker tracker-xiao tracker-ota tracker-ota-slot1 receiver test clean
+.PHONY: all tracker tracker-xiao tracker-ota tracker-ota-xiao tracker-ota-slot1 receiver test clean
 
 all: tracker receiver
 
@@ -80,15 +86,20 @@ tracker-xiao:
 tracker-ota:
 	@mkdir -p $(DIST)
 	cd "$(NCS_TRACKER)" && $(ZEPHYR_ENV) FW_GIT_DESCRIBE="$(FW_GIT_DESCRIBE)" FW_GIT_BRANCH="$(FW_GIT_BRANCH)" \
-		west build --board $(TRACKER_BOARD) --pristine=always \
-		--build-dir "$(BUILD)/tracker-ota" "$(ROOT)/Tracker" \
+		west build --board $(OTA_BOARD) --pristine=always \
+		--build-dir "$(BUILD)/tracker-ota$(OTA_LAYOUT)" "$(ROOT)/Tracker" \
 		-- -DNCS_TOOLCHAIN_VERSION=NONE -DBOARD_ROOT="$(ROOT)/Tracker" \
 		-DSB_CONFIG_BOOTLOADER_MCUBOOT=y -DSB_CONFIG_MCUBOOT_MODE_SWAP_USING_MOVE=y \
 		-DSB_CONFIG_BOOT_SIGNATURE_TYPE_NONE=y -Dmcuboot_BOARD=nrf52840dk/nrf52840 \
-		-DTracker_EXTRA_CONF_FILE="$(OTA_CONF)" -DTracker_EXTRA_DTC_OVERLAY_FILE="$(ROOT)/Tracker/ota.overlay"
-	python3 "$(UF2CONV)" -c -f $(UF2_FAMILY_NRF52840) -o "$(TRACKER_OTA_UF2)" "$(BUILD)/tracker-ota/merged.hex"
-	cp "$(BUILD)/tracker-ota/Tracker/zephyr/zephyr.signed.bin" "$(TRACKER_OTA_BIN)"
+		-Dmcuboot_DTC_OVERLAY_FILE="$(ROOT)/Tracker/sysbuild/mcuboot$(OTA_LAYOUT).overlay" \
+		-DTracker_EXTRA_CONF_FILE="$(OTA_CONF)" -DTracker_EXTRA_DTC_OVERLAY_FILE="$(ROOT)/Tracker/ota$(OTA_LAYOUT).overlay"
+	python3 "$(UF2CONV)" -c -f $(UF2_FAMILY_NRF52840) -o "$(TRACKER_OTA_UF2)" "$(BUILD)/tracker-ota$(OTA_LAYOUT)/merged.hex"
+	cp "$(BUILD)/tracker-ota$(OTA_LAYOUT)/Tracker/zephyr/zephyr.signed.bin" "$(TRACKER_OTA_BIN)"
 	@echo "-> $(TRACKER_OTA_UF2), $(TRACKER_OTA_BIN)"
+
+# The XIAO keeps its bootloader's SoftDevice area: MCUboot at 0x27000 (pm_static/mcuboot_xiao_ble.yml)
+tracker-ota-xiao:
+	$(MAKE) tracker-ota OTA_BOARD=xiao_ble/nrf52840/sense OTA_NAME=XIAO_Sense OTA_LAYOUT=_xiao
 
 # The tracker-ota app padded to the secondary slot, with the trailer that asks MCUboot for a test
 # swap on the next boot, as a UF2 for that slot (same imgtool arguments as the build, plus --pad)
