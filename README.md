@@ -17,9 +17,10 @@ thigh, hip, chest ──── radio (ESB) ┴─► receiver ── UART (D0 �
 | `src/Tracker` | SlimeVR-Tracker-nRF fork (wired link, relay and hub modes). Details: `src/Tracker/WIRED.md` |
 | `src/Receiver` | SlimeVR-Tracker-nRF-Receiver fork (UART mirror, link diagnostics). Details: `src/Receiver/HUB.md` |
 | `src/Hub` | ESP32 hub firmware (ESP-IDF). Details: `src/Hub/README.md` |
-| `slime_view.py` | live view of the trackers' data on the PC |
-| `slime_diag.py` | radio link diagnostics from the receiver, relayed by the hub to UDP 6971 (`diag hub on` on the receiver) |
-| `slime_link.py` | link statistics per tracker (rate, RSSI, gaps, offline, battery) from any nRF receiver over USB-HID, stock firmware included; runs alongside SlimeVR Server |
+| `tools/slime_view.py` | live view of the trackers' data on the PC |
+| `tools/slime_diag.py` | radio link diagnostics from the receiver, relayed by the hub to UDP 6971 (`diag hub on` on the receiver) |
+| `tools/slime_link.py` | link statistics per tracker (rate, RSSI, gaps, offline, battery) from any nRF receiver over USB-HID, stock firmware included; runs alongside SlimeVR Server |
+| `tools/serial_monitor.py` | desktop serial monitor for the receiver and tracker consoles (needs pyserial) |
 | `dist` | flashable images, written by `make` |
 | `docs` | the plan, and a backup patch of earlier tracker UART work |
 
@@ -56,7 +57,7 @@ https://github.com/SlimeVR/SlimeVR-Tracker-nRF-Receiver.
 4. **Hub.** Receiver D0 (P0.08) to hub D7, plus GND. On the hub's USB console:
    `wifi "SSID" password`. Accept each new tracker once in the SlimeVR GUI.
 5. **Optional link diagnostics:** `diag hub on` on the receiver's USB console (stored), then
-   `python slime_diag.py` on the PC (`--log diag.csv` to keep them).
+   `python tools/slime_diag.py` on the PC (`--log diag.csv` to keep them).
 
 ## Building
 

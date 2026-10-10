@@ -58,7 +58,7 @@ diag gap: id 2 silent 180 ms, 34 frames lost, RSSI -71 before, -83 after
 ### Diagnostics through the hub
 
 `diag hub on` (stored; `diag hub off` stops it) sends the same statistics to the hub once a
-second, so they can be watched on the body: run `python slime_diag.py` on the PC the hub
+second, so they can be watched on the body: run `python tools/slime_diag.py` on the PC the hub
 streams to. The hub forwards packet types 224-254 unchanged to UDP 6971 at the server's
 address and never decodes them. Same framing as the tracker packets, little-endian:
 

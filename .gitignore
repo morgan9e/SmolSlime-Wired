@@ -1,6 +1,10 @@
 # Built images (publish them as releases instead)
 dist/
+docs/Ref/*
 
 # Local files
 __pycache__/
 *.csv
+
+# Per-PC settings of tools/serial_monitor.py (port, device serial number)
+tools/serial_monitor_settings.json

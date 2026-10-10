@@ -54,7 +54,7 @@ packet, and uses the address as the tracker's MAC in SlimeVR.
 
 Packet types 224-254 are the receiver's own link diagnostics ("diag hub on" on the receiver).
 The hub sends each one unchanged as a 16-byte UDP datagram to port 6971 at the server's
-address, once the server is known, and never decodes them. `slime_diag.py` in the
+address, once the server is known, and never decodes them. `tools/slime_diag.py` in the
 `SlimeVR-Hub` folder shows them; the layout is in the receiver's `HUB.md`.
 
 ## Build
