@@ -16,6 +16,8 @@ cannot be counted exactly. What it shows is what a dropout looks like from the P
               unchanged data and sends only every 100-200 ms, hence the default; while testing with
               moving trackers (which send every few ms), --gap 50 shows short dropouts too
     battery   percent and voltage, when the tracker sends it
+    firmware  version and build date from the tracker's device info packet: tells which tracker runs
+              which build without plugging it in
 
     python slime_link.py                 live table, refreshed every second; Ctrl+C prints a summary
     python slime_link.py --csv link.csv  also write one row per tracker per second
@@ -52,6 +54,7 @@ class Link:
         self.offline = 0            # silences longer than --offline
         self.is_off = False
         self.batt_pct = self.batt_v = None
+        self.fw = None              # "major.minor.patch YYYY-MM-DD" from packet 0
 
     def packet(self, p, now, gap, offline_s):
         if self.last is not None:
@@ -80,6 +83,9 @@ class Link:
         if kind in (0, 2):
             self.batt_pct = None if p[2] == 128 else min(100, p[2] & 127)
             self.batt_v = (p[3] + 245) / 100
+        if kind == 0:  # device info: build date (bytes 10-11) and version (12-14)
+            d = p[10] | p[11] << 8
+            self.fw = f'{p[12]}.{p[13]}.{p[14]} {2020 + (d >> 9):04d}-{(d >> 5) & 15:02d}-{d & 31:02d}'
 
     def tick(self, now, offline_s):
         """Close one second. Returns True when the tracker just went offline."""
@@ -150,7 +156,7 @@ def table(mon, now, receivers):
              f'gap > {mon.gap * 1000:.0f} ms, offline after {mon.offline_s:g} s    Ctrl+C: summary',
              '',
              f'{"id":>3} {"address":12} {"rate":>5} {"min":>4}  {"RSSI":>4} {"avg":>5} {"worst":>5}'
-             f'  {"gaps":>5} {">500ms":>6} {"max gap":>8} {"off":>4}  {"battery":>11}  state']
+             f'  {"gaps":>5} {">500ms":>6} {"max gap":>8} {"off":>4}  {"battery":>11}  {"firmware":16}  state']
     for l in mon.sorted():
         state = 'OFF' if l.is_off else ('no data' if l.last is None else
                                          f'{(now - l.last) * 1000:.0f} ms ago')
@@ -159,7 +165,7 @@ def table(mon, now, receivers):
         lines.append(f'{tid:>3} {l.addr or "?":12} {fmt(l.rate, "d"):>5} {fmt(l.min_rate, "d"):>4}'
                      f'  {fmt(l.rssi, "d"):>4} {fmt(l.rssi_avg, ".0f"):>5} {fmt(l.rssi_min, "d"):>5}'
                      f'  {l.gaps:>5} {l.long_gaps:>6} {l.max_gap * 1000:>6.0f}ms {l.offline:>4}'
-                     f'  {batt:>11}  {state}')
+                     f'  {batt:>11}  {l.fw or "-":16}  {state}')
     if not mon.links:
         lines.append('  no tracker packets yet')
     return '\n'.join(lines)
@@ -173,7 +179,7 @@ def summary(mon, now):
                    f'({l.count / dur:.1f}/s, lowest second {fmt(l.min_rate, "d")}), '
                    f'RSSI avg {fmt(l.rssi_avg, ".0f")} worst {fmt(l.rssi_min, "d")} dBm, '
                    f'{l.gaps} gaps > {mon.gap * 1000:.0f} ms ({l.long_gaps} > 500 ms, '
-                   f'longest {l.max_gap * 1000:.0f} ms), offline {l.offline} times')
+                   f'longest {l.max_gap * 1000:.0f} ms), offline {l.offline} times, firmware {l.fw or "?"}')
     return '\n'.join(out)
 
 
@@ -213,7 +219,7 @@ def main(argv=None):
     if csv_file:
         writer = csv.writer(csv_file)
         writer.writerow(['time', 'receiver', 'id', 'address', 'rate', 'rssi', 'rssi_avg', 'rssi_min',
-                         'gaps', 'gaps_500ms', 'max_gap_ms', 'offline', 'battery_pct', 'battery_v'])
+                         'gaps', 'gaps_500ms', 'max_gap_ms', 'offline', 'battery_pct', 'battery_v', 'firmware'])
     t0 = time.monotonic()
     next_scan = next_tick = t0
     tty = sys.stdout.isatty()
@@ -243,7 +249,7 @@ def main(argv=None):
                     for l in mon.sorted():
                         writer.writerow([stamp, l.rid, l.id, l.addr or '', l.rate, l.rssi,
                                          fmt(l.rssi_avg, '.1f', ''), l.rssi_min, l.gaps, l.long_gaps,
-                                         round(l.max_gap * 1000), l.offline, l.batt_pct, l.batt_v])
+                                         round(l.max_gap * 1000), l.offline, l.batt_pct, l.batt_v, l.fw])
                     csv_file.flush()
                 text = table(mon, now, len(devices))
                 if tty:
