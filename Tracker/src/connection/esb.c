@@ -31,6 +31,7 @@
 #include <zephyr/sys/crc.h>
 
 #include "esb.h"
+#include "ota.h"
 
 uint8_t last_reset = 0;
 //const nrfx_timer_t m_timer = NRFX_TIMER_INSTANCE(1);
@@ -92,6 +93,8 @@ void event_handler(struct esb_evt const *event)
 		else
 			tx_errors = 0;
 		LOG_DBG("TX SUCCESS");
+		if (esb_paired)
+			ota_tx_acked(); // a new image confirms itself once the receiver hears it
 		if (esb_paired)
 			clocks_stop();
 		break;

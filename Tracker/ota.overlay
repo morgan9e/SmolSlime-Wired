@@ -1,0 +1,27 @@
+/* Tracker app in the OTA build (make tracker-ota passes it as Tracker_EXTRA_DTC_OVERLAY_FILE): the
+ * partition labels MCUboot's image tools need, the same layout as pm_static/mcuboot_nrf52840_uf2.yml
+ * (which the build uses for the actual placement) and sysbuild/mcuboot.overlay. */
+&flash0 {
+	partitions {
+		compatible = "fixed-partitions";
+		#address-cells = <1>;
+		#size-cells = <1>;
+
+		boot_partition: partition@1000 {
+			label = "mcuboot";
+			reg = <0x00001000 0x0000c000>;
+		};
+		slot0_partition: partition@d000 {
+			label = "image-0";
+			reg = <0x0000d000 0x00071000>;
+		};
+		slot1_partition: partition@7e000 {
+			label = "image-1";
+			reg = <0x0007e000 0x00070000>;
+		};
+		storage_partition: partition@ee000 {
+			label = "storage";
+			reg = <0x000ee000 0x00006000>;
+		};
+	};
+};

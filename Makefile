@@ -4,6 +4,8 @@
 #   make            tracker and receiver
 #   make tracker    ProMicro stacked SPI tracker (.uf2)
 #   make tracker-xiao  Seeed XIAO nRF52840 Sense tracker (.uf2)
+#   make tracker-ota   ProMicro tracker with MCUboot (docs/OTA.md): _OTA.uf2 (MCUboot + app, USB
+#                   flash and recovery) and _OTA_app.bin (the image an update installs)
 #   make receiver   nRF52840 Dongle receiver (.hex for nRF Connect Programmer, .zip for nrfutil)
 #   make test       PC tool tests
 #   make clean      remove the build directories
@@ -36,9 +38,13 @@ FW_GIT_BRANCH = $(shell cd "$(ROOT)" && "$(GIT)" branch --show-current 2>/dev/nu
 
 TRACKER_UF2   := $(DIST)/SlimeNRF_ProMicro_StackedSPI_Tracker.uf2
 TRACKER_XIAO_UF2 := $(DIST)/SlimeNRF_XIAO_Sense_Tracker.uf2
+TRACKER_OTA_UF2 := $(DIST)/SlimeNRF_ProMicro_StackedSPI_Tracker_OTA.uf2
+TRACKER_OTA_BIN := $(DIST)/SlimeNRF_ProMicro_StackedSPI_Tracker_OTA_app.bin
+UF2CONV       := $(NCS_TRACKER)/zephyr/scripts/build/uf2conv.py
+UF2_FAMILY_NRF52840 := 0xADA52840
 RECEIVER_HEX  := $(DIST)/SlimeNRF_Nordic_Dongle_Receiver.hex
 
-.PHONY: all tracker tracker-xiao receiver test clean
+.PHONY: all tracker tracker-xiao tracker-ota receiver test clean
 
 all: tracker receiver
 
@@ -59,6 +65,20 @@ tracker-xiao:
 		-- -DNCS_TOOLCHAIN_VERSION=NONE -DBOARD_ROOT="$(ROOT)/Tracker"
 	cp "$(BUILD)/tracker-xiao/Tracker/zephyr/zephyr.uf2" "$(TRACKER_XIAO_UF2)"
 	@echo "-> $(TRACKER_XIAO_UF2)"
+
+# MCUboot without signature (the image's SHA-256 is still checked), swap with rollback
+tracker-ota:
+	@mkdir -p $(DIST)
+	cd "$(NCS_TRACKER)" && $(ZEPHYR_ENV) FW_GIT_DESCRIBE="$(FW_GIT_DESCRIBE)" FW_GIT_BRANCH="$(FW_GIT_BRANCH)" \
+		west build --board $(TRACKER_BOARD) --pristine=$(PRISTINE) \
+		--build-dir "$(BUILD)/tracker-ota" "$(ROOT)/Tracker" \
+		-- -DNCS_TOOLCHAIN_VERSION=NONE -DBOARD_ROOT="$(ROOT)/Tracker" \
+		-DSB_CONFIG_BOOTLOADER_MCUBOOT=y -DSB_CONFIG_MCUBOOT_MODE_SWAP_USING_MOVE=y \
+		-DSB_CONFIG_BOOT_SIGNATURE_TYPE_NONE=y -Dmcuboot_BOARD=nrf52840dk/nrf52840 \
+		-DTracker_EXTRA_CONF_FILE="$(ROOT)/Tracker/ota.conf" -DTracker_EXTRA_DTC_OVERLAY_FILE="$(ROOT)/Tracker/ota.overlay"
+	python3 "$(UF2CONV)" -c -f $(UF2_FAMILY_NRF52840) -o "$(TRACKER_OTA_UF2)" "$(BUILD)/tracker-ota/merged.hex"
+	cp "$(BUILD)/tracker-ota/Tracker/zephyr/zephyr.signed.bin" "$(TRACKER_OTA_BIN)"
+	@echo "-> $(TRACKER_OTA_UF2), $(TRACKER_OTA_BIN)"
 
 # The dongle board's own USB console (new USB stack) clashes with the receiver's legacy one in
 # this SDK: BOARD_SERIAL_BACKEND_CDC_ACM off.

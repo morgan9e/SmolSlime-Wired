@@ -25,6 +25,16 @@ if((DEFINED SB_CONFIG_BOARD AND SB_CONFIG_BOARD MATCHES "uf2") OR (DEFINED SB_CO
   )
 endif()
 
+# MCUboot (OTA) builds: their own layouts, mcuboot_<name>.yml, ahead of the same candidates
+if(SB_CONFIG_BOOTLOADER_MCUBOOT)
+  set(pm_static_mcuboot_candidates)
+  foreach(pm_static_candidate ${pm_static_candidates})
+    get_filename_component(pm_static_name ${pm_static_candidate} NAME)
+    list(APPEND pm_static_mcuboot_candidates ${pm_static_dir}/mcuboot_${pm_static_name})
+  endforeach()
+  set(pm_static_candidates ${pm_static_mcuboot_candidates})
+endif()
+
 #message("-- Partition manager static configuration search candidates: ${pm_static_candidates}")
 
 foreach(pm_static_candidate ${pm_static_candidates})
