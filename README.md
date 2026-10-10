@@ -8,6 +8,7 @@ nRF52840 Dongle as the receiver and ProMicro stacked SPI trackers.
 | `Receiver` | SlimeVR-Tracker-nRF-Receiver, git subtree of upstream `main` (e3d66d5) |
 | `Tracker` | SlimeVR-Tracker-nRF, git subtree of upstream `main` (cbfff16) |
 | `tools/slime_link.py` | link statistics per tracker from the receiver over USB-HID; runs alongside SlimeVR Server |
+| `tools/slime_view.py` | live view of the trackers (orientation, skeleton) over USB-HID (`--usb`); quit SlimeVR Server first |
 | `tools/dfu_zip.py` | DFU package from a `.hex`, for `nrfutil device program` on the dongle |
 | `tools/serial_monitor.py` | desktop serial monitor for the consoles (needs pyserial) |
 
