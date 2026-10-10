@@ -6,6 +6,7 @@
 #include "connection/esb.h"
 #include "build_defines.h"
 #include "parse_args.h"
+#include "ota.h"
 
 #if CONFIG_USB_DEVICE_STACK
 #define USB DT_NODELABEL(usbd)
@@ -167,6 +168,7 @@ static void print_connection(void)
 	printk(paired ? "Tracker ID: %u\n" : "Tracker ID: None\n", retained->paired_addr[1]);
 	printk("Device address: %012llX\n", *(uint64_t *)NRF_FICR->DEVICEADDR & 0xFFFFFFFFFFFF);
 	printk(paired ? "Receiver address: %012llX\n" : "Receiver address: None\n", (*(uint64_t *)&retained->paired_addr[0] >> 16) & 0xFFFFFFFFFFFF);
+	ota_print_status();
 }
 
 static void print_battery(void)

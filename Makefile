@@ -6,6 +6,9 @@
 #   make tracker-xiao  Seeed XIAO nRF52840 Sense tracker (.uf2)
 #   make tracker-ota   ProMicro tracker with MCUboot (docs/OTA.md): _OTA.uf2 (MCUboot + app, USB
 #                   flash and recovery) and _OTA_app.bin (the image an update installs)
+#   make tracker-ota-slot1  that app as a UF2 for the secondary slot, marked for a test swap
+#                   (tests MCUboot over USB); with OTA_NOCONFIRM=1 an image that never confirms
+#                   itself (rollback test)
 #   make receiver   nRF52840 Dongle receiver (.hex for nRF Connect Programmer, .zip for nrfutil)
 #   make test       PC tool tests
 #   make clean      remove the build directories
@@ -40,11 +43,17 @@ TRACKER_UF2   := $(DIST)/SlimeNRF_ProMicro_StackedSPI_Tracker.uf2
 TRACKER_XIAO_UF2 := $(DIST)/SlimeNRF_XIAO_Sense_Tracker.uf2
 TRACKER_OTA_UF2 := $(DIST)/SlimeNRF_ProMicro_StackedSPI_Tracker_OTA.uf2
 TRACKER_OTA_BIN := $(DIST)/SlimeNRF_ProMicro_StackedSPI_Tracker_OTA_app.bin
+TRACKER_OTA_SLOT1_UF2 := $(DIST)/SlimeNRF_ProMicro_StackedSPI_Tracker_OTA_slot1_test.uf2
+OTA_CONF      := $(ROOT)/Tracker/ota.conf$(if $(OTA_NOCONFIRM),;$(ROOT)/Tracker/ota_noconfirm.conf)
+IMGTOOL       := $(NCS_TRACKER)/bootloader/mcuboot/scripts/imgtool.py
+# Secondary slot of pm_static/mcuboot_nrf52840_uf2.yml
+OTA_SLOT1_ADDR := 0x7e000
+OTA_SLOT1_SIZE := 0x70000
 UF2CONV       := $(NCS_TRACKER)/zephyr/scripts/build/uf2conv.py
 UF2_FAMILY_NRF52840 := 0xADA52840
 RECEIVER_HEX  := $(DIST)/SlimeNRF_Nordic_Dongle_Receiver.hex
 
-.PHONY: all tracker tracker-xiao tracker-ota receiver test clean
+.PHONY: all tracker tracker-xiao tracker-ota tracker-ota-slot1 receiver test clean
 
 all: tracker receiver
 
@@ -66,19 +75,31 @@ tracker-xiao:
 	cp "$(BUILD)/tracker-xiao/Tracker/zephyr/zephyr.uf2" "$(TRACKER_XIAO_UF2)"
 	@echo "-> $(TRACKER_XIAO_UF2)"
 
-# MCUboot without signature (the image's SHA-256 is still checked), swap with rollback
+# MCUboot without signature (the image's SHA-256 is still checked), swap with rollback. Always
+# pristine: the image version in MCUboot's header is only taken when the build is configured.
 tracker-ota:
 	@mkdir -p $(DIST)
 	cd "$(NCS_TRACKER)" && $(ZEPHYR_ENV) FW_GIT_DESCRIBE="$(FW_GIT_DESCRIBE)" FW_GIT_BRANCH="$(FW_GIT_BRANCH)" \
-		west build --board $(TRACKER_BOARD) --pristine=$(PRISTINE) \
+		west build --board $(TRACKER_BOARD) --pristine=always \
 		--build-dir "$(BUILD)/tracker-ota" "$(ROOT)/Tracker" \
 		-- -DNCS_TOOLCHAIN_VERSION=NONE -DBOARD_ROOT="$(ROOT)/Tracker" \
 		-DSB_CONFIG_BOOTLOADER_MCUBOOT=y -DSB_CONFIG_MCUBOOT_MODE_SWAP_USING_MOVE=y \
 		-DSB_CONFIG_BOOT_SIGNATURE_TYPE_NONE=y -Dmcuboot_BOARD=nrf52840dk/nrf52840 \
-		-DTracker_EXTRA_CONF_FILE="$(ROOT)/Tracker/ota.conf" -DTracker_EXTRA_DTC_OVERLAY_FILE="$(ROOT)/Tracker/ota.overlay"
+		-DTracker_EXTRA_CONF_FILE="$(OTA_CONF)" -DTracker_EXTRA_DTC_OVERLAY_FILE="$(ROOT)/Tracker/ota.overlay"
 	python3 "$(UF2CONV)" -c -f $(UF2_FAMILY_NRF52840) -o "$(TRACKER_OTA_UF2)" "$(BUILD)/tracker-ota/merged.hex"
 	cp "$(BUILD)/tracker-ota/Tracker/zephyr/zephyr.signed.bin" "$(TRACKER_OTA_BIN)"
 	@echo "-> $(TRACKER_OTA_UF2), $(TRACKER_OTA_BIN)"
+
+# The tracker-ota app padded to the secondary slot, with the trailer that asks MCUboot for a test
+# swap on the next boot, as a UF2 for that slot (same imgtool arguments as the build, plus --pad)
+tracker-ota-slot1: tracker-ota
+	version=$$(grep -o -m1 -- '--version [^ ]*' "$(BUILD)/tracker-ota/Tracker/build.ninja" | cut -d' ' -f2); \
+	"$(WEST_VENV)/bin/python" "$(IMGTOOL)" sign --version "$$version" --align 4 --slot-size $(OTA_SLOT1_SIZE) \
+		--pad-header --header-size 0x200 --pad \
+		"$(BUILD)/tracker-ota/Tracker/zephyr/zephyr.bin" "$(BUILD)/tracker-ota/slot1_test.bin"
+	python3 "$(UF2CONV)" -c -b $(OTA_SLOT1_ADDR) -f $(UF2_FAMILY_NRF52840) -o "$(TRACKER_OTA_SLOT1_UF2)" \
+		"$(BUILD)/tracker-ota/slot1_test.bin"
+	@echo "-> $(TRACKER_OTA_SLOT1_UF2)"
 
 # The dongle board's own USB console (new USB stack) clashes with the receiver's legacy one in
 # this SDK: BOARD_SERIAL_BACKEND_CDC_ACM off.

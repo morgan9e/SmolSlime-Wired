@@ -33,6 +33,17 @@ LOG_MODULE_REGISTER(ota, LOG_LEVEL_INF);
 static atomic_t acked;
 static K_SEM_DEFINE(confirm_sem, 0, 1);
 
+void ota_print_status(void)
+{
+	// BOOT_SWAP_TYPE_NONE is 1, the others follow (zephyr/dfu/mcuboot.h)
+	static const char *const swap_names[] = {"none", "test", "perm", "revert", "fail"};
+	int swap = mcuboot_swap_type();
+	printk("Image: %s (%ld of %d frames acknowledged), next boot: swap %s\n",
+	       boot_is_img_confirmed() ? "confirmed" : "pending", (long)atomic_get(&acked),
+	       CONFIG_TRACKER_OTA_CONFIRM_ACKS,
+	       swap >= BOOT_SWAP_TYPE_NONE && swap <= BOOT_SWAP_TYPE_FAIL ? swap_names[swap - BOOT_SWAP_TYPE_NONE] : "unknown");
+}
+
 void ota_tx_acked(void)
 {
 	if (atomic_inc(&acked) + 1 == CONFIG_TRACKER_OTA_CONFIRM_ACKS)
