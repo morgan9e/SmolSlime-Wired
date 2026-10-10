@@ -182,6 +182,7 @@ static void print_help(void)
 	printk("exit                         Exit pairing mode\n");
 	printk("clear                        Clear stored devices\n");
 #if CONFIG_PACKET_LOG
+	printk("\ntdma                        Show experimental TDMA scheduler counters\n");
 	printk("\ndiag [on|off]                Log radio link diagnostics every second (off at boot)\n");
 #endif
 	printk("ota [status|stop]            Tracker firmware updates over the radio (tools/ota.py)\n");
@@ -298,6 +299,10 @@ static void console_thread(void)
 		else if (strcmp(line, command_meow) == 0)
 		{
 			print_meow();
+		}
+		else if (strcmp(argv[0], "tdma") == 0)
+		{
+			esb_tdma_status();
 		}
 		else if (strcmp(argv[0], "ota") == 0)
 		{

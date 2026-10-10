@@ -23,7 +23,7 @@
 #include "globals.h"
 #include "system/system.h"
 #include "hid.h"
-#include "tdma.h"
+/* The old allocator in tdma.h is not a running scheduler. */
 #include "packet_log.h"
 #include "ota.h"
 #include "ota_proto.h"
@@ -55,8 +55,47 @@ LOG_MODULE_REGISTER(esb_event, LOG_LEVEL_INF);
 static void esb_packet_filter_thread(void);
 K_THREAD_DEFINE(esb_packet_filter_thread_id, 256, esb_packet_filter_thread, NULL, NULL, NULL, 6, 0, 0);
 
+#if CONFIG_RADIO_TDMA
+#include "radio_tdma.h"
+BUILD_ASSERT(CONFIG_SYS_CLOCK_TICKS_PER_SEC >= 32768, "TDMA requires a fine system clock");
+static bool tdma_running, tdma_tx_mode, tdma_inflight;
+static atomic_t tdma_done;
+static int64_t tdma_next, tdma_submitted;
+static uint32_t tdma_serial, tdma_beacons, tdma_errors, tdma_late, tdma_max_late;
+static int64_t tdma_epoch;
+static bool tdma_epoch_valid;
+static struct tdma_rx_stats {
+	uint32_t count, outside;
+	int32_t last_us, min_us, max_us;
+} tdma_rx[TDMA_SLOTS];
+
+static int64_t tdma_now(void)
+{
+	return k_ticks_to_us_floor64(k_uptime_ticks());
+}
+#endif
+
+void esb_tdma_status(void)
+{
+#if CONFIG_RADIO_TDMA
+	printk("tdma: %s v1 slots=8 frame_us=10000 beacons=%u errors=%u late=%u max_late_us=%u\n",
+		tdma_running ? "running" : "stopped", tdma_beacons, tdma_errors, tdma_late, tdma_max_late);
+	for (unsigned i = 0; i < TDMA_SLOTS; i++) {
+		unsigned key = irq_lock();
+		struct tdma_rx_stats r = tdma_rx[i];
+		irq_unlock(key);
+		if (r.count)
+			printk("tdma id %u: rx=%u outside=%u phase_us last=%d min=%d max=%d\n",
+				i, r.count, r.outside, r.last_us, r.min_us, r.max_us);
+	}
+#else
+	printk("tdma: disabled (legacy ESB)\n");
+#endif
+}
+
 static void esb_thread(void);
-K_THREAD_DEFINE(esb_thread_id, 1024, esb_thread, NULL, NULL, NULL, 6, 0, 0);
+K_THREAD_DEFINE(esb_thread_id, 1024, esb_thread, NULL, NULL, NULL,
+	IS_ENABLED(CONFIG_RADIO_TDMA) ? 4 : 6, 0, 0);
 
 static void esb_parse_pair(void);
 
@@ -96,9 +135,23 @@ void event_handler(struct esb_evt const *event)
 	switch (event->evt_id)
 	{
 	case ESB_EVENT_TX_SUCCESS:
+#if CONFIG_RADIO_TDMA
+		if (tdma_inflight) {
+			tdma_beacons++;
+			tdma_epoch = tdma_now();
+			tdma_epoch_valid = true;
+			atomic_set(&tdma_done, 1);
+		}
+#endif
 		LOG_DBG("TX SUCCESS");
 		break;
 	case ESB_EVENT_TX_FAILED:
+#if CONFIG_RADIO_TDMA
+		if (tdma_inflight) {
+			tdma_errors++;
+			atomic_set(&tdma_done, 1);
+		}
+#endif
 		LOG_DBG("TX FAILED");
 		break;
 	case ESB_EVENT_RX_RECEIVED:
@@ -152,6 +205,21 @@ void event_handler(struct esb_evt const *event)
 			switch (rx_payload.length)
 			{
 			case 21: // has sequence number
+#if CONFIG_RADIO_TDMA
+				if (tdma_epoch_valid && rx_payload.data[1] < TDMA_SLOTS) {
+					unsigned id = rx_payload.data[1];
+					int64_t phase = tdma_now() - tdma_epoch - TDMA_FIRST_SLOT_US - id * TDMA_SLOT_US;
+					struct tdma_rx_stats *r = &tdma_rx[id];
+					/* Callback timing after the ACK, not a hardware RX-END capture.
+					 * An out-of-slot count may indicate legacy TX or scheduling jitter. */
+					int32_t p = (int32_t)CLAMP(phase, INT32_MIN, INT32_MAX);
+					if (!r->count || p < r->min_us) r->min_us = p;
+					if (!r->count || p > r->max_us) r->max_us = p;
+					r->last_us = p;
+					r->count++;
+					if (phase < 0 || phase >= TDMA_SLOT_US) r->outside++;
+				}
+#endif
 				packet_log_frame(rx_payload.data, rx_payload.rssi); // link diagnostics, before any filter
 				// TODO : It's a very crude implementation
 				// But brain hurty, will make a better one later
@@ -299,18 +367,27 @@ int esb_initialize(bool tx)
 //		config.use_fast_ramp_up = true;
 	}
 
+#if CONFIG_RADIO_TDMA
+	config.bitrate = ESB_BITRATE_2MBPS;
+	config.tx_output_power = 8; /* nRF52840 supported maximum */
+#else
 	LOG_INF("Initializing ESB, %sX mode", tx ? "T" : "R");
+#endif
 	err = esb_init(&config);
 
 	if (!err)
-		esb_set_base_address_0(base_addr_0);
+		err = esb_set_base_address_0(base_addr_0);
 
 	if (!err)
-		esb_set_base_address_1(base_addr_1);
+		err = esb_set_base_address_1(base_addr_1);
 
 	if (!err)
-		esb_set_prefixes(addr_prefix, ARRAY_SIZE(addr_prefix));
+		err = esb_set_prefixes(addr_prefix, ARRAY_SIZE(addr_prefix));
 
+#if CONFIG_RADIO_TDMA
+	if (!err && !tx)
+		err = esb_enable_pipes(BIT(0) | BIT(1) | BIT(OTA_PIPE));
+#endif
 	if (err)
 	{
 		LOG_ERR("ESB initialization failed: %d", err);
@@ -324,6 +401,9 @@ int esb_initialize(bool tx)
 
 static void esb_deinitialize(void)
 {
+#if CONFIG_RADIO_TDMA
+	tdma_running = false;
+#endif
 	LOG_INF("ESB deinitialize requested");
 	if (esb_initialized)
 	{
@@ -390,6 +470,10 @@ void esb_add_pair(uint64_t addr, bool checksum)
 			}
 		}
 	}
+	if (IS_ENABLED(CONFIG_RADIO_TDMA) && id >= 8) {
+		LOG_ERR("TDMA supports only tracker IDs 0-7");
+		return;
+	}
 	if (id == stored_trackers)
 	{
 		LOG_INF("Added device on id %d with address %012llX", id, addr);
@@ -442,6 +526,10 @@ void esb_parse_pair()
 			//LOG_INF("Found device linked to id %d with address %012llX", i, found_addr);
 			send_tracker_id = i;
 		}
+	}
+	if (IS_ENABLED(CONFIG_RADIO_TDMA) && send_tracker_id >= 8) {
+		tx_payload_pair.data[0] = 0;
+		return;
 	}
 	uint8_t checksum = crc8_ccitt(0x07, &pairing_buf[2], 6); // make sure the packet is valid
 	if (checksum == 0)
@@ -555,6 +643,81 @@ static void esb_packet_filter_thread(void)
 	}
 }
 
+#if CONFIG_RADIO_TDMA
+static int tdma_mode(bool tx)
+{
+	if (esb_initialized) esb_disable();
+	esb_initialized = false;
+	tdma_tx_mode = tx;
+	int err = esb_initialize(tx);
+	if (!err && !tx) err = esb_start_rx();
+	if (err) {
+		tdma_errors++;
+		esb_initialized = false;
+	}
+	return err;
+}
+
+static void tdma_start(void)
+{
+	tdma_running = true;
+	tdma_tx_mode = false;
+	tdma_inflight = false;
+	tdma_epoch_valid = false;
+	tdma_next = tdma_now() + TDMA_FRAME_US;
+	LOG_INF("TDMA v1: 8 slots / 10 ms, beacon pipe 2, USB tracker updates only");
+	if (stored_trackers > TDMA_SLOTS)
+		LOG_WRN("TDMA supports only tracker IDs 0-7");
+}
+
+static void tdma_service(void)
+{
+	if (!tdma_running || !esb_paired) return;
+	int64_t now = tdma_now();
+	if (tdma_inflight) {
+		if (!atomic_get(&tdma_done) && now - tdma_submitted < TDMA_TRANSACTION_US)
+			return;
+		if (!atomic_get(&tdma_done)) tdma_errors++;
+		tdma_inflight = false;
+		tdma_mode(false);
+		return;
+	}
+	if (!esb_initialized) {
+		tdma_mode(false);
+		return;
+	}
+	if (now < tdma_next - TDMA_PREPARE_US) return;
+	if (!tdma_tx_mode && tdma_mode(true)) return;
+	now = tdma_now();
+	if (now < tdma_next) return;
+	struct esb_payload p = {.pipe = TDMA_BEACON_PIPE,
+		.length = TDMA_BEACON_LEN, .noack = true};
+	tdma_make_beacon(p.data, tdma_serial++);
+	atomic_clear(&tdma_done);
+	/* Manual PTX: queue first, then timestamp and start without preemption. */
+	if (esb_write_payload(&p)) {
+		tdma_errors++;
+		tdma_next = now + TDMA_FRAME_US;
+		tdma_mode(false);
+		return;
+	}
+	unsigned key = irq_lock();
+	tdma_submitted = tdma_now();
+	tdma_inflight = true;
+	int err = esb_start_tx();
+	irq_unlock(key);
+	uint32_t late = (uint32_t)(tdma_submitted - tdma_next);
+	if (late > TDMA_START_WINDOW_US) tdma_late++;
+	if (late > tdma_max_late) tdma_max_late = late;
+	tdma_next = tdma_next_beacon(tdma_next, tdma_submitted);
+	if (err) {
+		tdma_errors++;
+		tdma_inflight = false;
+		tdma_mode(false);
+	}
+}
+#endif
+
 static void esb_thread(void)
 {
 	clocks_start();
@@ -571,6 +734,9 @@ static void esb_thread(void)
 		esb_receive();
 		esb_initialize(false);
 		esb_start_rx();
+#if CONFIG_RADIO_TDMA
+		tdma_start();
+#endif
 	}
 
 	while (1)
@@ -581,7 +747,15 @@ static void esb_thread(void)
 			esb_receive();
 			esb_initialize(false);
 			esb_start_rx();
+#if CONFIG_RADIO_TDMA
+			tdma_start();
+#endif
 		}
+#if CONFIG_RADIO_TDMA
+		tdma_service();
+		k_usleep(100);
+#else
 		k_msleep(100);
+#endif
 	}
 }

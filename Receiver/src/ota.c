@@ -180,6 +180,10 @@ static void print_status(void)
 void ota_console(int argc, char **argv)
 {
 	const char *cmd = argc > 1 ? argv[1] : "status";
+	if (IS_ENABLED(CONFIG_RADIO_TDMA) && strcmp(cmd, "begin") == 0) {
+		printk("ota: error: TDMA prototype requires USB tracker updates\n");
+		return;
+	}
 	if (strcmp(cmd, "begin") == 0 && argc == 6) {
 		// ota begin <size> <crc32 hex> <board crc32 hex> <tracker id>: offer at once, data follows
 		atomic_set(&state, OTA_IDLE);

@@ -37,6 +37,10 @@ change reduced that to 25%. The no-flush experiment performed worse and was reve
 There is no recorded all-six-moving test on 0.0.3 or later. See the
 [dated measurements](docs/archive/MEASUREMENTS.md); these are not current performance claims.
 
+An opt-in [TDMA prototype](docs/TDMA.md) adds receiver beacons and eight fixed
+transmit slots. It is awaiting hardware validation; ordinary builds still use
+legacy ESB. Build it separately with `make tdma`.
+
 ## Build and update
 
 Build in WSL/Linux using the SDK workspaces configured in the [Makefile](Makefile).

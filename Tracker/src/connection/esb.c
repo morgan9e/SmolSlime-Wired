@@ -57,6 +57,52 @@ static uint8_t paired_addr[8] = {0};
 static bool esb_initialized = false;
 static bool esb_paired = false;
 
+#if CONFIG_RADIO_TDMA
+#include "radio_tdma.h"
+BUILD_ASSERT(CONFIG_SYS_CLOCK_TICKS_PER_SEC >= 32768, "TDMA requires a fine system clock");
+BUILD_ASSERT(CONFIG_ESB_PIPE_COUNT > TDMA_BEACON_PIPE, "TDMA requires beacon pipe 2");
+static struct tdma_sync tdma_sync;
+static struct k_spinlock tdma_lock; /* IRQ beacon timestamp and pending frame */
+static bool tdma_running, tdma_tx_mode, tdma_pending, tdma_inflight;
+static uint8_t tdma_data[21], tdma_sequence;
+static uint32_t tdma_beacons, tdma_sent, tdma_late, tdma_replaced, tdma_errors;
+static uint32_t tdma_acked, tdma_failed, tdma_empty;
+static int64_t tdma_started, tdma_submitted;
+static bool tdma_outage;
+
+static int64_t tdma_now(void)
+{
+	return k_ticks_to_us_floor64(k_uptime_ticks());
+}
+
+static void tdma_receive_beacon(const struct esb_payload *p)
+{
+	if (!tdma_running || tdma_tx_mode || p->pipe != TDMA_BEACON_PIPE)
+		return;
+	k_spinlock_key_t key = k_spin_lock(&tdma_lock);
+	if (tdma_accept_beacon(&tdma_sync, p->data, p->length, tdma_now()))
+		tdma_beacons++;
+	k_spin_unlock(&tdma_lock, key);
+}
+#endif
+
+void esb_tdma_status(void)
+{
+#if CONFIG_RADIO_TDMA
+	k_spinlock_key_t key = k_spin_lock(&tdma_lock);
+	bool locked = tdma_running && tdma_sync.valid &&
+		tdma_now() - tdma_sync.epoch_us < 2 * TDMA_FRAME_US;
+	uint32_t b = tdma_beacons, s = tdma_sent, l = tdma_late, r = tdma_replaced;
+	uint32_t e = tdma_errors, a = tdma_acked, f = tdma_failed, n = tdma_empty;
+	k_spin_unlock(&tdma_lock, key);
+	printk("tdma: %s id=%u beacons=%u submitted=%u acked=%u failed=%u late=%u empty=%u replaced=%u errors=%u\n",
+		paired_addr[1] >= TDMA_SLOTS ? "unsupported-id" : locked ? "locked" : "listening",
+		paired_addr[1], b, s, a, f, l, n, r, e);
+#else
+	printk("tdma: disabled (legacy ESB)\n");
+#endif
+}
+
 #define TX_ERROR_THRESHOLD 30
 #define TX_ERROR_MAX 100
 #define TX_ERROR_CLEAR_RATE 10
@@ -64,7 +110,8 @@ static bool esb_paired = false;
 LOG_MODULE_REGISTER(esb_event, LOG_LEVEL_INF);
 
 static void esb_thread(void);
-K_THREAD_DEFINE(esb_thread_id, 512, esb_thread, NULL, NULL, NULL, ESB_THREAD_PRIORITY, 0, 0);
+K_THREAD_DEFINE(esb_thread_id, 1024, esb_thread, NULL, NULL, NULL,
+	IS_ENABLED(CONFIG_RADIO_TDMA) ? 4 : ESB_THREAD_PRIORITY, 0, 0);
 
 uint64_t pairing_packets = 0;
 
@@ -82,6 +129,9 @@ void event_handler(struct esb_evt const *event)
 	switch (event->evt_id)
 	{
 	case ESB_EVENT_TX_SUCCESS:
+#if CONFIG_RADIO_TDMA
+		if (tdma_running) tdma_acked++;
+#endif
 		if (!paired_addr[0]) // zero, not paired
 			pairing_packets++; // keep track of pairing state
 		if (tx_errors >= TX_ERROR_THRESHOLD && tx_errors < TX_ERROR_THRESHOLD + TX_ERROR_CLEAR_RATE && last_tx_fail == 0)
@@ -101,6 +151,9 @@ void event_handler(struct esb_evt const *event)
 			clocks_stop();
 		break;
 	case ESB_EVENT_TX_FAILED:
+#if CONFIG_RADIO_TDMA
+		if (tdma_running) tdma_failed++;
+#endif
 		if (ota_active())
 		{
 			ota_tx_done();
@@ -118,8 +171,8 @@ void event_handler(struct esb_evt const *event)
 			clocks_stop();
 		break;
 	case ESB_EVENT_RX_RECEIVED:
-		// TODO: have to read rx until -ENODATA (or -EACCES/-EINVAL)
-		if (!esb_read_rx_payload(&rx_payload)) // zero, rx success
+		/* Drain ACKs/beacons so an old payload cannot acquire a new timestamp. */
+		while (!esb_read_rx_payload(&rx_payload)) // zero, rx success
 		{
 			LOG_DBG("rx len: %d, pipe: %d", rx_payload.length, rx_payload.pipe);
 			if (!paired_addr[0]) // zero, not paired
@@ -130,6 +183,10 @@ void event_handler(struct esb_evt const *event)
 			}
 			else
 			{
+#if CONFIG_RADIO_TDMA
+				tdma_receive_beacon(&rx_payload);
+				continue; /* OTA offers are deliberately disabled in this prototype */
+#endif
 				if (rx_payload.length == 4)
 				{
 					// TODO: Device should never receive packets if it is already paired, why is this packet received?
@@ -224,6 +281,9 @@ int clocks_start(void)
 
 void clocks_stop(void)
 {
+#if CONFIG_RADIO_TDMA
+	if (tdma_running) return; /* listening for the next beacon requires HFXO */
+#endif
 	if (!clock_status)
 		return;
 	clock_status = false;
@@ -252,6 +312,9 @@ static K_THREAD_STACK_DEFINE(clocks_thread_id_stack, 128);
 
 void clocks_request_start(uint32_t delay_us)
 {
+#if CONFIG_RADIO_TDMA
+	if (tdma_running) return; /* the TDMA worker owns the continuous HF clock */
+#endif
 	k_thread_create(&clocks_thread_id, clocks_thread_id_stack, K_THREAD_STACK_SIZEOF(clocks_thread_id_stack), (k_thread_entry_t)clocks_start, NULL, NULL, NULL, CLOCKS_START_THREAD_PRIORITY, 0, K_USEC(delay_us));
 }
 
@@ -260,6 +323,9 @@ static K_THREAD_STACK_DEFINE(clocks_stop_thread_id_stack, 128);
 
 void clocks_request_stop(uint32_t delay_us)
 {
+#if CONFIG_RADIO_TDMA
+	if (tdma_running) return; /* the TDMA worker owns the continuous HF clock */
+#endif
 	k_thread_create(&clocks_stop_thread_id, clocks_stop_thread_id_stack, K_THREAD_STACK_SIZEOF(clocks_stop_thread_id), (k_thread_entry_t)clocks_stop, NULL, NULL, NULL, CLOCKS_STOP_THREAD_PRIORITY, 0, K_USEC(delay_us));
 }
 
@@ -318,17 +384,27 @@ int esb_initialize(bool tx)
 //		config.use_fast_ramp_up = true;
 	}
 
+#if CONFIG_RADIO_TDMA
+	if (esb_paired) {
+		config.bitrate = ESB_BITRATE_2MBPS;
+		config.retransmit_count = 0; /* never retry into a neighbour's slot */
+	}
+#endif
 	err = esb_init(&config);
 
 	if (!err)
-		esb_set_base_address_0(base_addr_0);
+		err = esb_set_base_address_0(base_addr_0);
 
 	if (!err)
-		esb_set_base_address_1(base_addr_1);
+		err = esb_set_base_address_1(base_addr_1);
 
 	if (!err)
-		esb_set_prefixes(addr_prefix, ARRAY_SIZE(addr_prefix));
+		err = esb_set_prefixes(addr_prefix, ARRAY_SIZE(addr_prefix));
 
+#if CONFIG_RADIO_TDMA
+	if (!err && esb_paired && !tx)
+		err = esb_enable_pipes(BIT(TDMA_BEACON_PIPE));
+#endif
 	if (err)
 	{
 		LOG_ERR("ESB initialization failed: %d", err);
@@ -342,6 +418,9 @@ int esb_initialize(bool tx)
 
 void esb_deinitialize(void)
 {
+#if CONFIG_RADIO_TDMA
+	tdma_running = false;
+#endif
 	if (esb_initialized)
 	{
 		esb_initialized = false;
@@ -511,6 +590,7 @@ void esb_clear_pair(void)
 // A firmware update message on the OTA pipe (ota.c); tracking is paused meanwhile
 int esb_write_ota(const uint8_t *data, uint8_t len)
 {
+	if (IS_ENABLED(CONFIG_RADIO_TDMA)) return -ENOTSUP;
 	static struct esb_payload ota_payload = ESB_CREATE_PAYLOAD(OTA_PIPE, 0);
 	if (!esb_initialized || !esb_paired)
 		return -ENOTCONN;
@@ -525,10 +605,129 @@ int esb_write_ota(const uint8_t *data, uint8_t len)
 }
 #endif
 
+#if CONFIG_RADIO_TDMA
+/* Called only by the radio thread. Never reconfigure ESB in an IRQ or timer ISR. */
+static int tdma_mode(bool tx)
+{
+	if (esb_initialized) esb_disable(); /* bounded stop, discards a failed frame */
+	esb_initialized = false;
+	tdma_tx_mode = tx;
+	int err = esb_initialize(tx);
+	if (!err && !tx)
+		err = esb_start_rx();
+	if (err) {
+		tdma_errors++;
+		esb_initialized = false;
+	}
+	return err;
+}
+
+static void tdma_service(void)
+{
+	if (!tdma_running || !esb_paired)
+		return;
+	k_spinlock_key_t sync_key = k_spin_lock(&tdma_lock);
+	int64_t last_beacon = tdma_sync.valid ? tdma_sync.epoch_us : tdma_started;
+	bool outage = tdma_now() - last_beacon > 1000000;
+	k_spin_unlock(&tdma_lock, sync_key);
+	if (outage && !tdma_outage) {
+		LOG_WRN("TDMA: beacon absent for 1 s; listening, no unscheduled TX");
+		tx_errors = TX_ERROR_THRESHOLD;
+		last_tx_success = k_uptime_get();
+	}
+	tdma_outage = outage;
+	if (!esb_initialized) {
+		tdma_mode(false);
+		return;
+	}
+	if (tdma_inflight) {
+		if (!esb_is_idle()) {
+			if (tdma_now() - tdma_submitted < TDMA_TRANSACTION_US)
+				return;
+			tdma_errors++; /* abort a stuck transaction and reacquire */
+		}
+		tdma_inflight = false;
+		tdma_mode(false);
+		return;
+	}
+	k_spinlock_key_t key = k_spin_lock(&tdma_lock);
+	enum tdma_action action = tdma_action_at(&tdma_sync, paired_addr[1], tdma_now());
+	k_spin_unlock(&tdma_lock, key);
+	if (action == TDMA_PREPARE || action == TDMA_SEND) {
+		if (!tdma_tx_mode && tdma_mode(true))
+			return;
+		/* Recheck AFTER reconfiguration. Lock through submission so a thread
+		 * preemption cannot turn an on-time decision into an out-of-slot TX. */
+		key = k_spin_lock(&tdma_lock);
+		action = tdma_action_at(&tdma_sync, paired_addr[1], tdma_now());
+		if (action == TDMA_SEND) {
+			tdma_sync.used = true;
+			if (tdma_pending) {
+				struct esb_payload p = {.pipe = 1, .length = 21, .noack = false};
+				memcpy(p.data, tdma_data, sizeof(tdma_data));
+				/* CRC covers bytes 0..15, so changing byte 20 is safe. Count
+				 * attempts, not sensor frames coalesced before their slot. */
+				p.data[20] = tdma_sequence;
+				tdma_submitted = tdma_now();
+				if (esb_write_payload(&p) == 0) {
+					tdma_sequence++;
+					tdma_sent++;
+					tdma_pending = false;
+					tdma_inflight = true;
+				} else {
+					tdma_errors++;
+				}
+			} else {
+				tdma_empty++;
+			}
+		}
+		k_spin_unlock(&tdma_lock, key);
+	}
+	if (action == TDMA_EXPIRED) {
+		key = k_spin_lock(&tdma_lock);
+		/* A new beacon may have arrived since the first snapshot. */
+		if (tdma_action_at(&tdma_sync, paired_addr[1], tdma_now()) == TDMA_EXPIRED) {
+			tdma_sync.used = true;
+			tdma_late++;
+		}
+		k_spin_unlock(&tdma_lock, key);
+	}
+	if (tdma_tx_mode && !tdma_inflight && action != TDMA_PREPARE)
+		tdma_mode(false);
+}
+
+static void tdma_start(void)
+{
+	memset(&tdma_sync, 0, sizeof(tdma_sync));
+	tdma_pending = false;
+	tdma_inflight = false;
+	tdma_started = tdma_now();
+	tdma_outage = false;
+	tdma_running = true;
+	if (clocks_start()) {
+		tdma_running = false;
+		esb_paired = false; /* retry startup, never run the radio on HFINT */
+		return;
+	}
+	tdma_mode(false);
+	LOG_INF("TDMA v1: id %u, 8 slots / 10 ms, no retries, USB updates only", paired_addr[1]);
+	if (paired_addr[1] >= TDMA_SLOTS)
+		LOG_ERR("TDMA supports IDs 0-7; this tracker will only listen");
+}
+#endif
+
 void esb_write(uint8_t *data)
 {
 	if (!esb_initialized || !esb_paired)
 		return;
+#if CONFIG_RADIO_TDMA
+	k_spinlock_key_t key = k_spin_lock(&tdma_lock);
+	if (tdma_pending) tdma_replaced++;
+	memcpy(tdma_data, data, sizeof(tdma_data));
+	tdma_pending = true;
+	k_spin_unlock(&tdma_lock, key);
+	return;
+#endif
 	if (ota_active())
 		return; // tracking is paused while a firmware update is received
 	if (!clock_status)
@@ -566,7 +765,11 @@ static void esb_thread(void)
 		if (!esb_paired && (!use_hid || paired_addr[0] || (!get_status(SYS_STATUS_USB_CONNECTED) && k_uptime_get() - 750 > start_time))) // only automatically enter pairing while not potentially communicating by usb, however allow esb if already paired
 		{
 			esb_pair();
+#if CONFIG_RADIO_TDMA
+			tdma_start();
+#else
 			esb_initialize(true);
+#endif
 		}
 		if (tx_errors >= TX_ERROR_THRESHOLD)
 		{
@@ -582,6 +785,11 @@ static void esb_thread(void)
 		{
 			set_status(SYS_STATUS_CONNECTION_ERROR, false);
 		}
+#if CONFIG_RADIO_TDMA
+		tdma_service();
+		k_usleep(100);
+#else
 		k_msleep(100);
+#endif
 	}
 }

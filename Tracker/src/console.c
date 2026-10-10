@@ -169,6 +169,7 @@ static void print_connection(void)
 	printk("Device address: %012llX\n", *(uint64_t *)NRF_FICR->DEVICEADDR & 0xFFFFFFFFFFFF);
 	printk(paired ? "Receiver address: %012llX\n" : "Receiver address: None\n", (*(uint64_t *)&retained->paired_addr[0] >> 16) & 0xFFFFFFFFFFFF);
 	ota_print_status();
+	esb_tdma_status();
 }
 
 static void print_battery(void)

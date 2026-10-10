@@ -17,7 +17,7 @@
 # Toolchain locations can be overridden, e.g. make NCS_TRACKER=/opt/ncs-v3.1 tracker
 
 ROOT          := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
-DIST          := $(ROOT)/dist
+DIST          ?= $(ROOT)/dist
 BUILD         ?= $(HOME)/build/slimevr-clean
 
 # nRF Connect SDK workspaces: the tracker builds with v3.1 (as upstream's releases), the receiver
@@ -30,6 +30,8 @@ HOST_TOOLS    ?= $(HOME)/.local/xz/usr/bin:$(HOME)/.espressif/tools/cmake/3.30.2
 TRACKER_BOARD ?= promicro_uf2/nrf52840/stackedspi
 RECEIVER_BOARD?= nrf52840dongle/nrf52840
 PRISTINE      ?= auto
+TRACKER_EXTRA_CONF ?=
+RECEIVER_EXTRA_CONF ?=
 
 ZEPHYR_ENV = PATH="$(HOST_TOOLS):$(WEST_VENV)/bin:$$PATH" ZEPHYR_SDK_INSTALL_DIR="$(ZEPHYR_SDK)" ZEPHYR_TOOLCHAIN_VARIANT=zephyr
 
@@ -50,7 +52,7 @@ OTA_LAYOUT    ?=
 TRACKER_OTA_UF2 = $(DIST)/SlimeNRF_$(OTA_NAME)_Tracker_OTA.uf2
 TRACKER_OTA_BIN = $(DIST)/SlimeNRF_$(OTA_NAME)_Tracker_OTA_app.bin
 TRACKER_OTA_SLOT1_UF2 := $(DIST)/SlimeNRF_ProMicro_StackedSPI_Tracker_OTA_slot1_test.uf2
-OTA_CONF      := $(ROOT)/Tracker/ota.conf$(if $(OTA_NOCONFIRM),;$(ROOT)/Tracker/ota_noconfirm.conf)
+OTA_CONF      := $(ROOT)/Tracker/ota.conf$(if $(OTA_NOCONFIRM),;$(ROOT)/Tracker/ota_noconfirm.conf)$(if $(TRACKER_EXTRA_CONF),;$(TRACKER_EXTRA_CONF))
 IMGTOOL       := $(NCS_TRACKER)/bootloader/mcuboot/scripts/imgtool.py
 # Secondary slot of pm_static/mcuboot_nrf52840_uf2.yml
 OTA_SLOT1_ADDR := 0x7c000
@@ -118,12 +120,30 @@ receiver:
 	@mkdir -p $(DIST)
 	cd "$(NCS_RECEIVER)" && $(ZEPHYR_ENV) west build --board $(RECEIVER_BOARD) --pristine=$(PRISTINE) \
 		--build-dir "$(BUILD)/receiver" "$(ROOT)/Receiver" \
-		-- -DNCS_TOOLCHAIN_VERSION=NONE -DBOARD_ROOT="$(ROOT)/Receiver" -DCONFIG_BOARD_SERIAL_BACKEND_CDC_ACM=n
+		-- -DNCS_TOOLCHAIN_VERSION=NONE -DBOARD_ROOT="$(ROOT)/Receiver" -DCONFIG_BOARD_SERIAL_BACKEND_CDC_ACM=n $(if $(RECEIVER_EXTRA_CONF),-DReceiver_EXTRA_CONF_FILE="$(RECEIVER_EXTRA_CONF)")
 	cp "$(BUILD)/receiver/Receiver/zephyr/zephyr.hex" "$(RECEIVER_HEX)"
 	python3 "$(ROOT)/tools/dfu_zip.py" "$(RECEIVER_HEX)" "$(RECEIVER_HEX:.hex=.zip)"
 	@echo "-> $(RECEIVER_HEX), $(RECEIVER_HEX:.hex=.zip)"
 
-test:
+# Keep experimental binaries/builds away from the known-good images.
+.PHONY: tdma tdma-tracker tdma-tracker-xiao tdma-receiver test-tdma
+tdma: tdma-tracker tdma-tracker-xiao tdma-receiver
+
+tdma-tracker:
+	$(MAKE) tracker-ota BUILD="$(BUILD)/tdma" DIST="$(DIST)/tdma" TRACKER_EXTRA_CONF="$(ROOT)/Tracker/tdma.conf"
+
+tdma-tracker-xiao:
+	$(MAKE) tracker-ota-xiao BUILD="$(BUILD)/tdma" DIST="$(DIST)/tdma" TRACKER_EXTRA_CONF="$(ROOT)/Tracker/tdma.conf"
+
+tdma-receiver:
+	$(MAKE) receiver PRISTINE=always BUILD="$(BUILD)/tdma" DIST="$(DIST)/tdma" RECEIVER_EXTRA_CONF="$(ROOT)/Receiver/tdma.conf"
+
+test-tdma:
+	@mkdir -p "$(BUILD)/tests"
+	$(CC) -std=c11 -Wall -Wextra -Werror -pedantic -I"$(ROOT)/shared" "$(ROOT)/tests/test_radio_tdma.c" -o "$(BUILD)/tests/test_radio_tdma"
+	"$(BUILD)/tests/test_radio_tdma"
+
+test: test-tdma
 	cd "$(ROOT)/tools" && python3 -m unittest test_slime_link
 
 clean:

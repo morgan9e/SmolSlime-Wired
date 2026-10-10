@@ -375,4 +375,15 @@ config CONNECTION_OVER_HID
         Use HID if available.
         Otherwise, use ESB only.
 
+config RADIO_TDMA
+    bool "Experimental receiver-synchronized TDMA"
+    depends on SOC_NRF52840
+    default n
+    help
+        Eight fixed slots per 10 ms frame, assigned by paired tracker ID (0-7).
+        Requires matching firmware on the receiver and all trackers. No legacy
+        fallback when beacons are absent. Radio OTA transfers are disabled in
+        this first prototype; USB/MCUboot recovery and confirmation remain.
+        Keeps the tracker radio listening and HFXO on: higher battery use.
+
 source "Kconfig.zephyr"

@@ -59,6 +59,15 @@ the charge estimate still lack recorded hardware validation.
 - Verify results, including generated/ignored files when relevant. Do not read
   other sessions' transcripts without a request.
 
+## TDMA prototype (2026-10-11)
+
+The user requested initial TDMA code. An opt-in receiver-beacon scheduler now
+assigns eight 1 ms slots in a nominal 10 ms frame. See [TDMA](TDMA.md) for isolated
+build targets, diagnostics, software timing limits and acceptance tests. Ordinary
+builds remain legacy ESB. The prototype keeps HFXO/RX active, uses no retries, and
+requires USB firmware updates. This work did not flash hardware; it does not
+establish improved reception or range. User identifies ID 7 as the left foot.
+
 ## Next work
 
 1. Record firmware versions and a six-tracker moving baseline on battery, then real

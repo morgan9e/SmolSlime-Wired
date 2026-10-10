@@ -62,5 +62,6 @@ int esb_write_ota(const uint8_t *data, uint8_t len); // a firmware update messag
 #endif
 
 bool esb_ready(void);
+void esb_tdma_status(void);
 
 #endif

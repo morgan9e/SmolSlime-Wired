@@ -7,6 +7,7 @@ Start with the [project README](../README.md) for everyday use or the
 | --- | --- |
 | [Hardware](HARDWARE.md) | Supported boards, identity lookup and last recorded fleet |
 | [Development](DEVELOPMENT.md) | Build targets, SDK setup, versioning and maintenance |
+| [Experimental TDMA](TDMA.md) | Beacon/slot protocol, isolated builds, diagnostics and acceptance tests |
 | [OTA](OTA.md) | USB installation/recovery, radio updates, protocol and failure cases |
 | [PC tools](TOOLS.md) | Monitoring, viewer, console and utility usage |
 | [Protocol reference](PROTOCOL.md) | Local packet layouts and where to verify them |

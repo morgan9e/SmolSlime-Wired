@@ -53,6 +53,13 @@ The installed MCUboot trackers need the explicit OTA targets.
 `OTA_NOCONFIRM=1` deliberately builds an image that never confirms; keep that
 option out of normal releases.
 
+## Experimental TDMA builds
+
+`make tdma` builds the ProMicro and XIAO OTA-layout trackers and Nordic receiver
+with TDMA enabled, isolated under `dist/tdma/`. `make test-tdma` runs host C tests;
+`make test` also includes them and requires a C11 compiler. See [TDMA](TDMA.md)
+for protocol, limitations, diagnostics and hardware acceptance.
+
 ## Version and release workflow
 
 1. Review the working tree and commit the intended source changes.

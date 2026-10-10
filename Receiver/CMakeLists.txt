@@ -19,3 +19,5 @@ target_include_directories(app PRIVATE src)
 add_custom_target(touch_util_h ALL
     COMMAND ${CMAKE_COMMAND} -E touch ${CMAKE_SOURCE_DIR}/src/build_defines.h
 )
+
+target_include_directories(app PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../shared)
