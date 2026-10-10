@@ -6,6 +6,8 @@
 #   make tracker-nosleep  same, with power saving off (debug, see DEBUG_NO_POWER_SAVING)
 #   make receiver   receiver image (UART mirror for the hub)
 #   make receiver-xiao  same, for a Seeed XIAO nRF52840 (Sense), mirror on D6
+#   make receiver-dongle-diag  stock receiver + link diagnostics ("diag on"), nRF52840 Dongle .hex
+#                   (upstream at RECEIVER_STOCK_REV plus patches/receiver-stock/*.patch)
 #   make hub        ESP32-C6 hub image      make hub-s3   ESP32-S3 hub image
 #   make test       host tests (hub decoder/framing, tracker wired link)
 #   make clean      remove the build directories
@@ -41,10 +43,16 @@ TRACKER_UF2  := $(DIST)/SlimeNRF_ProMicro_StackedSPI_Wired_Tracker.uf2
 TRACKER_NOSLEEP_UF2 := $(DIST)/SlimeNRF_ProMicro_StackedSPI_Wired_Tracker_NoPowerSave.uf2
 RECEIVER_UF2 := $(DIST)/SlimeNRF_ProMicro_HubReceiver.uf2
 RECEIVER_XIAO_UF2 := $(DIST)/SlimeNRF_XIAO_nRF52840_HubReceiver.uf2
+RECEIVER_DONGLE_DIAG_HEX := $(DIST)/SlimeNRF_Nordic_Dongle_Receiver_Diag.hex
+
+# Stock receiver source for receiver-dongle-diag
+RECEIVER_STOCK_URL ?= https://github.com/SlimeVR/SlimeVR-Tracker-nRF-Receiver.git
+RECEIVER_STOCK_REV ?= e3d66d5
+RECEIVER_STOCK_SRC := $(BUILD)/receiver-stock-src
 HUB_C6_BIN   := $(DIST)/slime_hub-xiao-esp32c6.bin
 HUB_S3_BIN   := $(DIST)/slime_hub-xiao-esp32s3.bin
 
-.PHONY: all tracker tracker-nosleep receiver receiver-xiao hub hub-s3 test test-hub test-tracker clean help
+.PHONY: all tracker tracker-nosleep receiver receiver-xiao receiver-dongle-diag hub hub-s3 test test-hub test-tracker clean help
 
 all: tracker receiver hub
 
@@ -83,6 +91,18 @@ receiver-xiao:
 		-DEXTRA_DTC_OVERLAY_FILE="$(ROOT)/src/Receiver/boards/xiao_ble_hub.overlay" -DCONFIG_HUB_UART_MIRROR=y
 	cp "$(BUILD)/receiver-xiao/Receiver/zephyr/zephyr.uf2" "$(RECEIVER_XIAO_UF2)"
 	@echo "-> $(RECEIVER_XIAO_UF2)"
+
+# The dongle board's own USB console (new USB stack) clashes with the receiver's legacy one in
+# this SDK: BOARD_SERIAL_BACKEND_CDC_ACM off. Flash the .hex with nRF Connect Programmer.
+receiver-dongle-diag:
+	@mkdir -p $(DIST)
+	test -d "$(RECEIVER_STOCK_SRC)/.git" || git clone -q "$(RECEIVER_STOCK_URL)" "$(RECEIVER_STOCK_SRC)"
+	git -C "$(RECEIVER_STOCK_SRC)" checkout -q -f $(RECEIVER_STOCK_REV)
+	git -C "$(RECEIVER_STOCK_SRC)" clean -qfdx
+	git -C "$(RECEIVER_STOCK_SRC)" -c user.name=build -c user.email=build@localhost am -q "$(ROOT)"/patches/receiver-stock/*.patch
+	cd "$(NCS_RECEIVER)" && $(ZEPHYR_ENV) west build --board nrf52840dongle/nrf52840 --pristine=always 		--build-dir "$(BUILD)/receiver-dongle-diag" "$(RECEIVER_STOCK_SRC)" 		-- -DNCS_TOOLCHAIN_VERSION=NONE -DBOARD_ROOT="$(RECEIVER_STOCK_SRC)" -DCONFIG_BOARD_SERIAL_BACKEND_CDC_ACM=n
+	cp "$(BUILD)/receiver-dongle-diag/receiver-stock-src/zephyr/zephyr.hex" "$(RECEIVER_DONGLE_DIAG_HEX)"
+	@echo "-> $(RECEIVER_DONGLE_DIAG_HEX)"
 
 hub:
 	@mkdir -p $(DIST)
