@@ -57,6 +57,44 @@ static int sys_power_state_request(int id);
 static void disable_DFU_thread(void);
 K_THREAD_DEFINE(disable_DFU_thread_id, 128, disable_DFU_thread, NULL, NULL, NULL, DISABLE_DFU_THREAD_PRIORITY, 0, 500); // disable DFU if the system is running correctly
 
+#if CONFIG_BATTERY_CHARGE_ESTIMATE_CAPACITY_MAH > 0
+// While plugged in, the percentage from the voltage reads high: the charger pushes the voltage up.
+// Report an estimate instead (see BATTERY_CHARGE_ESTIMATE_CAPACITY_MAH): the last percentage
+// before plugging in, plus the charge put in since, never above the voltage-based reading.
+// Battery statistics and the low battery check keep using the measured value.
+static int16_t charge_estimate(int16_t pptt, bool plugged)
+{
+	static int16_t unplugged_pptt = -1, start_pptt = -1;
+	static int64_t start_time;
+	if (!plugged)
+	{
+		unplugged_pptt = pptt;
+		start_pptt = -1;
+		return pptt;
+	}
+	if (start_pptt < 0)
+	{
+		if (unplugged_pptt < 0)
+			return pptt; // plugged in at boot: no starting point
+		start_pptt = unplugged_pptt;
+		start_time = k_uptime_get();
+		LOG_INF("Charging from %u%%: estimating %u%%/h", start_pptt / 100,
+			CONFIG_BATTERY_CHARGE_ESTIMATE_CURRENT_MA * 90 / CONFIG_BATTERY_CHARGE_ESTIMATE_CAPACITY_MAH);
+	}
+	// 10000 pptt is 100%; current / capacity per hour, 90% of the charge reaches the cell
+	int64_t gained = (k_uptime_get() - start_time) * CONFIG_BATTERY_CHARGE_ESTIMATE_CURRENT_MA * 9000 /
+			 ((int64_t)CONFIG_BATTERY_CHARGE_ESTIMATE_CAPACITY_MAH * 3600000);
+	int64_t estimate = MIN(start_pptt + gained, 10000);
+	return pptt >= 0 ? MIN(estimate, pptt) : estimate;
+}
+#else
+static inline int16_t charge_estimate(int16_t pptt, bool plugged)
+{
+	ARG_UNUSED(plugged);
+	return pptt;
+}
+#endif
+
 static void power_thread(void);
 K_THREAD_DEFINE(power_thread_id, 1024, power_thread, NULL, NULL, NULL, POWER_THREAD_PRIORITY, 0, 0);
 
@@ -644,7 +682,8 @@ static void power_thread(void)
 			sys_update_battery_tracker(current_battery_pptt, device_plugged);
 		calibrated_battery_pptt = sys_get_calibrated_battery_pptt(current_battery_pptt);
 
-		connection_update_battery(battery_available, device_plugged, device_charged, calibrated_battery_pptt, battery_mV);
+		connection_update_battery(battery_available, device_plugged, device_charged,
+					  charge_estimate(calibrated_battery_pptt, device_plugged), battery_mV);
 
 		if ((adc_abnormal || chg_ret) && !get_status(SYS_STATUS_SYSTEM_ERROR))
 			set_status(SYS_STATUS_SYSTEM_ERROR, true);
