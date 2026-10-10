@@ -1,12 +1,6 @@
-# Built images
 dist/
 
-# Local files
 __pycache__/
 *.csv
 
-# Per-PC settings of tools/serial_monitor.py (port, device serial number)
 tools/serial_monitor_settings.json
-
-# Upstream clones the Receiver/ and Tracker/ subtrees came from
-docs/Ref/
