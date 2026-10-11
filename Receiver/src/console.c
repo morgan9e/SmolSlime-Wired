@@ -183,6 +183,8 @@ static void print_help(void)
 	printk("clear                        Clear stored devices\n");
 #if CONFIG_PACKET_LOG
 	printk("\ntdma                        Show experimental TDMA scheduler counters\n");
+	printk("radio mode tdma|legacy      Request wireless mode change for all paired trackers\n");
+	printk("radio [status|cancel]       Show progress or cancel/roll back a mode change\n");
 	printk("\ndiag [on|off]                Log radio link diagnostics every second (off at boot)\n");
 #endif
 	printk("ota [status|stop]            Tracker firmware updates over the radio (tools/ota.py)\n");
@@ -303,6 +305,10 @@ static void console_thread(void)
 		else if (strcmp(argv[0], "tdma") == 0)
 		{
 			esb_tdma_status();
+		}
+		else if (strcmp(argv[0], "radio") == 0)
+		{
+			esb_radio_console(argc, argv);
 		}
 		else if (strcmp(argv[0], "ota") == 0)
 		{

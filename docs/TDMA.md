@@ -2,8 +2,68 @@
 
 This is an opt-in implementation for the nRF52840 ProMicro, XIAO Sense and Nordic
 dongle. It schedules tracking transmissions instead of letting every tracker
-transmit immediately. It has not yet been tested on radios. The default builds
-keep the existing ESB behavior.
+transmit immediately. The original 0.0.18 prototype passed a basic eight-tracker
+USB/radio smoke test, but showed frequent late slot skips; range improvement is
+not established. The wireless mode-control extension below has only software
+validation so far. Default builds keep the existing ESB behavior.
+
+## Wireless mode control (development, not flashed)
+
+Build with `make tdma` and install the new tracker images and receiver together
+over USB. The receiver console accepts:
+
+```text
+radio mode legacy
+radio status
+radio mode tdma
+radio cancel
+```
+
+Only the receiver needs a USB console for subsequent mode changes. `radio status`
+reports the active/target modes, preparation or checking phase, masks and missing
+tracker IDs. A queued request is not success: wait for `phase=idle result=success`.
+The receiver snapshots **all paired IDs**, including offline trackers. It waits up
+to five seconds for matching preparation replies from every ID, then changes
+mode and requires every ID to report the new mode within another five seconds.
+Missing preparation replies leave the old mode active. Missing arrival replies
+roll the receiver back and advertise the old mode again. `radio cancel` also
+returns to the old mode. There is no force/visible-only option. Pairing-table
+changes cancel an in-progress transaction. Replies are checked against token,
+phase, modes and required mask; duplicate replies cannot satisfy another ID.
+
+The receiver is authoritative: it repeats a 12-byte control message in tracking
+ACK payloads and appends it to the 12-byte timing beacon. In legacy mode it sends
+one recovery beacon per second, allowing a restarted tracker (which boots in
+TDMA listening mode) to discover legacy mode without USB. A tracker already
+sending legacy frames learns a rebooted receiver's TDMA mode from its ACKs.
+Beacons and replies use the existing paired radio addresses and ESB CRC; this
+does not add authentication beyond the existing link. Recovery requires actual
+RF reception; severe interference can still prevent reconnecting.
+
+Mode selection is RAM-only. Receiver reboot resets the fleet toward TDMA;
+tracker reboot reacquires the receiver's current mode. Pairing/calibration stay
+unchanged. This changes no RF channel and does not restore firmware OTA: USB
+firmware updates remain required in both runtime modes of this prototype.
+Older firmware does not understand the extended beacons: update the whole fleet
+before testing. Ordinary builds without `CONFIG_RADIO_TDMA` remain unchanged.
+
+Legacy mode means unslotted ESB with the existing device-specific retry delay and
+default retry count. The control build retains the active HF clock and a worker
+holding the newest pending frame until ESB is idle; it is not a byte-for-byte
+reproduction of the old firmware's flush-on-every-new-frame or low-power behavior.
+Control replies replace at most one tracking opportunity per 50 ms during a
+transaction. Recovery beacons briefly interrupt legacy reception once per second;
+larger ACKs/beacons also consume airtime. These costs and transition outages need
+hardware measurement. Mode changes are coordinated and recoverable, not an
+instantaneous atomic switch of eight radios.
+
+`make test` exercises the shared control state machine in both directions,
+timeouts, missing IDs, duplicates, stale/malformed replies, cancellation and token
+wrap. Hardware acceptance must cover both mode changes, a powered-off tracker,
+packet loss during transition, cancellation, receiver/tracker reboot recovery,
+pairing-table changes, and actual delivery/slot timing under motion and USB load.
+The frequent timing skips in the original TDMA prototype are not fixed by this
+control feature.
 
 ## Schedule
 
@@ -36,8 +96,10 @@ tracking transmissions per second per device. Delayed wakeups shift its schedule
 forward; they never cause a burst of catch-up beacons. This does not change the
 sensor FIFO's sampling rate. A tracker with no pending data leaves its slot empty.
 
-Beacons use `[CD 54][version=1][slots=8][frame_us:u16][slot_us:u16][serial:u32]`,
-with little-endian integers. Version, size and geometry must match. Duplicate or
+The 12-byte timing prefix is
+`[CD 54][version=1][slots=8][frame_us:u16][slot_us:u16][serial:u32]`,
+with little-endian integers. Control builds append the 12-byte control message
+described above. Version, size and geometry must match. Duplicate or
 out-of-order serials do not grant another slot, including at counter wrap. After
 20 ms without an accepted beacon, a reset serial can reacquire a rebooted receiver.
 There is no free-running holdover or unscheduled legacy fallback: losing a beacon

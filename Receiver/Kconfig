@@ -81,6 +81,7 @@ config LOG_BUFFER_SIZE
 config RADIO_TDMA
     bool "Experimental receiver-synchronized TDMA"
     depends on SOC_NRF52840
+    select ENTROPY_GENERATOR
     default n
     help
         Eight fixed slots per 10 ms frame, assigned by paired tracker ID (0-7).

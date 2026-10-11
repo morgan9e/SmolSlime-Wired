@@ -59,6 +59,9 @@ static bool esb_paired = false;
 
 #if CONFIG_RADIO_TDMA
 #include "radio_tdma.h"
+#include "radio_control.h"
+BUILD_ASSERT(sizeof(((struct esb_payload *)0)->data) >= TDMA_BEACON_LEN + RC_LEN,
+	"Radio control needs a 24-byte beacon payload");
 BUILD_ASSERT(CONFIG_SYS_CLOCK_TICKS_PER_SEC >= 32768, "TDMA requires a fine system clock");
 BUILD_ASSERT(CONFIG_ESB_PIPE_COUNT > TDMA_BEACON_PIPE, "TDMA requires beacon pipe 2");
 static struct tdma_sync tdma_sync;
@@ -69,6 +72,10 @@ static uint32_t tdma_beacons, tdma_sent, tdma_late, tdma_replaced, tdma_errors;
 static uint32_t tdma_acked, tdma_failed, tdma_empty;
 static int64_t tdma_started, tdma_submitted;
 static bool tdma_outage;
+static bool radio_tdma = true;
+static struct rc_message radio_control = {.mode=RC_TDMA, .target=RC_TDMA};
+static int64_t control_reply_due;
+static uint32_t control_replies;
 
 static int64_t tdma_now(void)
 {
@@ -77,11 +84,20 @@ static int64_t tdma_now(void)
 
 static void tdma_receive_beacon(const struct esb_payload *p)
 {
-	if (!tdma_running || tdma_tx_mode || p->pipe != TDMA_BEACON_PIPE)
-		return;
+	if (!tdma_running) return;
 	k_spinlock_key_t key = k_spin_lock(&tdma_lock);
-	if (tdma_accept_beacon(&tdma_sync, p->data, p->length, tdma_now()))
-		tdma_beacons++;
+	struct rc_message m;
+	if (p->pipe == 1 && rc_decode(&m, p->data, p->length)) {
+		radio_control = m; /* receiver's authoritative mode, delivered in an ACK */
+	} else if (!tdma_tx_mode && p->pipe == TDMA_BEACON_PIPE) {
+		bool control = p->length == TDMA_BEACON_LEN + RC_LEN &&
+			rc_decode(&m, p->data + TDMA_BEACON_LEN, RC_LEN);
+		if ((control || p->length == TDMA_BEACON_LEN) &&
+		    tdma_accept_beacon(&tdma_sync, p->data, TDMA_BEACON_LEN, tdma_now())) {
+			tdma_beacons++;
+			if (control) radio_control = m;
+		}
+	}
 	k_spin_unlock(&tdma_lock, key);
 }
 #endif
@@ -94,9 +110,12 @@ void esb_tdma_status(void)
 		tdma_now() - tdma_sync.epoch_us < 2 * TDMA_FRAME_US;
 	uint32_t b = tdma_beacons, s = tdma_sent, l = tdma_late, r = tdma_replaced;
 	uint32_t e = tdma_errors, a = tdma_acked, f = tdma_failed, n = tdma_empty;
+	struct rc_message control = radio_control;
 	k_spin_unlock(&tdma_lock, key);
+	printk("radio: mode=%s control_phase=%u token=%u replies=%u\n",
+		radio_tdma ? "tdma" : "legacy", control.phase, control.token, control_replies);
 	printk("tdma: %s id=%u beacons=%u submitted=%u acked=%u failed=%u late=%u empty=%u replaced=%u errors=%u\n",
-		paired_addr[1] >= TDMA_SLOTS ? "unsupported-id" : locked ? "locked" : "listening",
+		paired_addr[1] >= TDMA_SLOTS ? "unsupported-id" : !radio_tdma ? "legacy" : locked ? "locked" : "listening",
 		paired_addr[1], b, s, a, f, l, n, r, e);
 #else
 	printk("tdma: disabled (legacy ESB)\n");
@@ -385,7 +404,7 @@ int esb_initialize(bool tx)
 	}
 
 #if CONFIG_RADIO_TDMA
-	if (esb_paired) {
+	if (esb_paired && radio_tdma) {
 		config.bitrate = ESB_BITRATE_2MBPS;
 		config.retransmit_count = 0; /* never retry into a neighbour's slot */
 	}
@@ -626,6 +645,48 @@ static void tdma_service(void)
 {
 	if (!tdma_running || !esb_paired)
 		return;
+	k_spinlock_key_t control_key = k_spin_lock(&tdma_lock);
+	bool requested_tdma = radio_control.mode == RC_TDMA;
+	k_spin_unlock(&tdma_lock, control_key);
+	if (requested_tdma != radio_tdma) {
+		/* All ESB reconfiguration stays in this worker, never the ACK IRQ. */
+		radio_tdma = requested_tdma;
+		tdma_inflight = false;
+		control_key = k_spin_lock(&tdma_lock);
+		tdma_sync.valid = false;
+		k_spin_unlock(&tdma_lock, control_key);
+		control_reply_due = 0;
+		tx_errors = 0; last_tx_success = 0; last_tx_fail = 0;
+		tdma_started = tdma_now(); tdma_outage = false;
+		tdma_mode(!radio_tdma);
+		LOG_INF("Radio mode: %s", radio_tdma ? "tdma" : "legacy");
+		return;
+	}
+	if (!radio_tdma) {
+		/* Unslotted PTX with the original per-device retries. New data still
+		 * replaces pending data; one worker owns the radio and control replies. */
+		if (!esb_initialized || !tdma_tx_mode) { tdma_mode(true); return; }
+		if (!esb_is_idle()) return;
+		control_key = k_spin_lock(&tdma_lock);
+		bool reply = radio_control.phase != RC_IDLE && tdma_now() >= control_reply_due;
+		if (paired_addr[1] < TDMA_SLOTS && (reply || tdma_pending)) {
+			struct esb_payload p = {.pipe=1, .length=21, .noack=false};
+			if (reply) {
+				struct rc_message response = radio_control;
+				response.mode = RC_LEGACY; /* acknowledge the mode actually installed */
+				p.length = RC_LEN; rc_reply(p.data, &response, paired_addr[1]);
+			} else {
+				memcpy(p.data, tdma_data, sizeof(tdma_data)); p.data[20] = tdma_sequence;
+			}
+			esb_flush_tx();
+			if (!esb_write_payload(&p)) {
+				if (reply) { control_replies++; control_reply_due = tdma_now() + 50000; }
+				else { tdma_pending = false; tdma_sequence++; tdma_sent++; }
+			} else tdma_errors++;
+		}
+		k_spin_unlock(&tdma_lock, control_key);
+		return;
+	}
 	k_spinlock_key_t sync_key = k_spin_lock(&tdma_lock);
 	int64_t last_beacon = tdma_sync.valid ? tdma_sync.epoch_us : tdma_started;
 	bool outage = tdma_now() - last_beacon > 1000000;
@@ -662,17 +723,22 @@ static void tdma_service(void)
 		action = tdma_action_at(&tdma_sync, paired_addr[1], tdma_now());
 		if (action == TDMA_SEND) {
 			tdma_sync.used = true;
-			if (tdma_pending) {
+			bool reply = radio_control.phase != RC_IDLE && tdma_now() >= control_reply_due;
+			if (reply || tdma_pending) {
 				struct esb_payload p = {.pipe = 1, .length = 21, .noack = false};
 				memcpy(p.data, tdma_data, sizeof(tdma_data));
 				/* CRC covers bytes 0..15, so changing byte 20 is safe. Count
 				 * attempts, not sensor frames coalesced before their slot. */
 				p.data[20] = tdma_sequence;
+				if (reply) {
+					struct rc_message response = radio_control;
+					response.mode = RC_TDMA;
+					p.length = RC_LEN; rc_reply(p.data, &response, paired_addr[1]);
+				}
 				tdma_submitted = tdma_now();
 				if (esb_write_payload(&p) == 0) {
-					tdma_sequence++;
-					tdma_sent++;
-					tdma_pending = false;
+					if (reply) { control_replies++; control_reply_due = tdma_now() + 50000; }
+					else { tdma_sequence++; tdma_sent++; tdma_pending = false; }
 					tdma_inflight = true;
 				} else {
 					tdma_errors++;

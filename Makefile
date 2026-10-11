@@ -144,6 +144,8 @@ test-tdma:
 	"$(BUILD)/tests/test_radio_tdma"
 
 test: test-tdma
+	$(CC) -std=c11 -Wall -Wextra -Werror -pedantic -I"$(ROOT)/shared" "$(ROOT)/tests/test_radio_control.c" -o "$(BUILD)/tests/test_radio_control"
+	"$(BUILD)/tests/test_radio_control"
 	cd "$(ROOT)/tools" && python3 -m unittest test_slime_link
 
 clean:

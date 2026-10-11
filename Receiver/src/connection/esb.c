@@ -57,6 +57,10 @@ K_THREAD_DEFINE(esb_packet_filter_thread_id, 256, esb_packet_filter_thread, NULL
 
 #if CONFIG_RADIO_TDMA
 #include "radio_tdma.h"
+#include "radio_control.h"
+#include <zephyr/random/random.h>
+BUILD_ASSERT(sizeof(((struct esb_payload *)0)->data) >= TDMA_BEACON_LEN + RC_LEN,
+	"Radio control needs a 24-byte beacon payload");
 BUILD_ASSERT(CONFIG_SYS_CLOCK_TICKS_PER_SEC >= 32768, "TDMA requires a fine system clock");
 static bool tdma_running, tdma_tx_mode, tdma_inflight;
 static atomic_t tdma_done;
@@ -64,6 +68,12 @@ static int64_t tdma_next, tdma_submitted;
 static uint32_t tdma_serial, tdma_beacons, tdma_errors, tdma_late, tdma_max_late;
 static int64_t tdma_epoch;
 static bool tdma_epoch_valid;
+static struct k_spinlock control_lock;
+static uint8_t active_radio_mode = RC_TDMA;
+static struct rc_receiver radio_control = {
+	.message = {.mode=RC_TDMA, .target=RC_TDMA},
+};
+static void radio_queue_ack(void);
 static struct tdma_rx_stats {
 	uint32_t count, outside;
 	int32_t last_us, min_us, max_us;
@@ -78,8 +88,9 @@ static int64_t tdma_now(void)
 void esb_tdma_status(void)
 {
 #if CONFIG_RADIO_TDMA
-	printk("tdma: %s v1 slots=8 frame_us=10000 beacons=%u errors=%u late=%u max_late_us=%u\n",
-		tdma_running ? "running" : "stopped", tdma_beacons, tdma_errors, tdma_late, tdma_max_late);
+	printk("tdma: %s mode=%s slots=8 frame_us=10000 beacons=%u errors=%u late=%u max_late_us=%u\n",
+		tdma_running ? "running" : "stopped", active_radio_mode == RC_TDMA ? "tdma" : "legacy",
+		tdma_beacons, tdma_errors, tdma_late, tdma_max_late);
 	for (unsigned i = 0; i < TDMA_SLOTS; i++) {
 		unsigned key = irq_lock();
 		struct tdma_rx_stats r = tdma_rx[i];
@@ -90,6 +101,41 @@ void esb_tdma_status(void)
 	}
 #else
 	printk("tdma: disabled (legacy ESB)\n");
+#endif
+}
+
+void esb_radio_console(size_t argc, char **argv)
+{
+#if CONFIG_RADIO_TDMA
+	k_spinlock_key_t key = k_spin_lock(&control_lock);
+	bool accepted = false, valid = true;
+	if (argc == 3 && strcmp(argv[1], "mode") == 0 &&
+	    (!strcmp(argv[2], "tdma") || !strcmp(argv[2], "legacy"))) {
+		if (tdma_running && stored_trackers > 0 && stored_trackers <= TDMA_SLOTS)
+			accepted = rc_begin(&radio_control, !strcmp(argv[2], "tdma") ? RC_TDMA : RC_LEGACY,
+				(uint8_t)((1u << stored_trackers)-1), k_uptime_get());
+	} else if (argc == 2 && !strcmp(argv[1], "cancel")) {
+		rc_cancel(&radio_control);
+	} else if (!(argc == 1 || (argc == 2 && !strcmp(argv[1], "status")))) valid = false;
+	struct rc_receiver r = radio_control;
+	k_spin_unlock(&control_lock, key);
+	if (!valid) { printk("Usage: radio [status|cancel|mode tdma|mode legacy]\n"); return; }
+	if (argc == 3) printk(accepted ? "Radio change queued; waiting for ALL paired trackers\n" :
+		"Radio change not queued: already in mode, busy, inactive, or unsupported paired count\n");
+	uint8_t missing = r.message.required & ~(r.message.phase == RC_PREPARE || r.result == RC_MISSING ? r.ready : r.arrived);
+	static const char *phases[] = {"idle", "preparing", "checking"};
+	static const char *results[] = {"none", "success", "missing-trackers", "rolled-back", "cancelled"};
+	printk("radio: mode=%s target=%s phase=%s token=%u required=%02x ready=%02x arrived=%02x missing=%02x result=%s\n",
+		r.message.mode == RC_TDMA ? "tdma" : "legacy", r.message.target == RC_TDMA ? "tdma" : "legacy",
+		phases[r.message.phase], r.message.token, r.message.required, r.ready, r.arrived, missing, results[r.result]);
+	if (missing) {
+		printk("Missing paired tracker IDs:");
+		for (unsigned id=0; id<TDMA_SLOTS; id++) if (missing & BIT(id)) printk(" %u", id);
+		printk("\n");
+	}
+#else
+	ARG_UNUSED(argc); ARG_UNUSED(argv);
+	printk("Radio mode control requires a TDMA/control build\n");
 #endif
 }
 
@@ -201,12 +247,24 @@ void event_handler(struct esb_evt const *event)
 				ota_esb_rx(&rx_payload);
 				continue;
 			}
+#if CONFIG_RADIO_TDMA
+			if (rx_payload.pipe == 1) {
+				bool control = rx_payload.length == RC_LEN;
+				if (control) {
+					k_spinlock_key_t key = k_spin_lock(&control_lock);
+					rc_ack(&radio_control, rx_payload.data, rx_payload.length);
+					k_spin_unlock(&control_lock, key);
+				}
+				radio_queue_ack(); /* payload is for the next ACK on pipe 1 */
+				if (control) continue; /* never forward control replies to SlimeVR */
+			}
+#endif
 			ota_esb_tracker_frame(); // keeps an update offer queued while offering
 			switch (rx_payload.length)
 			{
 			case 21: // has sequence number
 #if CONFIG_RADIO_TDMA
-				if (tdma_epoch_valid && rx_payload.data[1] < TDMA_SLOTS) {
+				if (radio_control.message.mode == RC_TDMA && tdma_epoch_valid && rx_payload.data[1] < TDMA_SLOTS) {
 					unsigned id = rx_payload.data[1];
 					int64_t phase = tdma_now() - tdma_epoch - TDMA_FIRST_SLOT_US - id * TDMA_SLOT_US;
 					struct tdma_rx_stats *r = &tdma_rx[id];
@@ -644,12 +702,24 @@ static void esb_packet_filter_thread(void)
 }
 
 #if CONFIG_RADIO_TDMA
+static void radio_queue_ack(void)
+{
+	if (!esb_initialized || tdma_tx_mode) return;
+	struct esb_payload p = {.pipe=1, .length=RC_LEN, .noack=false};
+	k_spinlock_key_t key = k_spin_lock(&control_lock);
+	rc_encode(p.data, &radio_control.message);
+	k_spin_unlock(&control_lock, key);
+	esb_flush_tx();
+	esb_write_payload(&p);
+}
+
 static int tdma_mode(bool tx)
 {
 	if (esb_initialized) esb_disable();
 	esb_initialized = false;
 	tdma_tx_mode = tx;
 	int err = esb_initialize(tx);
+	if (!err && !tx) radio_queue_ack();
 	if (!err && !tx) err = esb_start_rx();
 	if (err) {
 		tdma_errors++;
@@ -660,6 +730,13 @@ static int tdma_mode(bool tx)
 
 static void tdma_start(void)
 {
+	/* Reboot starts in TDMA; a fresh token prevents stale transaction replies. */
+	uint32_t token = sys_rand32_get();
+	k_spinlock_key_t key = k_spin_lock(&control_lock);
+	radio_control = (struct rc_receiver){.message={.mode=RC_TDMA, .target=RC_TDMA,
+		.token=token}};
+	k_spin_unlock(&control_lock, key);
+	active_radio_mode = RC_TDMA;
 	tdma_running = true;
 	tdma_tx_mode = false;
 	tdma_inflight = false;
@@ -674,6 +751,23 @@ static void tdma_service(void)
 {
 	if (!tdma_running || !esb_paired) return;
 	int64_t now = tdma_now();
+	k_spinlock_key_t control_key = k_spin_lock(&control_lock);
+	if (radio_control.message.phase != RC_IDLE &&
+	    radio_control.message.required != (uint8_t)((1u << MIN(stored_trackers, TDMA_SLOTS))-1))
+		rc_cancel(&radio_control); /* pairing table changed during the transaction */
+	rc_tick(&radio_control, k_uptime_get());
+	bool changed = active_radio_mode != radio_control.message.mode;
+	struct rc_message control = radio_control.message;
+	k_spin_unlock(&control_lock, control_key);
+	if (changed) {
+		active_radio_mode = control.mode;
+		tdma_inflight = false;
+		tdma_epoch_valid = false;
+		tdma_mode(false);
+		tdma_next = now + TDMA_FRAME_US;
+		LOG_INF("Radio mode: %s", control.mode == RC_TDMA ? "tdma" : "legacy");
+		return;
+	}
 	if (tdma_inflight) {
 		if (!atomic_get(&tdma_done) && now - tdma_submitted < TDMA_TRANSACTION_US)
 			return;
@@ -691,8 +785,9 @@ static void tdma_service(void)
 	now = tdma_now();
 	if (now < tdma_next) return;
 	struct esb_payload p = {.pipe = TDMA_BEACON_PIPE,
-		.length = TDMA_BEACON_LEN, .noack = true};
+		.length = TDMA_BEACON_LEN + RC_LEN, .noack = true};
 	tdma_make_beacon(p.data, tdma_serial++);
+	rc_encode(p.data + TDMA_BEACON_LEN, &control);
 	atomic_clear(&tdma_done);
 	/* Manual PTX: queue first, then timestamp and start without preemption. */
 	if (esb_write_payload(&p)) {
@@ -709,7 +804,8 @@ static void tdma_service(void)
 	uint32_t late = (uint32_t)(tdma_submitted - tdma_next);
 	if (late > TDMA_START_WINDOW_US) tdma_late++;
 	if (late > tdma_max_late) tdma_max_late = late;
-	tdma_next = tdma_next_beacon(tdma_next, tdma_submitted);
+	tdma_next = control.mode == RC_TDMA ? tdma_next_beacon(tdma_next, tdma_submitted) :
+		tdma_submitted + RC_LEGACY_BEACON_US;
 	if (err) {
 		tdma_errors++;
 		tdma_inflight = false;
