@@ -22,12 +22,16 @@ radio cancel
 Only the receiver needs a USB console for subsequent mode changes. `radio status`
 reports the active/target modes, preparation or checking phase, masks and missing
 tracker IDs. A queued request is not success: wait for `phase=idle result=success`.
-The receiver snapshots **all paired IDs**, including offline trackers. It waits up
-to five seconds for matching preparation replies from every ID, then changes
-mode and requires every ID to report the new mode within another five seconds.
+The receiver snapshots paired IDs heard in the last five seconds. Offline IDs
+are excluded, and a request with no active trackers is refused. It waits up
+to five seconds for matching preparation replies from every selected ID, then changes
+mode and requires every selected ID to report the new mode within another five seconds.
 Missing preparation replies leave the old mode active. Missing arrival replies
 roll the receiver back and advertise the old mode again. `radio cancel` also
-returns to the old mode. There is no force/visible-only option. Pairing-table
+returns to the old mode. The required snapshot stays fixed during the transaction: a selected tracker
+that disappears still causes timeout/rollback; late joiners follow the advertised
+mode without becoming required. The console shows paired, active and offline masks.
+Pairing-table
 changes cancel an in-progress transaction. Replies are checked against token,
 phase, modes and required mask; duplicate replies cannot satisfy another ID.
 
@@ -64,6 +68,12 @@ packet loss during transition, cancellation, receiver/tracker reboot recovery,
 pairing-table changes, and actual delivery/slot timing under motion and USB load.
 The frequent timing skips in the original TDMA prototype are not fixed by this
 control feature.
+
+This receiver-side policy update is compatible with the 0.0.19 tracker firmware.
+The eight-slot geometry is unchanged; an absent tracker leaves its slot empty.
+Presence is recent reception, not proof that a tracker is powered off. A tracker
+blocked by interference for five seconds can be excluded and must recover through
+the normal beacons/ACKs when reception returns.
 
 ### 0.0.19 installation check — 2026-10-11 (KST)
 

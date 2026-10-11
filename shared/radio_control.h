@@ -9,6 +9,7 @@
 
 #define RC_LEN 12
 #define RC_TIMEOUT_MS 5000
+#define RC_ACTIVE_MS 5000
 #define RC_LEGACY_BEACON_US 1000000
 enum rc_mode { RC_LEGACY, RC_TDMA };
 enum rc_phase { RC_IDLE, RC_PREPARE, RC_TRIAL };
@@ -22,6 +23,27 @@ struct rc_receiver {
 	uint8_t previous, ready, arrived, result;
 	int64_t deadline;
 };
+
+struct rc_presence {
+	uint8_t seen;
+	int64_t last[8];
+};
+static inline void rc_seen(struct rc_presence *p, uint8_t id, int64_t now)
+{
+	if (id >= 8) return;
+	p->seen |= (uint8_t)(1u << id);
+	p->last[id] = now;
+}
+static inline uint8_t rc_active(const struct rc_presence *p, uint8_t paired, int64_t now)
+{
+	uint8_t active = 0;
+	for (unsigned id = 0; id < 8; id++) {
+		uint8_t bit = (uint8_t)(1u << id);
+		if ((p->seen & paired & bit) && now >= p->last[id] && now - p->last[id] < RC_ACTIVE_MS)
+			active |= bit;
+	}
+	return active;
+}
 
 static inline void rc_u32_write(uint8_t *b, uint32_t n)
 {

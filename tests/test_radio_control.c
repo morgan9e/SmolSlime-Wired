@@ -79,8 +79,35 @@ static void malformed_and_stale(void)
 	ack(&r,0); rc_tick(&r,3); rc_cancel(&r);
 	assert(r.message.mode==RC_TDMA && r.result==RC_CANCELLED);
 }
+static void active_snapshot(void)
+{
+	struct rc_presence p = {0};
+	struct rc_receiver r = fresh();
+	assert(rc_active(&p,255,0)==0); /* boot is not evidence of presence */
+	for (unsigned id=0; id<8; id++) if (id!=6) rc_seen(&p,id,100);
+	rc_seen(&p,8,100); /* invalid ID cannot affect the mask */
+	assert(rc_active(&p,255,5099)==0xbf);
+	assert(rc_active(&p,255,5100)==0);
+	assert(rc_active(&p,3,100)==3); /* exclude unpaired IDs */
+	assert(rc_active(&p,255,99)==0);
+	assert(rc_begin(&r,RC_LEGACY,rc_active(&p,255,100),100));
+	rc_seen(&p,6,101); /* a late joiner does not enlarge this transaction */
+	assert(r.message.required==0xbf);
+	for(unsigned id=0;id<8;id++) if(id!=6) ack(&r,id);
+	rc_tick(&r,102);
+	for(unsigned id=0;id<8;id++) if(id!=6) ack(&r,id);
+	rc_tick(&r,103);
+	assert(r.result==RC_SUCCESS && r.message.mode==RC_LEGACY);
+	uint8_t b[RC_LEN]; struct rc_message m;
+	rc_encode(b,&r.message); assert(rc_decode(&m,b,sizeof(b)) && m.mode==RC_LEGACY);
+	/* Returning ID6 gets the same authoritative mode even though not required. */
+	assert(rc_begin(&r,RC_TDMA,rc_active(&p,255,104),104));
+	for(unsigned id=0;id<8;id++) if(id!=6) ack(&r,id);
+	rc_tick(&r,5104);
+	assert(r.result==RC_MISSING && r.message.mode==RC_LEGACY);
+}
 int main(void)
 {
-	round_trip(); missing_and_recovery(); malformed_and_stale();
+	round_trip(); missing_and_recovery(); malformed_and_stale(); active_snapshot();
 	puts("Radio control: both modes, missing devices, rollback, cancel, malformed/stale replies passed");
 }

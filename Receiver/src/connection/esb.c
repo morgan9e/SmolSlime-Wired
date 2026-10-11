@@ -69,6 +69,8 @@ static uint32_t tdma_serial, tdma_beacons, tdma_errors, tdma_late, tdma_max_late
 static int64_t tdma_epoch;
 static bool tdma_epoch_valid;
 static struct k_spinlock control_lock;
+static struct rc_presence radio_presence;
+static uint8_t control_paired_mask;
 static uint8_t active_radio_mode = RC_TDMA;
 static struct rc_receiver radio_control = {
 	.message = {.mode=RC_TDMA, .target=RC_TDMA},
@@ -109,19 +111,24 @@ void esb_radio_console(size_t argc, char **argv)
 #if CONFIG_RADIO_TDMA
 	k_spinlock_key_t key = k_spin_lock(&control_lock);
 	bool accepted = false, valid = true;
+	uint8_t paired = (uint8_t)((1u << MIN(stored_trackers, TDMA_SLOTS))-1);
+	uint8_t active = rc_active(&radio_presence, paired, k_uptime_get());
 	if (argc == 3 && strcmp(argv[1], "mode") == 0 &&
 	    (!strcmp(argv[2], "tdma") || !strcmp(argv[2], "legacy"))) {
 		if (tdma_running && stored_trackers > 0 && stored_trackers <= TDMA_SLOTS)
 			accepted = rc_begin(&radio_control, !strcmp(argv[2], "tdma") ? RC_TDMA : RC_LEGACY,
-				(uint8_t)((1u << stored_trackers)-1), k_uptime_get());
+				active, k_uptime_get());
+		if (accepted) control_paired_mask = paired;
 	} else if (argc == 2 && !strcmp(argv[1], "cancel")) {
 		rc_cancel(&radio_control);
 	} else if (!(argc == 1 || (argc == 2 && !strcmp(argv[1], "status")))) valid = false;
 	struct rc_receiver r = radio_control;
 	k_spin_unlock(&control_lock, key);
 	if (!valid) { printk("Usage: radio [status|cancel|mode tdma|mode legacy]\n"); return; }
-	if (argc == 3) printk(accepted ? "Radio change queued; waiting for ALL paired trackers\n" :
-		"Radio change not queued: already in mode, busy, inactive, or unsupported paired count\n");
+	if (argc == 3) printk(accepted ? "Radio change queued; waiting for active tracker snapshot\n" :
+		"Radio change not queued: already in mode, busy, no active trackers, or unsupported paired count\n");
+	printk("radio presence: paired=%02x active=%02x offline=%02x window_ms=%u\n",
+		paired, active, paired & ~active, RC_ACTIVE_MS);
 	uint8_t missing = r.message.required & ~(r.message.phase == RC_PREPARE || r.result == RC_MISSING ? r.ready : r.arrived);
 	static const char *phases[] = {"idle", "preparing", "checking"};
 	static const char *results[] = {"none", "success", "missing-trackers", "rolled-back", "cancelled"};
@@ -129,7 +136,7 @@ void esb_radio_console(size_t argc, char **argv)
 		r.message.mode == RC_TDMA ? "tdma" : "legacy", r.message.target == RC_TDMA ? "tdma" : "legacy",
 		phases[r.message.phase], r.message.token, r.message.required, r.ready, r.arrived, missing, results[r.result]);
 	if (missing) {
-		printk("Missing paired tracker IDs:");
+		printk("Missing required tracker IDs:");
 		for (unsigned id=0; id<TDMA_SLOTS; id++) if (missing & BIT(id)) printk(" %u", id);
 		printk("\n");
 	}
@@ -323,6 +330,13 @@ void event_handler(struct esb_evt const *event)
 				}
 				if (rx_payload.data[0] > 223) // reserved for receiver only
 					break;
+#if CONFIG_RADIO_TDMA
+				if (rx_payload.pipe == 1) {
+					k_spinlock_key_t key = k_spin_lock(&control_lock);
+					rc_seen(&radio_presence, imu_id, k_uptime_get());
+					k_spin_unlock(&control_lock, key);
+				}
+#endif
 				hid_write_packet_n(rx_payload.data, rx_payload.rssi); // write to hid endpoint
 				break;
 			default:
@@ -735,6 +749,7 @@ static void tdma_start(void)
 	k_spinlock_key_t key = k_spin_lock(&control_lock);
 	radio_control = (struct rc_receiver){.message={.mode=RC_TDMA, .target=RC_TDMA,
 		.token=token}};
+	radio_presence = (struct rc_presence){0};
 	k_spin_unlock(&control_lock, key);
 	active_radio_mode = RC_TDMA;
 	tdma_running = true;
@@ -753,7 +768,7 @@ static void tdma_service(void)
 	int64_t now = tdma_now();
 	k_spinlock_key_t control_key = k_spin_lock(&control_lock);
 	if (radio_control.message.phase != RC_IDLE &&
-	    radio_control.message.required != (uint8_t)((1u << MIN(stored_trackers, TDMA_SLOTS))-1))
+	    control_paired_mask != (uint8_t)((1u << MIN(stored_trackers, TDMA_SLOTS))-1))
 		rc_cancel(&radio_control); /* pairing table changed during the transaction */
 	rc_tick(&radio_control, k_uptime_get());
 	bool changed = active_radio_mode != radio_control.message.mode;

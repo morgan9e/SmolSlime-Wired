@@ -183,7 +183,7 @@ static void print_help(void)
 	printk("clear                        Clear stored devices\n");
 #if CONFIG_PACKET_LOG
 	printk("\ntdma                        Show experimental TDMA scheduler counters\n");
-	printk("radio mode tdma|legacy      Request wireless mode change for all paired trackers\n");
+	printk("radio mode tdma|legacy      Request wireless mode change for active trackers\n");
 	printk("radio [status|cancel]       Show progress or cancel/roll back a mode change\n");
 	printk("\ndiag [on|off]                Log radio link diagnostics every second (off at boot)\n");
 #endif
