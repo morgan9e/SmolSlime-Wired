@@ -251,21 +251,12 @@ static int receive_image(void)
 static void ota_thread(void)
 {
 	board_crc = crc32_ieee((const uint8_t *)CONFIG_BOARD_TARGET, strlen(CONFIG_BOARD_TARGET));
-	uint8_t last_session = 0;
-	uint32_t last_crc = 0;
 	while (1) {
 		k_sem_take(&start_sem, K_FOREVER);
-		// The receiver queues an offer with every tracker frame until it hears the answer: the
-		// same offer again was answered already
-		if (offer_len == OTA_OFFER_LEN && offer[3] == last_session && ota_get_u32(&offer[8]) == last_crc) {
-			atomic_set(&state, OTA_IDLE);
-			continue;
-		}
+		// OFFERED/ACTIVE already suppress duplicates during a transfer. Once idle,
+		// validate and answer again: receiver reboot can reuse a session number,
+		// and a failed transfer must remain retryable with the same image.
 		int status = check_offer();
-		if (offer_len == OTA_OFFER_LEN) {
-			last_session = offer[3];
-			last_crc = ota_get_u32(&offer[8]);
-		}
 		if (status >= 0) {
 			LOG_WRN("Update offer refused: %s", ota_status_name(status));
 			last_result = status;
