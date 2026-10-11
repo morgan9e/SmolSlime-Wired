@@ -68,7 +68,7 @@ builds remain legacy ESB. The prototype keeps HFXO/RX active and uses no retries
 for tracking. Later hardware checks are recorded in [TDMA](TDMA.md); they do not
 establish improved reception or range. User identifies ID 7 as the left foot.
 
-### OTA repair in progress, 2026-10-11
+### OTA repair deployment, 2026-10-11
 
 - User-facing tracker names must use the last two hexadecimal address characters:
   7A, 91, 59, C8, 20, 8A (test unit), 78; XIAO E4 is excluded for now.
@@ -78,18 +78,22 @@ establish improved reception or range. User identifies ID 7 as the left foot.
 - Receiver 0.0.24 is installed. 8A was USB-repaired to 0.0.21, then successfully
   updated by radio to 0.0.22 with MCUboot confirmation. Wrong-board refusal and
   interrupted-transfer recovery were verified. A second radio transfer to 0.0.25
-  completed, and receiver diagnostics reported that version; its final USB image
-  confirmation remains to be checked after hub recovery.
+  completed; USB subsequently verified 0.0.25 and MCUboot confirmation.
 - 0.0.25 removes an offer cache that blocked retries after receiver session reuse.
   Source commit: `4de1a01`. Images: `dist/0.0.25/tdma/`.
-- The other six ProMicros still need a one-time USB repair from 0.0.19 using
-  the combined MCUboot UF2; their installed code cannot receive OTA offers.
-  E4 remains excluded. Do not claim fleet deployment or enable bench testing
-  until each device's version and confirmation have been checked.
+- The other six ProMicros received a one-time USB repair from 0.0.19 using
+  the combined MCUboot UF2. All seven now report 0.0.25 and confirmed images;
+  pairing and gyro bias matched the pre-flash checks. E4 remains excluded on
+  0.0.19, which cannot receive firmware OTA offers.
 - The hub disappeared during this work, returned with six tracker ports and a
   Windows USB port-reset error, then tracker console reads stalled before the
-  next flash. No new USB flash was started on 7A. User was asked to reconnect
-  the hub. Re-enumerate devices by serial/address before continuing.
+  next flash. Reconnecting the upstream cable restored all seven consoles and
+  allowed deployment. Re-enumerate devices by serial/address before use.
+- Bench mode was enabled on all seven ProMicros and remained enabled after a
+  20-second radio capture with start/end beeps. All seven delivered data without
+  gaps over 250 ms during that check; this is not a range test or a fix for late
+  TDMA slots. Raw per-second data: `dist/0.0.25/bench-radio.csv`. Bench mode is
+  currently on; `bench off` or reboot restores normal idle suppression.
 
 ## Next work
 

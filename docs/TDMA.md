@@ -283,7 +283,10 @@ MCUboot confirmation and resumed TDMA lock. A wrong-board offer was refused.
 A partial transfer stopped after 3,052 requested bytes timed out on the tracker;
 the confirmed 0.0.22 image remained installed and TDMA resumed. A second full
 radio transfer to 0.0.25 completed in 28 seconds, and its version appeared in
-receiver diagnostics. These checks do not establish range or battery behavior.
+receiver diagnostics; its USB console subsequently confirmed the image. The six
+remaining ProMicros (7A, 91, 59, C8, 20, 78) were USB-repaired to 0.0.25 and
+verified with confirmed images, original pairing and gyro bias. XIAO E4 remains
+excluded on 0.0.19. These checks do not establish range or battery behavior.
 
 The receiver's one-entry ACK FIFO required special handling: `esb_flush_tx()`
 returns busy during PRX, so flushing in the receive callback did not remove the
@@ -294,3 +297,11 @@ Local receipts: `dist/0.0.22/ota-receiver24-retry.log`,
 `dist/0.0.22/8A-after-ota.txt`, `dist/0.0.22/abort-check.txt`, and
 `dist/0.0.25/8A-ota.txt`. Protocol, deadline, eight-tracker simulation and all
 seven Python link-tool tests passed after the retry fix.
+
+After deployment, `bench on` was enabled on all seven ProMicros and verified
+again after a 20-second capture. Each delivered data throughout; no observed
+gap exceeded 250 ms. Per-second rates are preserved in
+`dist/0.0.25/bench-radio.csv`, with console receipts in
+`dist/0.0.25/bench-enable.txt` and each `*-bench-after.txt`. This bypasses sensor
+idle suppression but leaves the known scheduler lateness unchanged. E4 still
+transmitted its old firmware during this check and was not modified.
