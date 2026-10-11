@@ -148,6 +148,8 @@ test-tdma:
 	"$(BUILD)/tests/test_radio_tdma"
 
 test: test-tdma
+	$(CC) -std=c11 -Wall -Wextra -Werror -Wno-pointer-to-int-cast -I"$(ROOT)/tests/tdma_hw_stubs" "$(ROOT)/tests/test_tdma_hw.c" -o "$(BUILD)/tests/test_tdma_hw"
+	"$(BUILD)/tests/test_tdma_hw"
 	$(CC) -std=c11 -Wall -Wextra -Werror -pedantic -I"$(ROOT)/shared" "$(ROOT)/tests/test_radio_test.c" -o "$(BUILD)/tests/test_radio_test"
 	"$(BUILD)/tests/test_radio_test"
 	$(CC) -std=c11 -Wall -Wextra -Werror -pedantic -I"$(ROOT)/shared" "$(ROOT)/tests/test_radio_control.c" -o "$(BUILD)/tests/test_radio_control"
