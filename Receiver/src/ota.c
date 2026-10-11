@@ -106,6 +106,9 @@ void ota_esb_rx(const struct esb_payload *payload)
 		uint32_t offset = position & OTA_OFFSET_MASK;
 		if (s == OTA_OFFERING) {
 			atomic_set(&state, OTA_SENDING);
+			/* Retire the pipe-1 offer before queuing pipe-7 chunks. With the
+			 * one-entry ACK FIFO and paused TDMA, nothing else consumes it. */
+			esb_flush_tx();
 			start_time = k_uptime_get();
 			next_log = img_size / 10;
 			LOG_INF("ota: tracker %u accepted, sending %u bytes", target, img_size);
