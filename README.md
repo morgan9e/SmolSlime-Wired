@@ -38,10 +38,12 @@ There is no recorded all-six-moving test on 0.0.3 or later. See the
 [dated measurements](docs/archive/MEASUREMENTS.md); these are not current performance claims.
 
 An opt-in [TDMA prototype](docs/TDMA.md) adds receiver beacons and eight fixed
-transmit slots. Hardware checks support OTA and wireless mode switching, but the
-[synthetic radio comparison](docs/RADIO_TEST.md) found frequent missed TDMA send
-windows even with sensor processing off. It remains experimental; ordinary
-builds still use legacy ESB. Build it separately with `make tdma`.
+transmit slots. The initial polling scheduler missed many send windows. Version
+0.0.29 uses TIMER1/PPI and hardware radio timestamps; the seven-tracker
+[synthetic comparison](docs/RADIO_TEST.md) recorded zero tracker timing skips,
+but remaining delivery loss and receiver beacon-preparation skips keep it
+experimental. OTA and wireless mode switching were checked on hardware.
+Ordinary builds still use legacy ESB. Build it separately with `make tdma`.
 
 ## Build and update
 

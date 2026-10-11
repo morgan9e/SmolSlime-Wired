@@ -1,6 +1,6 @@
 # Experimental TDMA v1
 
-## Hardware timing implementation (pending hardware validation)
+## Hardware timing implementation, 0.0.29
 
 `CONFIG_RADIO_TDMA_HW` now defaults on in TDMA builds. It reserves TIMER1
 (1 MHz, 32-bit) and three dynamically allocated PPI channels plus one PPI group.
@@ -23,8 +23,27 @@ late preparation is rejected rather than immediately transmitted.
 Wire format and slot allocation are unchanged, allowing test-tracker-first
 OTA rollout against the previous receiver. There is still no missed-beacon
 holdover. `tdma hw` diagnostics show scheduled/fired/cancelled/rejected starts
-and minimum preparation lead. Hardware validation and measured outcomes are
-recorded below when complete.
+and minimum preparation lead. The 2026-10-11 seven-tracker synthetic comparison
+recorded zero tracker late-slot increments in both TDMA stages. Typical received
+packet phases were 464–465 us; five out-of-slot records appeared between the
+last legacy snapshot and the first repeat-TDMA snapshot, with no subsequent
+increments during the capture. Their exact cause remains unproven. The receiver still
+occasionally rejected late beacon preparations, and delivery loss remained,
+especially on 91. Full results and conditions are in [radio test](RADIO_TEST.md).
+
+Both SDK builds and a normal tracking build passed. The host scheduler tests
+exercise the actual hardware-adapter control code with register/allocator mocks:
+allocation cleanup, idempotent init, late rejection, cancellation before OTA,
+one-time completion accounting, SDK failure, missing hook and 32-bit timer wrap.
+They do not simulate radio timing or prove interrupt bounds. Existing protocol,
+eight-tracker simulation and seven Python link tests also passed. Images were
+built from `23b93fb` (tag 0.0.29); regression tests are commit `945a9b7`.
+
+All seven ProMicros were updated over OTA with boot confirmation and a second
+offer verifying the running image CRC. 8A completed actual OTA returns to
+0.0.27 and reinstalls of 0.0.29, both before rollout with the old receiver and
+after updating the receiver. The receiver was USB-updated after the tracker
+rollout. XIAO E4 was not modified.
 
 This is an opt-in implementation for the nRF52840 ProMicro, XIAO Sense and Nordic
 dongle. It schedules tracking transmissions instead of letting every tracker

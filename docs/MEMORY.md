@@ -28,8 +28,8 @@ cleanup. The complete original memory is preserved in the
 `https://github.com/morgan9e/SmolSlime-mod`. The old `SlimeVR-Hub` path and
 `SmolSlime-Wired` remote in archived notes are historical.
 
-The latest recorded installations are six ProMicros on radio-only 0.0.27 and
-receiver 0.0.26; 91 remains last-known normal 0.0.25 and E4 last-known 0.0.19.
+The latest recorded installations are all seven ProMicros on hardware-timed
+radio-only 0.0.29 and receiver 0.0.29; E4 remains last-known 0.0.19.
 See the current experiment below and [hardware identification](HARDWARE.md).
 These are observations, not a live inventory; verify by device address.
 
@@ -123,23 +123,52 @@ establish improved reception or range. User identifies ID 7 as the left foot.
   `dist/diagnostics/synthetic-20261011-173604-KST/`. See [radio test](RADIO_TEST.md)
   for findings and confounds. Positions/power were not controlled; 8A had USB
   attached for diagnostics. E4 and briefly 91 changed background traffic.
-- Recommended next software investigation: instrument actual beacon/TX times
-  and missed send windows, then improve TDMA scheduling. This is a proposal,
-  not permission to silently flash a new scheduler. A pure radio comparison
-  requires a fixed transmitter set and unchanged placement/power.
+- The user subsequently authorized hardware-timer TDMA implementation and fixing
+  91. The rollout below supersedes this initial experiment's installed versions.
+  A pure radio comparison requires a fixed transmitter set and unchanged
+  placement/power.
+
+## Hardware timer rollout, 2026-10-11
+
+- User authorized hardware-timer TDMA and fixing 91. All seven ProMicros now run
+  radio-only **0.0.29**, installed by OTA, confirmed, and verified by a repeat
+  offer checking the running image CRC. Receiver **0.0.29** was USB-updated last.
+  E4 remains excluded on last-known 0.0.19. Leave radio-only installed.
+- TIMER1/PPI replaces thread timing for packet starts; CRCOK/END events capture
+  radio timestamps. ESB retains ACKs/retries, legacy and OTA. Actual OTA round
+  trips on 8A succeeded before and after the receiver update. See [TDMA](TDMA.md)
+  for implementation and tests. No tracker was USB-flashed.
+- 91 had normal 0.0.25, bench off and sensor low-power messages. Updating it
+  made it a continuous test participant. This did not prove it had powered off.
+  Radio-only mode bypasses sensor-idle behavior, not all shutdown paths.
+- 18:20 KST capture: zero tracker late-slot increments on all seven in both TDMA
+  stages; typical received phases were 464–465 us. Five out-of-slot records
+  appeared across the legacy-to-TDMA transition/initial snapshots, with no
+  further increments in the capture; exact cause remains unproven.
+  Receiver still skipped some late
+  beacon preparations. 91 still had delivery bursts (47.8–76.8 received packets
+  per diagnostic interval across repeat-stage five-second windows) despite
+  correct timing. Do not claim its RF reliability or long-range tracking fixed.
+- Data: `dist/diagnostics/synthetic-20261011-182006-KST/`. See
+  [radio test](RADIO_TEST.md) for window ranges and limits. Latest receiver mode
+  is TDMA; diagnostic logging off. Software tests and both diagnostic and normal
+  ProMicro tracking builds passed; normal firmware was not installed.
 
 ## Next work
 
-1. Record firmware versions and a six-tracker moving baseline on battery, then real
+1. Separate missed-beacon, pending-buffer and delivery failures in the current
+   hardware-timed radio-only test, especially on 91. Investigate the transition
+   timing anomalies. Keep placement/power/background traffic fixed.
+2. Record firmware versions and a moving baseline on battery, then real
    worn poses. Use [the test procedure](TESTING.md) before changing radio behavior.
-2. Finish the untested OTA cases listed in [OTA](OTA.md), starting with a resting
+3. Finish the untested OTA cases listed in [OTA](OTA.md), starting with a resting
    battery-powered test tracker. Verify confirmation after reboot.
-3. Validate the charge estimate on one tracker; the configured 100 mA is an
+4. Validate the charge estimate on one tracker; the configured 100 mA is an
    assumption, not a measured charger current.
-4. Confirm which two ProMicros have damaged/missing antennas. IDs 0 and 5 were
+5. Confirm which two ProMicros have damaged/missing antennas. IDs 0 and 5 were
    suspected from RSSI, never physically confirmed. Compare boards under equal
    power, firmware and placement conditions.
-5. Consider 80 Hz, less frequent info packets, TDMA, or receiver placement only
+6. Consider 80 Hz, less frequent info packets, or receiver placement only
    after the baseline identifies the remaining problem. These are proposals.
 
 Old cleanup requests about force-pushing branches, restoring tags and deleting
