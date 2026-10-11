@@ -43,5 +43,6 @@ void esb_write_sync(uint16_t led_clock);
 void esb_receive(void);
 void esb_tdma_status(void);
 void esb_radio_console(size_t argc, char **argv);
+bool esb_radio_update_allowed(void);
 
 #endif

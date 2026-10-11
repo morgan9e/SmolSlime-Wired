@@ -22,6 +22,7 @@
 */
 #include "ota.h"
 #include "ota_proto.h"
+#include "connection/esb.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -43,6 +44,8 @@ enum { OTA_IDLE, OTA_OFFERING, OTA_SENDING };
 static const char *const state_names[] = {"idle", "offering", "sending"};
 
 static atomic_t state = ATOMIC_INIT(OTA_IDLE);
+bool ota_busy(void) { return atomic_get(&state) != OTA_IDLE; }
+bool ota_sending(void) { return atomic_get(&state) == OTA_SENDING; }
 static uint32_t img_size, img_crc, img_board;
 static uint8_t target;
 static uint8_t session; // 1 - OTA_SESSIONS, new with every offer
@@ -180,8 +183,8 @@ static void print_status(void)
 void ota_console(int argc, char **argv)
 {
 	const char *cmd = argc > 1 ? argv[1] : "status";
-	if (IS_ENABLED(CONFIG_RADIO_TDMA) && strcmp(cmd, "begin") == 0) {
-		printk("ota: error: TDMA prototype requires USB tracker updates\n");
+	if (strcmp(cmd, "begin") == 0 && (ota_busy() || !esb_radio_update_allowed())) {
+		printk("ota: error: update or radio mode change already in progress\n");
 		return;
 	}
 	if (strcmp(cmd, "begin") == 0 && argc == 6) {

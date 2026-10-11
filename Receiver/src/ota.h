@@ -22,5 +22,7 @@ void ota_hid_data(const uint8_t *report, int len);
 // tracker being updated), and every tracker frame on pipe 1 (keeps an update offer queued).
 void ota_esb_rx(const struct esb_payload *payload);
 void ota_esb_tracker_frame(void);
+bool ota_busy(void);
+bool ota_sending(void);
 
 #endif

@@ -45,8 +45,9 @@ RF reception; severe interference can still prevent reconnecting.
 
 Mode selection is RAM-only. Receiver reboot resets the fleet toward TDMA;
 tracker reboot reacquires the receiver's current mode. Pairing/calibration stay
-unchanged. This changes no RF channel and does not restore firmware OTA: USB
-firmware updates remain required in both runtime modes of this prototype.
+unchanged. This changes no RF channel. Firmware OTA now has a radio takeover path
+as described below; installed 0.0.18/0.0.19 TDMA trackers require one USB update to
+gain that support, even when switched to legacy mode.
 Older firmware does not understand the extended beacons: update the whole fleet
 before testing. Ordinary builds without `CONFIG_RADIO_TDMA` remain unchanged.
 
@@ -163,10 +164,27 @@ Outputs are isolated under `dist/tdma/`; build directories are under
 Host tests require a C11 compiler (`CC`, default `cc`) and Python 3.
 
 Tracker images retain their board-specific MCUboot layouts and ACK-based image
-confirmation. **Radio OTA transfers are disabled in this prototype**, both at the
-receiver's `ota begin` command and the tracker transport. Use the board's combined
-`_OTA.uf2` for USB installation/recovery. Supporting OTA needs an explicit transfer
-reservation protocol; sending update requests between slots would defeat TDMA.
+confirmation. Use the board's combined `_OTA.uf2` for first installation/recovery.
+The restored OTA path accepts addressed offers from normal tracking ACKs in either
+runtime mode. The target pauses tracking and its radio worker installs unslotted
+PTX with retries; only then may the OTA thread send requests on pipe 7. When the
+receiver gets the first valid request, it holds PRX and stops TDMA beacons until
+completion, stop, or transfer timeout. Other TDMA trackers therefore pause while
+beacons are absent; legacy trackers can continue transmitting. Transfer chunk ACKs
+take priority over mode-control ACKs. Concurrent mode changes and OTA begins are
+refused. Refusal/abort returns the target to normal radio operation; successful
+installation reboots into MCUboot's test swap and reacquires the receiver's mode.
+No wire-format or board/layout checks have been removed.
+
+This restoration requires updated receiver **and** tracker firmware. A receiver
+update cannot make old TDMA trackers accept offers. Validate an actual transfer,
+confirmed boot, refusal, and timeout recovery on the spare before fleet rollout.
+
+For stationary load testing, tracker console `bench on` bypasses motion-change
+suppression and keeps the sensor in its active-rate mode. `bench off` restores
+normal behavior; reboot also turns it off. It is RAM-only, appears in `info`, and
+does not change transmit scheduling, retries, calibration, or pairing. This command
+is local to the tracker console, not a wireless control command.
 
 The generated images are development builds, not a tagged release. Before any
 hardware rollout, follow the version/build workflow in [Development](DEVELOPMENT.md),

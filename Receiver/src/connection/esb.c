@@ -71,6 +71,7 @@ static bool tdma_epoch_valid;
 static struct k_spinlock control_lock;
 static struct rc_presence radio_presence;
 static uint8_t control_paired_mask;
+static bool ota_radio_paused;
 static uint8_t active_radio_mode = RC_TDMA;
 static struct rc_receiver radio_control = {
 	.message = {.mode=RC_TDMA, .target=RC_TDMA},
@@ -106,6 +107,18 @@ void esb_tdma_status(void)
 #endif
 }
 
+bool esb_radio_update_allowed(void)
+{
+#if CONFIG_RADIO_TDMA
+	k_spinlock_key_t key = k_spin_lock(&control_lock);
+	bool allowed = radio_control.message.phase == RC_IDLE;
+	k_spin_unlock(&control_lock, key);
+	return allowed;
+#else
+	return true;
+#endif
+}
+
 void esb_radio_console(size_t argc, char **argv)
 {
 #if CONFIG_RADIO_TDMA
@@ -115,7 +128,7 @@ void esb_radio_console(size_t argc, char **argv)
 	uint8_t active = rc_active(&radio_presence, paired, k_uptime_get());
 	if (argc == 3 && strcmp(argv[1], "mode") == 0 &&
 	    (!strcmp(argv[2], "tdma") || !strcmp(argv[2], "legacy"))) {
-		if (tdma_running && stored_trackers > 0 && stored_trackers <= TDMA_SLOTS)
+		if (!ota_busy() && tdma_running && stored_trackers > 0 && stored_trackers <= TDMA_SLOTS)
 			accepted = rc_begin(&radio_control, !strcmp(argv[2], "tdma") ? RC_TDMA : RC_LEGACY,
 				active, k_uptime_get());
 		if (accepted) control_paired_mask = paired;
@@ -126,7 +139,7 @@ void esb_radio_console(size_t argc, char **argv)
 	k_spin_unlock(&control_lock, key);
 	if (!valid) { printk("Usage: radio [status|cancel|mode tdma|mode legacy]\n"); return; }
 	if (argc == 3) printk(accepted ? "Radio change queued; waiting for active tracker snapshot\n" :
-		"Radio change not queued: already in mode, busy, no active trackers, or unsupported paired count\n");
+		"Radio change not queued: already in mode, busy (including OTA), no active trackers, or unsupported paired count\n");
 	printk("radio presence: paired=%02x active=%02x offline=%02x window_ms=%u\n",
 		paired, active, paired & ~active, RC_ACTIVE_MS);
 	uint8_t missing = r.message.required & ~(r.message.phase == RC_PREPARE || r.result == RC_MISSING ? r.ready : r.arrived);
@@ -266,7 +279,9 @@ void event_handler(struct esb_evt const *event)
 				if (control) continue; /* never forward control replies to SlimeVR */
 			}
 #endif
-			ota_esb_tracker_frame(); // keeps an update offer queued while offering
+#if !CONFIG_RADIO_TDMA
+			ota_esb_tracker_frame(); // control builds queue offers in radio_queue_ack
+#endif
 			switch (rx_payload.length)
 			{
 			case 21: // has sequence number
@@ -719,6 +734,12 @@ static void esb_packet_filter_thread(void)
 static void radio_queue_ack(void)
 {
 	if (!esb_initialized || tdma_tx_mode) return;
+	if (ota_sending()) return; /* never flush pending chunk ACKs on the OTA pipe */
+	if (ota_busy()) {
+		esb_flush_tx();
+		ota_esb_tracker_frame(); /* offer replaces the normal mode-control ACK */
+		return;
+	}
 	struct esb_payload p = {.pipe=1, .length=RC_LEN, .noack=false};
 	k_spinlock_key_t key = k_spin_lock(&control_lock);
 	rc_encode(p.data, &radio_control.message);
@@ -757,7 +778,7 @@ static void tdma_start(void)
 	tdma_inflight = false;
 	tdma_epoch_valid = false;
 	tdma_next = tdma_now() + TDMA_FRAME_US;
-	LOG_INF("TDMA v1: 8 slots / 10 ms, beacon pipe 2, USB tracker updates only");
+	LOG_INF("TDMA v1: 8 slots / 10 ms, beacon pipe 2, OTA transfer pauses beacons");
 	if (stored_trackers > TDMA_SLOTS)
 		LOG_WRN("TDMA supports only tracker IDs 0-7");
 }
@@ -766,6 +787,23 @@ static void tdma_service(void)
 {
 	if (!tdma_running || !esb_paired) return;
 	int64_t now = tdma_now();
+	if (ota_sending()) {
+		ota_radio_paused = true;
+		tdma_epoch_valid = false;
+		/* Requests arrive in PRX. Preserve its queued OTA chunk; no disable/init. */
+		if (tdma_tx_mode || !esb_initialized) {
+			tdma_inflight = false;
+			tdma_mode(false);
+		}
+		return;
+	}
+	if (ota_radio_paused) {
+		ota_radio_paused = false;
+		tdma_inflight = false;
+		tdma_mode(false);
+		tdma_next = now + TDMA_FRAME_US;
+		return;
+	}
 	k_spinlock_key_t control_key = k_spin_lock(&control_lock);
 	if (radio_control.message.phase != RC_IDLE &&
 	    control_paired_mask != (uint8_t)((1u << MIN(stored_trackers, TDMA_SLOTS))-1))

@@ -76,6 +76,7 @@ static bool radio_tdma = true;
 static struct rc_message radio_control = {.mode=RC_TDMA, .target=RC_TDMA};
 static int64_t control_reply_due;
 static uint32_t control_replies;
+static atomic_t ota_radio_ready;
 
 static int64_t tdma_now(void)
 {
@@ -149,7 +150,7 @@ void event_handler(struct esb_evt const *event)
 	{
 	case ESB_EVENT_TX_SUCCESS:
 #if CONFIG_RADIO_TDMA
-		if (tdma_running) tdma_acked++;
+		if (tdma_running && !ota_active()) tdma_acked++;
 #endif
 		if (!paired_addr[0]) // zero, not paired
 			pairing_packets++; // keep track of pairing state
@@ -171,7 +172,7 @@ void event_handler(struct esb_evt const *event)
 		break;
 	case ESB_EVENT_TX_FAILED:
 #if CONFIG_RADIO_TDMA
-		if (tdma_running) tdma_failed++;
+		if (tdma_running && !ota_active()) tdma_failed++;
 #endif
 		if (ota_active())
 		{
@@ -204,7 +205,9 @@ void event_handler(struct esb_evt const *event)
 			{
 #if CONFIG_RADIO_TDMA
 				tdma_receive_beacon(&rx_payload);
-				continue; /* OTA offers are deliberately disabled in this prototype */
+				if (rx_payload.pipe == 1 || rx_payload.pipe == OTA_PIPE)
+					ota_rx_ack(rx_payload.data, rx_payload.length, paired_addr[1]);
+				continue;
 #endif
 				if (rx_payload.length == 4)
 				{
@@ -404,7 +407,7 @@ int esb_initialize(bool tx)
 	}
 
 #if CONFIG_RADIO_TDMA
-	if (esb_paired && radio_tdma) {
+	if (esb_paired && radio_tdma && !ota_active()) {
 		config.bitrate = ESB_BITRATE_2MBPS;
 		config.retransmit_count = 0; /* never retry into a neighbour's slot */
 	}
@@ -609,7 +612,16 @@ void esb_clear_pair(void)
 // A firmware update message on the OTA pipe (ota.c); tracking is paused meanwhile
 int esb_write_ota(const uint8_t *data, uint8_t len)
 {
-	if (IS_ENABLED(CONFIG_RADIO_TDMA)) return -ENOTSUP;
+#if CONFIG_RADIO_TDMA
+	/* The radio worker installs unslotted PTX before the OTA thread may send.
+	 * Never reconfigure from the ACK interrupt or race the tracking worker. */
+	int64_t deadline = k_uptime_get() + 100;
+	while (!atomic_get(&ota_radio_ready)) {
+		if (!ota_active() || !tdma_running || k_uptime_get() >= deadline)
+			return -EAGAIN;
+		k_msleep(1);
+	}
+#endif
 	static struct esb_payload ota_payload = ESB_CREATE_PAYLOAD(OTA_PIPE, 0);
 	if (!esb_initialized || !esb_paired)
 		return -ENOTCONN;
@@ -645,6 +657,23 @@ static void tdma_service(void)
 {
 	if (!tdma_running || !esb_paired)
 		return;
+	if (ota_active()) {
+		if (!atomic_get(&ota_radio_ready)) {
+			tdma_inflight = false;
+			k_spinlock_key_t key = k_spin_lock(&tdma_lock);
+			tdma_sync.valid = false;
+			tdma_pending = false;
+			k_spin_unlock(&tdma_lock, key);
+			if (!tdma_mode(true)) atomic_set(&ota_radio_ready, 1);
+		}
+		return; /* OTA thread exclusively owns PTX until it completes or aborts */
+	}
+	if (atomic_set(&ota_radio_ready, 0)) {
+		tdma_started = tdma_now();
+		tdma_outage = false;
+		tdma_mode(!radio_tdma);
+		return;
+	}
 	k_spinlock_key_t control_key = k_spin_lock(&tdma_lock);
 	bool requested_tdma = radio_control.mode == RC_TDMA;
 	k_spin_unlock(&tdma_lock, control_key);
@@ -776,7 +805,7 @@ static void tdma_start(void)
 		return;
 	}
 	tdma_mode(false);
-	LOG_INF("TDMA v1: id %u, 8 slots / 10 ms, no retries, USB updates only", paired_addr[1]);
+	LOG_INF("TDMA v1: id %u, 8 slots / 10 ms, no tracking retries", paired_addr[1]);
 	if (paired_addr[1] >= TDMA_SLOTS)
 		LOG_ERR("TDMA supports IDs 0-7; this tracker will only listen");
 }
@@ -786,6 +815,7 @@ void esb_write(uint8_t *data)
 {
 	if (!esb_initialized || !esb_paired)
 		return;
+	if (ota_active()) return;
 #if CONFIG_RADIO_TDMA
 	k_spinlock_key_t key = k_spin_lock(&tdma_lock);
 	if (tdma_pending) tdma_replaced++;
@@ -794,8 +824,6 @@ void esb_write(uint8_t *data)
 	k_spin_unlock(&tdma_lock, key);
 	return;
 #endif
-	if (ota_active())
-		return; // tracking is paused while a firmware update is received
 	if (!clock_status)
 		clocks_start();
 	tx_payload.pipe = 1; // using base address 1
