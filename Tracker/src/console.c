@@ -492,7 +492,6 @@ static void print_help(void)
 	printk("\ninfo                         Get device information\n");
 	printk("uptime                       Get device uptime\n");
 	printk("reboot                       Soft reset the device\n");
-	printk("rf [on|off|status]            Temporary radio control (reboot restores on)\n");
 	printk("battery                      Get battery information\n");
 	printk("\nscan                         Restart sensor scan\n");
 	printk("calibrate                    Calibrate sensor ZRO\n");
@@ -619,19 +618,6 @@ static void console_thread(void)
 		else if (strcmp(argv[0], command_reboot) == 0)
 		{
 			sys_request_system_reboot(false);
-		}
-		else if (strcmp(argv[0], "rf") == 0)
-		{
-			int err = 0;
-			if (argc == 2 && (strcmp(argv[1], "on") == 0 || strcmp(argv[1], "off") == 0))
-				err = esb_rf_set_enabled(strcmp(argv[1], "on") == 0);
-			else if (argc != 1 && !(argc == 2 && strcmp(argv[1], "status") == 0)) {
-				printk("Usage: rf [on|off|status]\n");
-				continue;
-			}
-			if (err == -EBUSY) printk("RF unchanged: firmware update in progress\n");
-			else if (err) printk("RF stop not confirmed: %d; check rf status\n", err);
-			printk("RF: %s\n", esb_rf_enabled() ? "on" : esb_rf_stopped() ? "off" : "stopping");
 		}
 		else if (strcmp(argv[0], command_battery) == 0)
 		{

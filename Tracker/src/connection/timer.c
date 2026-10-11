@@ -28,7 +28,6 @@ LOG_MODULE_REGISTER(timer, 4);
 
 void timer_handler(nrf_timer_event_t event_type, void *p_context)
 {
-	if (!esb_rf_enabled()) return;
 	if (event_type == NRF_TIMER_EVENT_COMPARE1 && esb_state == true)
 	{
 		if (last_reset < LAST_RESET_LIMIT)
