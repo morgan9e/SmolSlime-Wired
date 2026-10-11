@@ -27,6 +27,7 @@
 #include "calibration.h"
 
 #include <math.h>
+#include <zephyr/sys/atomic.h>
 #include <hal/nrf_gpio.h>
 
 #include "fusion/fusions.h"
@@ -585,11 +586,32 @@ enum sensor_sensor_timeout {
 
 static enum sensor_sensor_timeout sensor_timeout = SENSOR_SENSOR_TIMEOUT_IMU;
 
+static atomic_t bench_enabled;
+
+bool sensor_bench_enabled(void)
+{
+	return atomic_get(&bench_enabled) != 0;
+}
+
+void sensor_set_bench(bool enabled)
+{
+	atomic_set(&bench_enabled, enabled);
+	main_imu_wakeup(); /* configuration remains owned by the sensor thread */
+}
+
 // Check the IMU gyroscope // TODO: gyro sanity not used
  // TODO: timeouts and power management should be outside sensor! (e.g. sleeping/shutdown even if the imu completely errored out)
  // all this really means is that this should be called in sensor loop while the sensor is in an error state
 static void sensor_update_sensor_state(void)
 {
+	if (sensor_bench_enabled()) {
+		/* Exercise real sensor/fusion updates at rest, without inactivity sleep. */
+		last_data_time = k_uptime_get();
+		sensor_mode = SENSOR_SENSOR_MODE_LOW_NOISE;
+		sensor_timeout = SENSOR_SENSOR_TIMEOUT_IMU;
+		connection_update_sensor_timeout_time(INT64_MAX);
+		return;
+	}
 	bool calibrating = get_status(SYS_STATUS_CALIBRATION_RUNNING);
 	bool resting = sensor_fusion->get_gyro_sanity() == 0 ? q_epsilon(q, last_q, 0.005) : q_epsilon(q, last_q, 0.05); // TODO: Probably okay to use the constantly updating last_q?
 	if (!calibrating && resting)
@@ -1096,7 +1118,7 @@ void sensor_loop(void)
 			// Update orientation
 			bool send_quat_data = !q_epsilon(q, last_q, 0.001);
 			bool send_lin_accel_data = !v_epsilon(lin_a, last_lin_a, 0.05);
-			if (send_quat_data || send_lin_accel_data)
+			if (sensor_bench_enabled() || send_quat_data || send_lin_accel_data)
 			{
 				memcpy(last_q, q, sizeof(q));
 				memcpy(last_lin_a, lin_a, sizeof(lin_a));

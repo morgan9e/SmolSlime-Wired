@@ -31,6 +31,10 @@ const char *sensor_get_sensor_fusion_name(void);
 
 int sensor_get_sensor_temperature(float *);
 
+/* Volatile stationary radio-load test; off on every boot. */
+void sensor_set_bench(bool enabled);
+bool sensor_bench_enabled(void);
+
 int sensor_request_scan(bool force);
 
 void sensor_scan_read(void);

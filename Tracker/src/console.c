@@ -227,6 +227,7 @@ static void print_battery(void)
 static void print_info(void)
 {
 	print_board();
+	printk("Bench mode: %s (volatile, off after reboot)\n", sensor_bench_enabled() ? "on" : "off");
 	printk("\n");
 	print_sensor();
 	printk("\n");
@@ -493,6 +494,7 @@ static void print_help(void)
 	printk("uptime                       Get device uptime\n");
 	printk("reboot                       Soft reset the device\n");
 	printk("battery                      Get battery information\n");
+	printk("bench [on|off|status]         Stationary radio-load test; resets off at boot\n");
 	printk("\nscan                         Restart sensor scan\n");
 	printk("calibrate                    Calibrate sensor ZRO\n");
 	printk("6-side                       Calibrate 6-side accelerometer\n");
@@ -608,6 +610,16 @@ static void console_thread(void)
 		else if (strcmp(argv[0], command_info) == 0)
 		{
 			print_info();
+		}
+		else if (strcmp(argv[0], "bench") == 0)
+		{
+			if (argc == 2 && (!strcmp(argv[1], "on") || !strcmp(argv[1], "off")))
+				sensor_set_bench(!strcmp(argv[1], "on"));
+			else if (!(argc == 1 || (argc == 2 && !strcmp(argv[1], "status")))) {
+				printk("Usage: bench [on|off|status]\n");
+				continue;
+			}
+			printk("Bench mode: %s (volatile, off after reboot)\n", sensor_bench_enabled() ? "on" : "off");
 		}
 		else if (strcmp(argv[0], command_uptime) == 0)
 		{
