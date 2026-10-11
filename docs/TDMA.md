@@ -4,10 +4,10 @@ This is an opt-in implementation for the nRF52840 ProMicro, XIAO Sense and Nordi
 dongle. It schedules tracking transmissions instead of letting every tracker
 transmit immediately. The original 0.0.18 prototype passed a basic eight-tracker
 USB/radio smoke test, but showed frequent late slot skips; range improvement is
-not established. The wireless mode-control extension below has only software
-validation so far. Default builds keep the existing ESB behavior.
+not established. The wireless mode-control extension has the limited 0.0.19
+hardware checks recorded below. Default builds keep the existing ESB behavior.
 
-## Wireless mode control (development, not flashed)
+## Wireless mode control (experimental)
 
 Build with `make tdma` and install the new tracker images and receiver together
 over USB. The receiver console accepts:
@@ -64,6 +64,23 @@ packet loss during transition, cancellation, receiver/tracker reboot recovery,
 pairing-table changes, and actual delivery/slot timing under motion and USB load.
 The frequent timing skips in the original TDMA prototype are not fixed by this
 control feature.
+
+### 0.0.19 installation check — 2026-10-11 (KST)
+
+Tag `0.0.19` identifies implementation commit `65f8bcb`. All eight trackers were
+USB-flashed using the combined MCUboot images, and the Nordic receiver was restored
+from the RSSI scanner to the matching receiver build. IDs 0, 1, 2, 3, 5, 6 and 7
+reported 0.0.19 and confirmed MCUboot images over USB; their pairing and gyro bias
+matched the pre-flash readings. ID 4 did not return on USB, but subsequently
+reported 0.0.19 and delivered tracking frames over radio. Its post-flash MCUboot
+confirmation has not been read. The receiver retained all eight paired addresses.
+
+A 20-second stationary/unspecified-motion observation received IDs 1, 2, 3, 4, 6
+and 7. IDs 0 and 5 were absent. A request for legacy mode collected preparation
+mask `de`, then timed out with `missing=21` (IDs 0 and 5) and stayed in TDMA,
+verifying refusal when paired trackers are absent. This does **not** verify a
+successful mode transition, rollback after a partial transition, or range.
+Local receipts and capture: `dist/0.0.19/`; release images: `dist/0.0.19/tdma/`.
 
 ## Schedule
 
