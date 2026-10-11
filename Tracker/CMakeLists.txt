@@ -73,3 +73,4 @@ add_custom_target(touch_util_h ALL
 )
 
 target_include_directories(app PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../shared)
+include(${CMAKE_CURRENT_SOURCE_DIR}/../shared/tdma_hw.cmake)

@@ -17,7 +17,7 @@
 #define TDMA_FIRST_SLOT_US 1000
 #define TDMA_GUARD_US 200
 #define TDMA_START_WINDOW_US 150
-#define TDMA_PREPARE_US 350
+#define TDMA_PREPARE_US 700
 /* Budget includes ramp-up, 21-byte frame, turnaround and ACK. No retries. */
 #define TDMA_TRANSACTION_US 600
 

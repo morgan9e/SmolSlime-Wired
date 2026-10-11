@@ -386,6 +386,14 @@ config RADIO_TDMA
         the radio; MCUboot recovery and confirmation remain available.
         Keeps the tracker radio listening and HFXO on: higher battery use.
 
+config RADIO_TDMA_HW
+    bool "Hardware-timed TDMA start and radio timestamps"
+    depends on RADIO_TDMA
+    default y
+    help
+        Reserve TIMER1 and allocated PPI channels for precise packet starts.
+        Normal ESB ACK handling and OTA remain in the SDK state machine.
+
 config RADIO_TEST
     bool "Synthetic radio diagnostics instead of body tracking"
     depends on RADIO_TDMA && TRACKER_OTA

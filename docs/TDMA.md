@@ -1,5 +1,31 @@
 # Experimental TDMA v1
 
+## Hardware timing implementation (pending hardware validation)
+
+`CONFIG_RADIO_TDMA_HW` now defaults on in TDMA builds. It reserves TIMER1
+(1 MHz, 32-bit) and three dynamically allocated PPI channels plus one PPI group.
+Receiver diagnostics already reserve TIMER3/TIMER4; ESB retains its protocol
+timer (normally TIMER2). The dormant old `timer_init()` must not be started.
+
+CRCOK captures received packet time; END captures beacon transmission completion.
+The scheduler prepares ESB up to 700 us before a slot, then TIMER1 compare
+triggers ESB's existing EGU/PPI radio-start sequence without thread wakeup.
+A PPI fork disables the scheduling group on the same event, making it one-shot.
+ESB continues to own payload encoding, ACK turnaround, retries and radio IRQs.
+
+The build generates an ESB source copy with a single guarded `radio_start()`
+hook; it does not edit the installed SDK. CMake refuses an unexpected hook or
+library layout. The hook delays only an explicitly requested start. Ordinary
+RX, legacy, pairing and OTA use the original SDK path. Hardware starts are
+cancelled before reconfiguration, mode changes and OTA takeover. An already
+late preparation is rejected rather than immediately transmitted.
+
+Wire format and slot allocation are unchanged, allowing test-tracker-first
+OTA rollout against the previous receiver. There is still no missed-beacon
+holdover. `tdma hw` diagnostics show scheduled/fired/cancelled/rejected starts
+and minimum preparation lead. Hardware validation and measured outcomes are
+recorded below when complete.
+
 This is an opt-in implementation for the nRF52840 ProMicro, XIAO Sense and Nordic
 dongle. It schedules tracking transmissions instead of letting every tracker
 transmit immediately. The original 0.0.18 prototype passed a basic eight-tracker

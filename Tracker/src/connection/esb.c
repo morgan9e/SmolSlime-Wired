@@ -61,6 +61,9 @@ static bool esb_paired = false;
 #include "radio_tdma.h"
 #include "radio_control.h"
 #include "radio_test.h"
+#if CONFIG_RADIO_TDMA_HW
+#include "tdma_hw.h"
+#endif
 BUILD_ASSERT(sizeof(((struct esb_payload *)0)->data) >= TDMA_BEACON_LEN + RC_LEN,
 	"Radio control needs a 24-byte beacon payload");
 BUILD_ASSERT(CONFIG_SYS_CLOCK_TICKS_PER_SEC >= 32768, "TDMA requires a fine system clock");
@@ -81,7 +84,11 @@ static atomic_t ota_radio_ready;
 
 static int64_t tdma_now(void)
 {
+#if CONFIG_RADIO_TDMA_HW
+	return tdma_hw_now();
+#else
 	return k_ticks_to_us_floor64(k_uptime_ticks());
+#endif
 }
 
 #if CONFIG_RADIO_TEST
@@ -129,7 +136,12 @@ static void tdma_receive_beacon(const struct esb_payload *p)
 		bool control = p->length == TDMA_BEACON_LEN + RC_LEN &&
 			rc_decode(&m, p->data + TDMA_BEACON_LEN, RC_LEN);
 		if ((control || p->length == TDMA_BEACON_LEN) &&
-		    tdma_accept_beacon(&tdma_sync, p->data, TDMA_BEACON_LEN, tdma_now())) {
+		    tdma_accept_beacon(&tdma_sync, p->data, TDMA_BEACON_LEN,
+#if CONFIG_RADIO_TDMA_HW
+			    tdma_hw_rx_time())) {
+#else
+			    tdma_now())) {
+#endif
 			tdma_beacons++;
 			if (control) radio_control = m;
 		}
@@ -153,6 +165,9 @@ void esb_tdma_status(void)
 	printk("tdma: %s id=%u beacons=%u submitted=%u acked=%u failed=%u late=%u empty=%u replaced=%u errors=%u\n",
 		paired_addr[1] >= TDMA_SLOTS ? "unsupported-id" : !radio_tdma ? "legacy" : locked ? "locked" : "listening",
 		paired_addr[1], b, s, a, f, l, n, r, e);
+#if CONFIG_RADIO_TDMA_HW
+	tdma_hw_status();
+#endif
 #else
 	printk("tdma: disabled (legacy ESB)\n");
 #endif
@@ -445,6 +460,9 @@ int esb_initialize(bool tx)
 	if (esb_paired && radio_tdma && !ota_active()) {
 		config.bitrate = ESB_BITRATE_2MBPS;
 		config.retransmit_count = 0; /* never retry into a neighbour's slot */
+#if CONFIG_RADIO_TDMA_HW
+		config.tx_mode = ESB_TXMODE_MANUAL;
+#endif
 	}
 #endif
 	err = esb_init(&config);
@@ -477,6 +495,9 @@ void esb_deinitialize(void)
 {
 #if CONFIG_RADIO_TDMA
 	tdma_running = false;
+#if CONFIG_RADIO_TDMA_HW
+	tdma_hw_cancel();
+#endif
 #endif
 	if (esb_initialized)
 	{
@@ -675,6 +696,9 @@ int esb_write_ota(const uint8_t *data, uint8_t len)
 /* Called only by the radio thread. Never reconfigure ESB in an IRQ or timer ISR. */
 static int tdma_mode(bool tx)
 {
+#if CONFIG_RADIO_TDMA_HW
+	tdma_hw_cancel();
+#endif
 	if (esb_initialized) esb_disable(); /* bounded stop, discards a failed frame */
 	esb_initialized = false;
 	tdma_tx_mode = tx;
@@ -785,7 +809,7 @@ static void tdma_service(void)
 		 * preemption cannot turn an on-time decision into an out-of-slot TX. */
 		key = k_spin_lock(&tdma_lock);
 		action = tdma_action_at(&tdma_sync, paired_addr[1], tdma_now());
-		if (action == TDMA_SEND) {
+		if (action == TDMA_SEND || (IS_ENABLED(CONFIG_RADIO_TDMA_HW) && action == TDMA_PREPARE)) {
 			tdma_sync.used = true;
 			bool reply = radio_control.phase != RC_IDLE && tdma_now() >= control_reply_due;
 			if (reply || tdma_pending) {
@@ -800,12 +824,18 @@ static void tdma_service(void)
 					p.length = RC_LEN; rc_reply(p.data, &response, paired_addr[1]);
 				}
 				tdma_submitted = tdma_now();
-				if (esb_write_payload(&p) == 0) {
+				int err = esb_write_payload(&p);
+#if CONFIG_RADIO_TDMA_HW
+				tdma_submitted = tdma_slot_start(&tdma_sync, paired_addr[1]);
+				if (!err) err = tdma_hw_start_tx_at(tdma_submitted);
+#endif
+				if (!err) {
 					if (reply) { control_replies++; control_reply_due = tdma_now() + 50000; }
 					else { tdma_sequence++; tdma_sent++; tdma_pending = false; }
 					tdma_inflight = true;
 				} else {
-					tdma_errors++;
+					if (err == -ETIME) tdma_late++;
+					else tdma_errors++;
 				}
 			} else {
 				tdma_empty++;
@@ -839,6 +869,14 @@ static void tdma_start(void)
 		esb_paired = false; /* retry startup, never run the radio on HFINT */
 		return;
 	}
+#if CONFIG_RADIO_TDMA_HW
+	if (tdma_hw_init()) {
+		tdma_running = false;
+		esb_paired = false;
+		LOG_ERR("TDMA hardware timer initialization failed");
+		return;
+	}
+#endif
 	tdma_mode(false);
 	LOG_INF("TDMA v1: id %u, 8 slots / 10 ms, no tracking retries", paired_addr[1]);
 	if (paired_addr[1] >= TDMA_SLOTS)

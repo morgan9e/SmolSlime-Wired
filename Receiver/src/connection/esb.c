@@ -59,6 +59,9 @@ K_THREAD_DEFINE(esb_packet_filter_thread_id, 256, esb_packet_filter_thread, NULL
 #include "radio_tdma.h"
 #include "radio_control.h"
 #include "radio_test.h"
+#if CONFIG_RADIO_TDMA_HW
+#include "tdma_hw.h"
+#endif
 #include <zephyr/random/random.h>
 BUILD_ASSERT(sizeof(((struct esb_payload *)0)->data) >= TDMA_BEACON_LEN + RC_LEN,
 	"Radio control needs a 24-byte beacon payload");
@@ -106,7 +109,11 @@ static void radio_test_receive(const uint8_t *p)
 
 static int64_t tdma_now(void)
 {
+#if CONFIG_RADIO_TDMA_HW
+	return tdma_hw_now();
+#else
 	return k_ticks_to_us_floor64(k_uptime_ticks());
+#endif
 }
 #endif
 
@@ -116,6 +123,9 @@ void esb_tdma_status(void)
 	printk("tdma: %s mode=%s slots=8 frame_us=10000 beacons=%u errors=%u late=%u max_late_us=%u\n",
 		tdma_running ? "running" : "stopped", active_radio_mode == RC_TDMA ? "tdma" : "legacy",
 		tdma_beacons, tdma_errors, tdma_late, tdma_max_late);
+#if CONFIG_RADIO_TDMA_HW
+	tdma_hw_status();
+#endif
 	for (unsigned i = 0; i < TDMA_SLOTS; i++) {
 		unsigned key = irq_lock();
 		struct tdma_rx_stats r = tdma_rx[i];
@@ -231,7 +241,12 @@ void event_handler(struct esb_evt const *event)
 #if CONFIG_RADIO_TDMA
 		if (tdma_inflight) {
 			tdma_beacons++;
-			tdma_epoch = tdma_now();
+			tdma_epoch =
+#if CONFIG_RADIO_TDMA_HW
+				tdma_hw_tx_time();
+#else
+				tdma_now();
+#endif
 			tdma_epoch_valid = true;
 			atomic_set(&tdma_done, 1);
 		}
@@ -315,7 +330,13 @@ void event_handler(struct esb_evt const *event)
 #if CONFIG_RADIO_TDMA
 				if (radio_control.message.mode == RC_TDMA && tdma_epoch_valid && rx_payload.data[1] < TDMA_SLOTS) {
 					unsigned id = rx_payload.data[1];
-					int64_t phase = tdma_now() - tdma_epoch - TDMA_FIRST_SLOT_US - id * TDMA_SLOT_US;
+					int64_t received =
+#if CONFIG_RADIO_TDMA_HW
+						tdma_hw_rx_time();
+#else
+						tdma_now();
+#endif
+					int64_t phase = received - tdma_epoch - TDMA_FIRST_SLOT_US - id * TDMA_SLOT_US;
 					struct tdma_rx_stats *r = &tdma_rx[id];
 					/* Callback timing after the ACK, not a hardware RX-END capture.
 					 * An out-of-slot count may indicate legacy TX or scheduling jitter. */
@@ -524,6 +545,9 @@ int esb_initialize(bool tx)
 
 static void esb_deinitialize(void)
 {
+#if CONFIG_RADIO_TDMA_HW
+	tdma_hw_cancel();
+#endif
 #if CONFIG_RADIO_TDMA
 	tdma_running = false;
 #endif
@@ -786,6 +810,9 @@ static void radio_queue_ack(void)
 
 static int tdma_mode(bool tx)
 {
+#if CONFIG_RADIO_TDMA_HW
+	tdma_hw_cancel();
+#endif
 	if (esb_initialized) esb_disable();
 	esb_initialized = false;
 	tdma_tx_mode = tx;
@@ -801,6 +828,13 @@ static int tdma_mode(bool tx)
 
 static void tdma_start(void)
 {
+#if CONFIG_RADIO_TDMA_HW
+	if (tdma_hw_init()) {
+		tdma_running = false;
+		LOG_ERR("TDMA hardware timer initialization failed");
+		return;
+	}
+#endif
 	/* Reboot starts in TDMA; a fresh token prevents stale transaction replies. */
 	uint32_t token = sys_rand32_get();
 	k_spinlock_key_t key = k_spin_lock(&control_lock);
@@ -873,7 +907,7 @@ static void tdma_service(void)
 	if (now < tdma_next - TDMA_PREPARE_US) return;
 	if (!tdma_tx_mode && tdma_mode(true)) return;
 	now = tdma_now();
-	if (now < tdma_next) return;
+	if (!IS_ENABLED(CONFIG_RADIO_TDMA_HW) && now < tdma_next) return;
 	struct esb_payload p = {.pipe = TDMA_BEACON_PIPE,
 		.length = TDMA_BEACON_LEN + RC_LEN, .noack = true};
 	tdma_make_beacon(p.data, tdma_serial++);
@@ -887,9 +921,13 @@ static void tdma_service(void)
 		return;
 	}
 	unsigned key = irq_lock();
-	tdma_submitted = tdma_now();
+	tdma_submitted = IS_ENABLED(CONFIG_RADIO_TDMA_HW) ? tdma_next : tdma_now();
 	tdma_inflight = true;
+#if CONFIG_RADIO_TDMA_HW
+	int err = tdma_hw_start_tx_at(tdma_submitted);
+#else
 	int err = esb_start_tx();
+#endif
 	irq_unlock(key);
 	uint32_t late = (uint32_t)(tdma_submitted - tdma_next);
 	if (late > TDMA_START_WINDOW_US) tdma_late++;
@@ -897,7 +935,9 @@ static void tdma_service(void)
 	tdma_next = control.mode == RC_TDMA ? tdma_next_beacon(tdma_next, tdma_submitted) :
 		tdma_submitted + RC_LEGACY_BEACON_US;
 	if (err) {
-		tdma_errors++;
+		if (err == -ETIME) tdma_late++;
+		else tdma_errors++;
+		tdma_next = tdma_now() + TDMA_FRAME_US;
 		tdma_inflight = false;
 		tdma_mode(false);
 	}

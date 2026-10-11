@@ -90,4 +90,12 @@ config RADIO_TDMA
         this first prototype; USB/MCUboot recovery and confirmation remain.
         Keeps the tracker radio listening and HFXO on: higher battery use.
 
+config RADIO_TDMA_HW
+    bool "Hardware-timed TDMA start and radio timestamps"
+    depends on RADIO_TDMA
+    default y
+    help
+        Reserve TIMER1 and allocated PPI channels for precise beacon starts.
+        Normal ESB ACK handling and OTA remain in the SDK state machine.
+
 source "Kconfig.zephyr"
