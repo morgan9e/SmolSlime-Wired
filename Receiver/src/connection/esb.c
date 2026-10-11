@@ -788,12 +788,13 @@ static void tdma_service(void)
 	if (!tdma_running || !esb_paired) return;
 	int64_t now = tdma_now();
 	if (ota_sending()) {
-		ota_radio_paused = true;
 		tdma_epoch_valid = false;
-		/* Requests arrive in PRX. Preserve its queued OTA chunk; no disable/init. */
-		if (tdma_tx_mode || !esb_initialized) {
+		/* esb_flush_tx refuses an active PRX radio. Reset once in the worker
+		 * to retire the offer occupying the single ACK slot. The target retries
+		 * its request; thereafter preserve all queued chunks until completion. */
+		if (!ota_radio_paused || tdma_tx_mode || !esb_initialized) {
 			tdma_inflight = false;
-			tdma_mode(false);
+			if (!tdma_mode(false)) ota_radio_paused = true;
 		}
 		return;
 	}
