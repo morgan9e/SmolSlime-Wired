@@ -62,6 +62,10 @@ int esb_write_ota(const uint8_t *data, uint8_t len); // a firmware update messag
 #endif
 
 bool esb_ready(void);
+/* Temporary radio mute; pairing is retained, reboot restores RF. */
+bool esb_rf_enabled(void);
+bool esb_rf_stopped(void);
+int esb_rf_set_enabled(bool enabled);
 void esb_tdma_status(void);
 
 #endif

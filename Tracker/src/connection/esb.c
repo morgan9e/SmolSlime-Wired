@@ -56,6 +56,51 @@ static uint8_t paired_addr[8] = {0};
 
 static bool esb_initialized = false;
 static bool esb_paired = false;
+static atomic_t rf_muted;
+static atomic_t rf_stopped;
+/* Drain application/OTA writers before the radio worker acknowledges RF off. */
+K_MUTEX_DEFINE(rf_write_mutex);
+
+bool esb_rf_enabled(void)
+{
+	return !atomic_get(&rf_muted);
+}
+
+bool esb_rf_stopped(void)
+{
+	return atomic_get(&rf_stopped);
+}
+
+int esb_rf_set_enabled(bool enabled)
+{
+	if (enabled) {
+		/* An earlier off may have timed out while the worker was pairing. */
+		int64_t deadline = k_uptime_get() + 3000;
+		while (!esb_rf_enabled() && !esb_rf_stopped()) {
+			if (k_uptime_get() >= deadline) return -ETIMEDOUT;
+			k_msleep(10);
+		}
+		atomic_clear(&rf_stopped);
+		atomic_clear(&rf_muted);
+		return 0;
+	}
+	/* Offers arrive in the radio IRQ. Close that path atomically with this check. */
+	unsigned key = irq_lock();
+	if (ota_active()) {
+		irq_unlock(key);
+		return -EBUSY;
+	}
+	if (!atomic_get(&rf_muted)) atomic_clear(&rf_stopped);
+	atomic_set(&rf_muted, 1);
+	irq_unlock(key);
+	/* Pairing may be asleep for one second; never report off before disabling ESB. */
+	int64_t deadline = k_uptime_get() + 3000;
+	while (!esb_rf_stopped()) {
+		if (k_uptime_get() >= deadline) return -ETIMEDOUT;
+		k_msleep(10);
+	}
+	return 0;
+}
 
 #if CONFIG_RADIO_TDMA
 #include "radio_tdma.h"
@@ -126,6 +171,7 @@ uint64_t pairing_packets = 0;
 
 void event_handler(struct esb_evt const *event)
 {
+	if (!esb_rf_enabled()) return;
 	switch (event->evt_id)
 	{
 	case ESB_EVENT_TX_SUCCESS:
@@ -238,6 +284,7 @@ SYS_INIT(clocks_init, APPLICATION, CONFIG_APPLICATION_INIT_PRIORITY);
 
 int clocks_start(void)
 {
+	if (!esb_rf_enabled()) return -EACCES;
 	if (clock_status)
 		return 0;
 	int err;
@@ -345,6 +392,7 @@ static uint8_t base_addr_0[4], base_addr_1[4], addr_prefix[8] = {0};
 
 int esb_initialize(bool tx)
 {
+	if (!esb_rf_enabled()) return -EACCES;
 	int err;
 
 	struct esb_config config = ESB_DEFAULT_CONFIG;
@@ -481,6 +529,7 @@ void esb_set_pair(uint64_t addr)
 
 void esb_pair(void)
 {
+	if (!esb_rf_enabled()) return;
 	if (get_status(SYS_STATUS_CONNECTION_ERROR))
 		set_status(SYS_STATUS_CONNECTION_ERROR, false);
 	tx_errors = 0;
@@ -503,6 +552,10 @@ void esb_pair(void)
 		set_led(SYS_LED_PATTERN_SHORT, SYS_LED_PRIORITY_PAIR);
 		while (paired_addr[0] != checksum)
 		{
+			if (!esb_rf_enabled()) {
+				set_led(SYS_LED_PATTERN_OFF, SYS_LED_PRIORITY_PAIR);
+				return;
+			}
 			int64_t time_begin = k_uptime_get();
 
 			if (!esb_initialized)
@@ -592,8 +645,11 @@ int esb_write_ota(const uint8_t *data, uint8_t len)
 {
 	if (IS_ENABLED(CONFIG_RADIO_TDMA)) return -ENOTSUP;
 	static struct esb_payload ota_payload = ESB_CREATE_PAYLOAD(OTA_PIPE, 0);
-	if (!esb_initialized || !esb_paired)
+	k_mutex_lock(&rf_write_mutex, K_FOREVER);
+	if (!esb_rf_enabled() || !esb_initialized || !esb_paired) {
+		k_mutex_unlock(&rf_write_mutex);
 		return -ENOTCONN;
+	}
 	if (!clock_status)
 		clocks_start();
 	ota_payload.pipe = OTA_PIPE;
@@ -601,7 +657,9 @@ int esb_write_ota(const uint8_t *data, uint8_t len)
 	ota_payload.length = MIN(len, sizeof(ota_payload.data));
 	memcpy(ota_payload.data, data, ota_payload.length);
 	esb_flush_tx();
-	return esb_write_payload(&ota_payload);
+	int err = esb_write_payload(&ota_payload);
+	k_mutex_unlock(&rf_write_mutex);
+	return err;
 }
 #endif
 
@@ -716,9 +774,9 @@ static void tdma_start(void)
 }
 #endif
 
-void esb_write(uint8_t *data)
+static void esb_write_locked(uint8_t *data)
 {
-	if (!esb_initialized || !esb_paired)
+	if (!esb_rf_enabled() || !esb_initialized || !esb_paired)
 		return;
 #if CONFIG_RADIO_TDMA
 	k_spinlock_key_t key = k_spin_lock(&tdma_lock);
@@ -748,7 +806,38 @@ void esb_write(uint8_t *data)
 
 bool esb_ready(void)
 {
-	return esb_initialized && esb_paired;
+	return esb_rf_enabled() && esb_initialized && esb_paired;
+}
+
+void esb_write(uint8_t *data)
+{
+	k_mutex_lock(&rf_write_mutex, K_FOREVER);
+	esb_write_locked(data);
+	k_mutex_unlock(&rf_write_mutex);
+}
+
+/* Runs in the radio worker, so neither pairing nor TDMA can restart the radio
+ * after this acknowledgement. The mutex drains an already-started writer. */
+static void rf_stop(void)
+{
+	k_mutex_lock(&rf_write_mutex, K_FOREVER);
+	esb_deinitialize();
+	clocks_stop();
+	esb_paired = false; /* reinitialize from the retained address on rf on */
+	send_data = false;
+	esb_state = false;
+	timer_state = false;
+	tx_errors = 0;
+	last_tx_success = 0;
+	last_tx_fail = 0;
+#if CONFIG_RADIO_TDMA
+	tdma_pending = false;
+	tdma_inflight = false;
+	tdma_sync.valid = false;
+#endif
+	set_status(SYS_STATUS_CONNECTION_ERROR, false);
+	atomic_set(&rf_stopped, 1);
+	k_mutex_unlock(&rf_write_mutex);
 }
 
 static void esb_thread(void)
@@ -762,9 +851,15 @@ static void esb_thread(void)
 
 	while (1)
 	{
+		if (!esb_rf_enabled()) {
+			if (!esb_rf_stopped()) rf_stop();
+			k_msleep(20);
+			continue; /* intentional silence must not trigger connection-timeout shutdown */
+		}
 		if (!esb_paired && (!use_hid || paired_addr[0] || (!get_status(SYS_STATUS_USB_CONNECTED) && k_uptime_get() - 750 > start_time))) // only automatically enter pairing while not potentially communicating by usb, however allow esb if already paired
 		{
 			esb_pair();
+			if (!esb_rf_enabled()) continue;
 #if CONFIG_RADIO_TDMA
 			tdma_start();
 #else

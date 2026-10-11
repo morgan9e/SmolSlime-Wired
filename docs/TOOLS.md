@@ -81,6 +81,19 @@ python tools/serial_monitor.py
 Select the device by identity, then open its console at 115200 baud with DTR enabled.
 Useful receiver commands: `list`, `diag on`, `diag off`, `ota status`.
 Use `info` on a tracker to inspect firmware, board target and MCUboot state.
+Tracker builds with RF control also accept `rf off`, `rf on`, and `rf status`
+(or just `rf`). `rf off` waits for the radio worker to disable ESB, including
+retries and pairing traffic; a successful reply is `RF: off`. USB remains
+available. `RF: stopping` is not confirmation of silence. An active radio firmware
+update refuses the command. `rf on` permits normal radio operation again; it does
+not claim a receiver is connected. Reboot also restores RF. Pairing and calibration
+are preserved; no settings are written. Missing-receiver shutdown is suspended
+while muted, but ordinary power/battery management remains active.
+
+For a background RSSI scan, send `rf off` to **every** tracker and verify each
+reply, then clear the RSSI viewer's maxima and scan with the dongle unmoved.
+Send `rf on` afterward. The command requires updated tracker firmware; the receiver
+does not need this change. This works with both legacy ESB and experimental TDMA.
 The GUI stores preferences in ignored `tools/serial_monitor_settings.json`.
 
 Close the relevant serial connection before OTA or USB flashing. A read error

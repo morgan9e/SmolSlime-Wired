@@ -144,6 +144,7 @@ test-tdma:
 	"$(BUILD)/tests/test_radio_tdma"
 
 test: test-tdma
+	python3 "$(ROOT)/tests/test_rf_control.py"
 	cd "$(ROOT)/tools" && python3 -m unittest test_slime_link
 
 clean:
