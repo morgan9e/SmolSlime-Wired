@@ -28,9 +28,10 @@ cleanup. The complete original memory is preserved in the
 `https://github.com/morgan9e/SmolSlime-mod`. The old `SlimeVR-Hub` path and
 `SmolSlime-Wired` remote in archived notes are historical.
 
-The last recorded installations were 0.0.15 on IDs 0–4 and 6, 0.0.16 on test tracker
-5, and OTA protocol 1 on the dongle. These are observations, not a live inventory.
-Verify by device address using [hardware identification](HARDWARE.md).
+The latest recorded installations are six ProMicros on radio-only 0.0.27 and
+receiver 0.0.26; 91 remains last-known normal 0.0.25 and E4 last-known 0.0.19.
+See the current experiment below and [hardware identification](HARDWARE.md).
+These are observations, not a live inventory; verify by device address.
 
 Radio updates, MCUboot swap/rollback, and several refusal/abort cases were tested.
 All-six-moving tracking on 0.0.3 or later, battery-powered OTA sleep behavior, and
@@ -94,6 +95,38 @@ establish improved reception or range. User identifies ID 7 as the left foot.
   gaps over 250 ms during that check; this is not a range test or a fix for late
   TDMA slots. Raw per-second data: `dist/0.0.25/bench-radio.csv`. Bench mode is
   currently on; `bench off` or reboot restores normal idle suppression.
+
+## Current radio-only experiment, 2026-10-11
+
+- Six ProMicros **7A, 59, C8, 20, 8A, 78** now run diagnostic **0.0.27**,
+  installed entirely by OTA and verified through confirmed radio telemetry.
+  **Leave radio-only firmware installed**, per user request. It emits no pose
+  data. Restore normal tracking only when requested, using OTA (normal 0.0.25).
+- Receiver is **0.0.26**. 91 was absent during rollout and remains last-known
+  normal 0.0.25; E4 was excluded and remains last-known 0.0.19. Both appeared as
+  unmodified background transmitters during portions of the experiment.
+- Tracker USB is authorized for **diagnostics only** in this work. On 8A, the
+  initial 0.0.26 OTA attempt returned to confirmed 0.0.25; the original failure
+  log was not captured. Moving sensor shutdown to the larger sensor-worker stack
+  produced 0.0.27, which booted/confirmed. An actual OTA return to 0.0.25 also
+  booted/confirmed before redeploying 0.0.27. No tracker was USB-flashed here.
+- Completed 30 s TDMA / 30 s legacy / 30 s TDMA with 100 Hz synthetic generation,
+  IMU/fusion off, and start/end beeps. All captured test telemetry was confirmed,
+  workload off, target 100 Hz; generator-skip and API-error counters did not grow.
+- The TDMA delivery ceiling repeated after switching back: e.g. 78 received
+  43.6–50.6, 89.6–98.0, then 45.2–49.6 packets per diagnostic second in successive
+  five-second windows. It recorded roughly 44–51 late slots/s in TDMA. This
+  identifies a scheduler limitation independent of IMU work, not an unavoidable
+  radio-loss baseline. 59 also had 882/507/332 ms receive gaps in the first stage;
+  its separate delivery failures remain unexplained.
+- Raw capture, counters, five-second windows and plot:
+  `dist/diagnostics/synthetic-20261011-173604-KST/`. See [radio test](RADIO_TEST.md)
+  for findings and confounds. Positions/power were not controlled; 8A had USB
+  attached for diagnostics. E4 and briefly 91 changed background traffic.
+- Recommended next software investigation: instrument actual beacon/TX times
+  and missed send windows, then improve TDMA scheduling. This is a proposal,
+  not permission to silently flash a new scheduler. A pure radio comparison
+  requires a fixed transmitter set and unchanged placement/power.
 
 ## Next work
 

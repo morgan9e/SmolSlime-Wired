@@ -1,6 +1,6 @@
 # Hardware and identification
 
-[Documentation index](README.md) · Hardware observations: 2026-10-10 (KST).
+[Documentation index](README.md) · Hardware observations updated: 2026-10-11 (KST).
 
 ## Identify before flashing
 
@@ -14,18 +14,25 @@ the current ID-to-address mapping, and `info` on a tracker to check its address,
 
 | Recorded ID | Role | Board | Device address | USB serial | Last firmware |
 | --- | --- | --- | --- | --- | --- |
-| 0 | Chest | ProMicro stacked SPI | D235DBBB9B7A | 2D2949174DDE772E | 0.0.15, MCUboot |
-| 1 | Left thigh | ProMicro stacked SPI | 847BEBC50791 | A4C462FDB5E01827 | 0.0.15, MCUboot |
-| 2 | Right thigh | ProMicro stacked SPI | DEE876FA4759 | 823B25D6352D1CF7 | 0.0.15, MCUboot |
-| 3 | Waist/hip | ProMicro stacked SPI | 6DF7EC0CB8C8 | 94530FD952246331 | 0.0.15, MCUboot |
-| 4 | Left ankle | ProMicro stacked SPI | D81D4F94B220 | 0D60E9D03DC04A2C | 0.0.15, MCUboot |
-| 5 | Right ankle; first test target | ProMicro stacked SPI | 628DCFC6318A | 629BE058486D6B6E | 0.0.16, MCUboot |
-| 6 | Spare, not worn | XIAO nRF52840 Sense | 157A3123FAE4 | E6A1176A6A36031A | 0.0.15, MCUboot |
-| — | Receiver | Nordic nRF52840 Dongle | BCF6929F4E52 | F9F258A5111356F3 | Repository receiver, OTA protocol 1 |
+| 0 | Chest | ProMicro stacked SPI | D235DBBB9B7A | 2D2949174DDE772E | 0.0.27 radio-only, confirmed |
+| 1 | Left thigh | ProMicro stacked SPI | 847BEBC50791 | A4C462FDB5E01827 | 0.0.25 normal, last confirmed; absent during test rollout |
+| 2 | Right thigh | ProMicro stacked SPI | DEE876FA4759 | 823B25D6352D1CF7 | 0.0.27 radio-only, confirmed |
+| 3 | Waist/hip | ProMicro stacked SPI | 6DF7EC0CB8C8 | 94530FD952246331 | 0.0.27 radio-only, confirmed |
+| 4 | Left ankle | ProMicro stacked SPI | D81D4F94B220 | 0D60E9D03DC04A2C | 0.0.27 radio-only, confirmed |
+| 5 | Right ankle; first test target | ProMicro stacked SPI | 628DCFC6318A | 629BE058486D6B6E | 0.0.27 radio-only, confirmed |
+| 6 | Spare, not worn | XIAO nRF52840 Sense | 157A3123FAE4 | E6A1176A6A36031A | Last known 0.0.19; excluded |
+| 7 | Left foot | ProMicro stacked SPI | 04A6D591E478 | DC3C3581CBDDDAB2 | 0.0.27 radio-only, confirmed |
+| — | Receiver | Nordic nRF52840 Dongle | BCF6929F4E52 | F9F258A5111356F3 | 0.0.26, synthetic diagnostics + normal tracking |
+
+Use address suffixes (7A, 91, 59, C8, 20, 8A, E4, 78) in user-facing reports.
+Body roles above are historical assignments; boards have been swapped in tests.
+All trackers retain MCUboot. The six radio-only images remain installed by user
+request and emit no pose data; see [the comparison](RADIO_TEST.md). Tracker USB
+was used only to diagnose 8A during this rollout; all six updates used OTA.
 
 The dongle's bootloader serial is `FCF6929F4E52`, different from its application
-USB serial. The old ProMicro receiver is address `04A6D591E478`, serial
-`DC3C3581CBDDDAB2`; its wired/hub roles are historical.
+USB serial. Tracker 78 previously served as a ProMicro receiver;
+its wired/hub roles are historical.
 
 ## Board targets and sensors
 

@@ -38,8 +38,10 @@ There is no recorded all-six-moving test on 0.0.3 or later. See the
 [dated measurements](docs/archive/MEASUREMENTS.md); these are not current performance claims.
 
 An opt-in [TDMA prototype](docs/TDMA.md) adds receiver beacons and eight fixed
-transmit slots. It is awaiting hardware validation; ordinary builds still use
-legacy ESB. Build it separately with `make tdma`.
+transmit slots. Hardware checks support OTA and wireless mode switching, but the
+[synthetic radio comparison](docs/RADIO_TEST.md) found frequent missed TDMA send
+windows even with sensor processing off. It remains experimental; ordinary
+builds still use legacy ESB. Build it separately with `make tdma`.
 
 ## Build and update
 

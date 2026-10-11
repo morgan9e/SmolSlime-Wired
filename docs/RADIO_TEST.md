@@ -57,3 +57,65 @@ chunks, per-interval receive diagnostics and transmitter counter snapshots. It
 verifies the currently active devices before starting. If an unmodified tracker
 cannot be turned off, `--background E4` explicitly permits and records that
 background traffic; such a run is not an isolated all-synthetic radio test.
+
+## Hardware comparison, 2026-10-11 17:36 KST
+
+Six ProMicros (7A, 59, C8, 20, 8A, 78) received 0.0.27 by OTA and confirmed.
+91 was absent at its rollout turn, so no image was offered. Receiver 0.0.26
+captured 30 seconds each of TDMA, legacy, then TDMA. Start/end beeps played.
+The receiver was left in TDMA, diagnostics off. **Radio-only firmware remains
+installed at the user's request**; these six trackers intentionally do not
+produce normal body-tracking data.
+
+Local evidence: `dist/diagnostics/synthetic-20261011-173604-KST/`, containing
+`raw.jsonl`, `intervals.csv`, `counters.csv`, `setup.json`,
+`five-second-windows.csv`, and `comparison.png`. Deployment receipts are in
+`dist/0.0.27/`. All 540 captured test-counter snapshots reported confirmed,
+IMU workload off, 100 Hz target. No generator deadline skips or ESB API errors
+were counted during any stage.
+
+The following are **ranges across six consecutive five-second windows**, not
+whole-run averages. Rates are received packets per approximately one-second
+receiver diagnostic interval; see the CSV and graph for their order.
+
+| Tracker | TDMA first | Legacy | TDMA repeat |
+| --- | ---: | ---: | ---: |
+| 7A | 53.8–63.4 | 84.0–95.6 | 56.8–58.4 |
+| 59 | 24.2–52.6 | 77.6–90.2 | 40.8–53.0 |
+| C8 | 71.8–76.0 | 95.6–97.0 | 70.4–74.4 |
+| 20 | 69.0–75.0 | 91.2–93.8 | 69.0–73.8 |
+| 8A | 45.8–67.2 | 81.8–89.0 | 41.0–50.2 |
+| 78 | 43.6–50.6 | 89.6–98.0 | 45.2–49.6 |
+
+78 repeatedly counted roughly 44–51 late TDMA slots/s while submitting only
+44–54 packets/s. C8 counted roughly 19–25 late slots/s while submitting around
+71–79 packets/s. Legacy submissions were near the 100 Hz target across all
+six. Thus a substantial TDMA deficit happens **before submission to ESB** and
+survives removal of the sensor/fusion workload. Current code polls from a worker
+with `k_usleep(100)` and accepts transmission starts within a 150 us window;
+actual wakeup, reconfiguration and interrupt latency need measurement. Hardware
+timer scheduling and beacon/TX timestamps are the next candidates to investigate.
+This comparison does not establish which individual latency source dominates.
+
+There are additional delivery failures. During the first TDMA stage 59 dropped
+from five-second receive windows of 52.6 to 46.2, 33.0, 24.2, then recovered to
+40.6 and 46.8. Its longest receive gaps were 882 ms around capture second 10.7,
+507 ms around 19.8, and 332 ms around 23.8. Legacy's largest observed gap for 59
+was 91 ms; the repeated TDMA stage reached 131 ms. This is directly relevant to
+visible freezes/catch-up of the affected body segment, but this radio-only test
+does not measure rendered pose jitter or end-to-end latency.
+
+Limits: 8A was USB-connected for diagnostics, and physical placement/power were
+not controlled. Its RSSI changed markedly during the first stage. Although the
+preflight active mask was `bd` and background mask was zero, normal 91 appeared
+briefly around seconds 6.7–11.7 of TDMA first, and E4 appeared around second 24.9
+and stayed active throughout legacy and TDMA repeat. Both remain unmodified.
+`setup.json` is only an initial snapshot; raw/interval records establish these
+later participants. This is not a fixed-fleet interference or range test.
+
+Counter-rate estimates use host receipt times and rotating telemetry snapshots;
+individual counter kinds can be older than the newest received packet. Packet
+loss can distort short counter-delta windows (notably 59), so these estimates are
+not precise hardware TX timing. ACK failures are not identical to receiver loss:
+the receiver can receive a packet whose ACK does not reach the sender. Legacy
+also uses its existing retry policy, whereas TDMA uses no tracking retries.
