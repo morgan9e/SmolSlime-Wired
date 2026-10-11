@@ -64,7 +64,7 @@ Do not bump a firmware version for documentation-only changes.
 Install host dependencies in Windows:
 
 ```powershell
-python -m pip install pyserial hidapi
+python -m pip install pyserial hidapi PySide6
 ```
 
 For an already paired MCUboot tracker, update the test tracker first. Confirm its

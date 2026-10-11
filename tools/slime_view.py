@@ -6,23 +6,29 @@ the ESP32 hub over Wi-Fi (the hub finds this program on UDP 6969 and relays ever
 It checks every 2 s and switches when a receiver is plugged in or unplugged. Over Wi-Fi, quit
 SlimeVR Server first so it does not compete for tracker data. Shows per tracker: 3D orientation, last
 real data, status, battery, signal, temperature and packet rates.
-For a simple skeleton, select a body part on each of six tracker cards (chest, hips,
-thighs and lower legs). Click Calibrate, then stand upright with straight legs during
-the three-second countdown. Then use Ski-pose mounting: keep feet parallel and flat,
-bend knees, push hips back and lean the torso forward without turning. Hold during
-the five-second countdown. Repeat both steps after remounting or tracker restarts.
-Assignments, standing references and ski-pose corrections are saved automatically to
+For a simple skeleton, select a body part on each tracker card: chest, hips, thighs and
+ankles, optionally feet, upper arms and lower arms. Unassigned parts move with their parent.
+The resets follow SlimeVR Server:
+  Full reset   stand upright, legs straight, arms at your sides (3 s).
+  Mount reset  ski pose: feet parallel and flat, knees bent, hips back, torso forward
+               without turning; upper arms back, forearms forward (5 s).
+  Feet reset   on tiptoes, both feet pointing forward (3 s); the ski pose keeps feet flat.
+Repeat them after remounting or tracker restarts.
+Assignments, standing references and mounting corrections are saved automatically to
 slime_view_config.json beside this script (override with --config PATH).
+Body parts are also taken from SlimeVR Server's own assignments (vrconfig.yml or the
+settings profile in its config folder) while "Follow SlimeVR" is ticked;
+picking a part by hand unticks it. Use --slimevr-config PATH or --no-slimevr to change this.
 Calibration accepts the last valid rotation from inactive trackers; those samples
 must still represent the requested pose. The status reports when older data is used.
-The preview uses fixed proportions and a stationary hip position; arms and head
-follow the chest, and feet follow the lower legs.
+The preview uses fixed proportions and a stationary hip position; the head follows
+the chest.
 
     python slime_view.py              USB if a receiver is plugged in, else Wi-Fi
     python slime_view.py --usb        USB receivers only
     python slime_view.py --wifi [--port 6969]   Wi-Fi only
 
-Wi-Fi needs only the standard library. USB needs: python -m pip install hidapi
+Needs PySide6: python -m pip install PySide6. USB also needs: python -m pip install hidapi
 Plug the nRF receiver into the PC for USB; no Wi-Fi or ESP32 hub is needed.
 On Windows, allow Python through the firewall for private networks when asked.
 """
@@ -36,8 +42,16 @@ import struct
 import threading
 import tempfile
 import time
-import tkinter as tk
-from tkinter import ttk
+import sys
+
+try:
+    from PySide6.QtCore import QPointF, Qt, QTimer
+    from PySide6.QtGui import QColor, QPainter, QPalette, QPen, QPolygonF
+    from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QFrame, QGridLayout, QGroupBox,
+                                   QHBoxLayout, QLabel, QMainWindow, QPushButton, QScrollArea, QStyle,
+                                   QVBoxLayout, QWidget)
+except ImportError as e:
+    raise SystemExit('Slime View needs PySide6. Run: python -m pip install PySide6') from e
 
 HANDSHAKE_REPLY = b"\x03Hey OVR =D 5"
 PORT_BASE = 6980  # the hub's local port for tracker id 0 (CONFIG_HUB_LOCAL_PORT_BASE)
@@ -73,7 +87,7 @@ class Server:
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.bind(("0.0.0.0", port))
         self.sock.settimeout(0.2)
-        self.description = f"Wi-Fi / UDP {self.sock.getsockname()[1]}"
+        self.description = f"Wi-Fi, UDP {self.sock.getsockname()[1]}"
         self.stop = threading.Event()
         self.lock = threading.Lock()
         self.trackers = {}
@@ -233,7 +247,7 @@ class USBServer:
         self.lock = threading.Lock()
         self.trackers = {}
         self.error = None
-        self.description = 'USB-HID: waiting for an nRF receiver'
+        self.description = 'USB, no receiver'
         self.stop = threading.Event()
         self.thread = threading.Thread(target=self.run, daemon=True)
         self.thread.start()
@@ -302,8 +316,8 @@ class USBServer:
                     except (OSError, ValueError) as e:
                         self.error = str(e)
                         devices.pop(path).close()
-                self.description = (f'USB-HID: {len(devices)} receiver(s) connected'
-                                    if devices else 'USB-HID: waiting for an nRF receiver')
+                self.description = (f'USB, {len(devices)} receiver' + ('s' if len(devices) > 1 else '')
+                                    if devices else 'USB, no receiver')
                 if now >= next_tick:
                     next_tick = now + 1
                     with self.lock:
@@ -366,7 +380,7 @@ class AutoServer:
     @property
     def description(self):
         a = self.active
-        return f'auto: {a.description}' + (f' | {self.note}' if self.note else '')
+        return a.description + (f'   ·   {self.note}' if self.note else '')
 
     @property
     def error(self):
@@ -426,29 +440,18 @@ def to_screen(v, cx, cy, s):
     return cx + x * s, cy - z * s, y  # depth: larger y is further away
 
 
-def draw_tracker(c, q, size, dim):
-    c.delete("all")
-    cx = cy = size / 2
-    s = size * 0.28
-    if q is None:
-        c.create_text(cx, cy, text="no rotation", fill="#888")
-        return
-    hx, hy, hz = BOX
-    verts = [q_rotate(q, (sx * hx, sy * hy, sz * hz))
-             for sx in (-1, 1) for sy in (-1, 1) for sz in (-1, 1)]
-    pts = [to_screen(v, cx, cy, s) for v in verts]
-    faces = sorted(FACES, key=lambda f: -sum(pts[i][2] for i in f[0]))
-    for idx, col in faces:
-        c.create_polygon([coord for i in idx for coord in pts[i][:2]],
-                         fill="#555" if dim else col, outline="#111")
-    for axis, col in (((1.6, 0, 0), "#ff5555"), ((0, 1.3, 0), "#55dd55"), ((0, 0, 1.0), "#5599ff")):
-        x, y, _ = to_screen(q_rotate(q, axis), cx, cy, s)
-        c.create_line(cx, cy, x, y, fill="#888" if dim else col, width=2, arrow=tk.LAST)
-
-
 # ---------------------------------------------------------------- window
 
-BODY_PARTS = ('Chest', 'Hips', 'Left thigh', 'Right thigh', 'Left lower leg', 'Right lower leg')
+BODY_PARTS = ('Chest', 'Hips', 'Left thigh', 'Right thigh', 'Left ankle', 'Right ankle',
+              'Left foot', 'Right foot', 'Left upper arm', 'Right upper arm', 'Left lower arm', 'Right lower arm')
+FEET = ('Left foot', 'Right foot')
+# An unassigned part moves with its parent; the hips are the root.
+PARENT = {'Chest': 'Hips'}
+for _side in ('Left', 'Right'):
+    PARENT.update({f'{_side} thigh': 'Hips', f'{_side} ankle': f'{_side} thigh',
+                   f'{_side} foot': f'{_side} ankle', f'{_side} upper arm': 'Chest',
+                   f'{_side} lower arm': f'{_side} upper arm'})
+LEGACY_PARTS = {'Left lower leg': 'Left ankle', 'Right lower leg': 'Right ankle'}  # config versions 1-3
 IDENTITY = (1, 0, 0, 0)
 CONFIG_PATH = Path(__file__).resolve().with_name('slime_view_config.json')
 
@@ -487,8 +490,155 @@ def tracker_key(tracker):
     return ('mac', mac) if mac else tracker['addr']
 
 
+# ---------------------------------------------------------------- SlimeVR Server assignments
+#
+# SlimeVR Server keeps its tracker assignments in its config directory
+# (Windows %APPDATA%, macOS ~/Library/Application Support, Linux $XDG_CONFIG_HOME or ~/.config,
+# each + /dev.slimevr.SlimeVR; or vrconfig.yml beside the server if it has a config/ folder):
+#   vrconfig.yml (server main branch), YAML "trackers:" map, one entry per tracker name:
+#     udp://AA:BB:CC:DD:EE:FF/0  -> designation: "body:chest"   (Wi-Fi, sensor 0)
+#     AABBCCDDEEFF/0             -> designation: "body:chest"   (nRF receiver over HID)
+#   settings/<profile>.json (server-rewrite; profile from global.json selectedSettingsProfile):
+#     "trackers": {"AA:BB:CC:DD:EE:FF:0": {"bodyPart": "CHEST"}, "AABBCCDDEEFF": {...}}
+# One MAC can have a Wi-Fi and a HID entry with different parts; the entry for the transport the
+# tracker currently uses wins. Between the two files, the more recently written one wins.
+
+SLIMEVR_ID = 'dev.slimevr.SlimeVR'
+# SlimeVR body part -> (our part, preference when several trackers map to the same part)
+SLIMEVR_PARTS = {
+    'CHEST': ('Chest', 0), 'UPPER_CHEST': ('Chest', 1),
+    'HIP': ('Hips', 0), 'WAIST': ('Hips', 1),
+    'LEFT_UPPER_LEG': ('Left thigh', 0), 'RIGHT_UPPER_LEG': ('Right thigh', 0),
+    'LEFT_LOWER_LEG': ('Left ankle', 0), 'RIGHT_LOWER_LEG': ('Right ankle', 0),
+    'LEFT_FOOT': ('Left foot', 0), 'RIGHT_FOOT': ('Right foot', 0),
+    'LEFT_UPPER_ARM': ('Left upper arm', 0), 'RIGHT_UPPER_ARM': ('Right upper arm', 0),
+    'LEFT_LOWER_ARM': ('Left lower arm', 0), 'RIGHT_LOWER_ARM': ('Right lower arm', 0),
+}
+
+
+def slimevr_config_dir():
+    if os.name == 'nt':
+        base = os.environ.get('APPDATA')
+        return Path(base, SLIMEVR_ID) if base else None
+    if os.uname().sysname == 'Darwin':
+        return Path.home() / 'Library' / 'Application Support' / SLIMEVR_ID
+    return Path(os.environ.get('XDG_CONFIG_HOME') or Path.home() / '.config', SLIMEVR_ID)
+
+
+def slimevr_files(path):
+    """The vrconfig.yml and settings profile to read for a directory or a single file."""
+    if path is None:
+        return []
+    path = Path(path)
+    if path.is_file() or path.suffix in ('.yml', '.yaml', '.json'):
+        return [path]
+    profile = 'default'
+    try:
+        profile = json.loads((path / 'global.json').read_text(encoding='utf-8')).get(
+            'selectedSettingsProfile') or profile
+    except (OSError, ValueError, AttributeError):
+        pass
+    return [path / 'vrconfig.yml', path / 'settings' / f'{profile}.json']
+
+
+def parse_slimevr_tracker_name(name):
+    """('usb' | 'wifi', MAC) for sensor 0 of a SlimeVR tracker name, else None."""
+    if not isinstance(name, str):
+        return None
+    transport = 'usb'
+    if name.startswith('udp://'):  # legacy Wi-Fi: udp://AA:BB:CC:DD:EE:FF/0
+        transport, name = 'wifi', name[6:]
+    base, sep, sensor = name.rpartition('/')
+    if not sep:  # rewrite: AA:BB:CC:DD:EE:FF:0 (Wi-Fi) or AABBCCDDEEFF (HID)
+        base, sensor = name, '0'
+        if name.count(':') == 6:
+            base, _, sensor = name.rpartition(':')
+            transport = 'wifi'
+    if sensor != '0':
+        return None  # extension sensors share the MAC; this viewer shows one tracker per MAC
+    mac = normalized_mac(base)
+    return (transport, mac) if mac else None
+
+
+def yaml_scalar(text):
+    text = text.strip()
+    if text.startswith('"'):
+        return json.loads(text)  # Jackson writes JSON-compatible double-quoted strings
+    if text.startswith("'"):
+        return text[1:-1].replace("''", "'")
+    return None if text in ('null', '~', '') else text
+
+
+def read_vrconfig_designations(text):
+    """{tracker name: designation} from vrconfig.yml without needing a YAML library."""
+    result, name, in_trackers = {}, None, False
+    for line in text.splitlines():
+        if not line.strip() or line.lstrip().startswith('#'):
+            continue
+        indent = len(line) - len(line.lstrip(' '))
+        if indent == 0:
+            in_trackers = line.rstrip() == 'trackers:'
+            name = None
+        elif in_trackers and indent == 2 and line.rstrip().endswith(':'):
+            name = yaml_scalar(line.strip()[:-1])
+        elif in_trackers and indent == 4 and name is not None and line.strip().startswith('designation:'):
+            result[name] = yaml_scalar(line.strip()[len('designation:'):])
+    return result
+
+
+def read_slimevr_assignments(files):
+    """{(transport, MAC): SlimeVR body part or None}; newer files override older ones."""
+    entries = []
+    for f in files:
+        try:
+            mtime, text = f.stat().st_mtime, f.read_text(encoding='utf-8')
+            if f.suffix == '.json':
+                trackers = json.loads(text).get('trackers') or {}
+                parts = {n: c.get('bodyPart') for n, c in trackers.items() if isinstance(c, dict)}
+            else:
+                parts = read_vrconfig_designations(text)
+        except (OSError, ValueError, AttributeError):
+            continue
+        entries.append((mtime, parts))
+    result = {}
+    for _, parts in sorted(entries, key=lambda e: e[0]):
+        for name, part in parts.items():
+            key = parse_slimevr_tracker_name(name)
+            if key:
+                part = part.split(':', 1)[1] if isinstance(part, str) and part.startswith('body:') else part
+                result[key] = part.upper() if isinstance(part, str) else None
+    return result
+
+
+def resolve_slimevr_assignments(saved, snapshot):
+    """{our body part: ('mac', MAC)} for the trackers SlimeVR Server has assigned.
+
+    For each MAC, use the entry for the transport the tracker is on now (or this viewer's
+    current source when the tracker is not visible). Prefer visible trackers per body part."""
+    seen = {}
+    for t in snapshot:
+        mac = normalized_mac(t.get('mac'))
+        if mac:
+            seen[mac] = t['source']
+    sources = set(seen.values())
+    current = sources.pop() if len(sources) == 1 else None
+    by_mac = {}
+    for (transport, mac), part in saved.items():
+        by_mac.setdefault(mac, {})[transport] = part
+    candidates = {}
+    for mac, parts in by_mac.items():
+        transport = seen.get(mac, current)
+        # No entry for this transport: use the other one, unless the two entries disagree.
+        part = parts[transport] if transport in parts else (
+            next(iter(parts.values())) if len(set(parts.values())) == 1 else None)
+        if part in SLIMEVR_PARTS:
+            ours, preference = SLIMEVR_PARTS[part]
+            candidates.setdefault(ours, []).append((mac not in seen, preference, mac))
+    return {part: ('mac', min(options)[2]) for part, options in candidates.items()}
+
+
 class Skeleton:
-    """Six absolute segment rotations, with a fixed pelvis and Z-up geometry."""
+    """Absolute segment rotations for the assigned parts, with a fixed pelvis and Z-up geometry."""
     def __init__(self):
         self.assignments = {}  # body part -> ('mac', address), or legacy transport key
         self.reference = {}
@@ -497,7 +647,7 @@ class Skeleton:
 
     def save(self, path):
         path = Path(path)
-        data = {'version': 3, 'assignments': self.assignments,
+        data = {'version': 4, 'assignments': self.assignments,
                 'calibration': self.reference, 'mounting': self.mounting}
         # Replace only after a complete write, so a failed save preserves the old file.
         temporary = None
@@ -516,16 +666,19 @@ class Skeleton:
 
     def load(self, path):
         data = json.loads(Path(path).read_text(encoding='utf-8'))
-        if not isinstance(data, dict) or type(data.get('version')) is not int or data['version'] not in (1, 2, 3):
+        if not isinstance(data, dict) or type(data.get('version')) is not int or data['version'] not in (1, 2, 3, 4):
             raise ValueError('Unsupported config version')
         assignments, reference = data.get('assignments'), data.get('calibration')
         if not isinstance(assignments, dict) or not isinstance(reference, dict):
             raise ValueError('Assignments and calibration must be objects')
+        if data['version'] < 4:
+            assignments = {LEGACY_PARTS.get(p, p): k for p, k in assignments.items()}
+            reference = {LEGACY_PARTS.get(p, p): q for p, q in reference.items()}
         parsed_assignments = {}
         for part, key in assignments.items():
             if part not in BODY_PARTS or not isinstance(key, list) or len(key) != 2:
                 raise ValueError('Invalid tracker assignment')
-            if data['version'] == 3 and key[0] == 'mac':
+            if data['version'] >= 3 and key[0] == 'mac':
                 mac = normalized_mac(key[1])
                 if mac is None:
                     raise ValueError('Invalid tracker MAC')
@@ -536,8 +689,8 @@ class Skeleton:
             parsed_assignments[part] = tuple(key)
         if len(set(parsed_assignments.values())) != len(parsed_assignments):
             raise ValueError('A tracker cannot have multiple body parts')
-        if reference and (set(reference) != set(BODY_PARTS) or set(assignments) != set(BODY_PARTS)):
-            raise ValueError('Calibration requires all six assignments')
+        if not set(reference) <= set(parsed_assignments):
+            raise ValueError('Calibration for an unassigned body part')
         parsed_reference = {}
         for part, q in reference.items():
             if (not isinstance(q, list) or len(q) != 4
@@ -550,8 +703,10 @@ class Skeleton:
         mounting = data.get('mounting') if data['version'] >= 2 else {}
         if not isinstance(mounting, dict):
             raise ValueError('Mounting must be an object')
-        if mounting and (set(mounting) != set(BODY_PARTS) or not parsed_reference):
-            raise ValueError('Mounting requires six standing references and corrections')
+        if data['version'] < 4:
+            mounting = {LEGACY_PARTS.get(p, p): q for p, q in mounting.items()}
+        if not set(mounting) <= set(parsed_reference):
+            raise ValueError('Mounting correction without a standing reference')
         parsed_mounting = {}
         for part, q in mounting.items():
             if (not isinstance(q, list) or len(q) != 4
@@ -576,6 +731,19 @@ class Skeleton:
             self.reference.clear()
             self.mounting.clear()
             self.last_rotations.clear()
+
+    def apply_assignments(self, assigned):
+        """Take these body parts; keep others unless their tracker now has another part."""
+        updated = {p: k for p, k in self.assignments.items()
+                   if p not in assigned and k not in assigned.values()}
+        updated.update(assigned)
+        if updated == self.assignments:
+            return False
+        self.assignments = updated
+        self.reference.clear()
+        self.mounting.clear()
+        self.last_rotations.clear()
+        return True
 
     def migrate_assignments(self, snapshot):
         """Promote known transport keys when their MAC arrives, keeping calibration."""
@@ -614,40 +782,57 @@ class Skeleton:
 
     def calibrate(self, snapshot, now):
         samples = self.samples(snapshot, now, require_live=False)
-        missing = [p for p in BODY_PARTS if p not in samples]
+        if not self.assignments:
+            return 'Waiting for assignments.'
+        missing = [p for p in BODY_PARTS if p in self.assignments and p not in samples]
         if missing:
             return 'Waiting for assigned rotation data: ' + ', '.join(missing)
         self.reference = samples
         self.mounting.clear()
-        self.last_rotations = dict.fromkeys(BODY_PARTS, IDENTITY)
+        self.last_rotations = dict.fromkeys(samples, IDENTITY)
         return 'Full reset saved.' + self.calibration_notice(snapshot, now, samples)
 
-    def calibrate_mounting(self, snapshot, now):
-        if set(self.reference) != set(BODY_PARTS):
+    def calibrate_mounting(self, snapshot, now, feet=False):
+        """Ski pose (feet=False) or tiptoes (feet=True), as in SlimeVR Server.
+
+        Feet stay flat in the ski pose, so they get their own reset. Each part's upward axis
+        must tilt; its direction gives the tracker's heading on the body."""
+        if not self.reference:
             return 'Waiting for standing reset. Complete step 1 first.'
+        parts = [p for p in BODY_PARTS if p in self.assignments and (p in FEET) == feet]
+        if not parts:
+            return 'Waiting for assigned feet.' if feet else 'Waiting for assignments.'
+        unreset = [p for p in parts if p not in self.reference]
+        if unreset:
+            return 'Waiting for standing reset: ' + ', '.join(unreset)
         samples = self.samples(snapshot, now, require_live=False)
-        missing = [p for p in BODY_PARTS if p not in samples]
+        missing = [p for p in parts if p not in samples]
         if missing:
             return 'Waiting for assigned rotation data: ' + ', '.join(missing)
         corrections, weak = {}, []
-        for part in BODY_PARTS:
+        for part in parts:
             delta = q_multiply(samples[part], q_inverse(self.reference[part]))
             up = q_rotate(delta, (0, 0, 1))
             tilt = math.atan2(math.hypot(up[0], up[1]), up[2])
             if not math.radians(10) <= tilt <= math.radians(85):
                 weak.append(part)
                 continue
-            # Z-up, forward = -Y. In a squat, knee->hip points backward;
-            # ankle->knee and the torso's upward axes lean forward.
-            target = math.pi / 2 if part.endswith('thigh') else -math.pi / 2
+            # Z-up, forward = -Y. In a ski pose, knee->hip and hand->elbow point backward;
+            # the torso, ankles and upper arms (elbows back) lean forward. On tiptoes the
+            # feet's upward axes lean forward too.
+            backward = part.endswith(('thigh', 'lower arm'))
+            target = math.pi / 2 if backward else -math.pi / 2
             yaw = target - math.atan2(up[1], up[0])
             corrections[part] = (math.cos(yaw / 2), 0, 0, math.sin(yaw / 2))
         if weak:
-            return 'Waiting for a clear ski bend (10-85 degrees): ' + ', '.join(weak)
+            bend = 'tiptoe' if feet else 'ski bend'
+            return f'Waiting for a clear {bend} (10-85 degrees): ' + ', '.join(weak)
         # Replace as a group; a failed attempt leaves the previous calibration intact.
-        self.mounting = corrections
+        self.mounting = {p: q for p, q in self.mounting.items() if (p in FEET) != feet} | corrections
         self.last_rotations.clear()
-        return 'Mount reset saved.' + self.calibration_notice(snapshot, now, samples)
+        next_step = '' if feet or not any(p in self.assignments for p in FEET) else ' Now Feet reset.'
+        return ('Feet reset saved.' if feet else 'Mount reset saved.' + next_step) + self.calibration_notice(
+            snapshot, now, {p: samples[p] for p in parts})
 
     def pose(self, snapshot, now):
         samples = self.samples(snapshot, now)
@@ -664,10 +849,18 @@ class Skeleton:
 
 
 def skeleton_segments(rotations):
-    """Return (start, end, controlling part); dimensions are approximate metres."""
+    """Return (start, end, controlling part); dimensions are approximate metres.
+
+    A part without a rotation follows its parent (PARENT); the segment reports that part."""
     segments = []
 
+    def controller(part):
+        while part not in rotations and part in PARENT:
+            part = PARENT[part]
+        return part
+
     def bone(start, offset, part):
+        part = controller(part)
         delta = q_rotate(rotations.get(part, IDENTITY), offset)
         end = tuple(a + b for a, b in zip(start, delta))
         segments.append((start, end, part))
@@ -681,33 +874,13 @@ def skeleton_segments(rotations):
     for side, sign in (('Left', 1), ('Right', -1)):
         hip = bone(pelvis, (sign * 0.14, 0, 0), 'Hips')
         knee = bone(hip, (0, 0, -0.43), side + ' thigh')
-        ankle = bone(knee, (0, 0, -0.43), side + ' lower leg')
-        bone(ankle, (0, -0.18, -0.06), side + ' lower leg')
+        ankle = bone(knee, (0, 0, -0.43), side + ' ankle')
+        bone(ankle, (0, -0.18, -0.06), side + ' foot')
         shoulder = bone(neck, (sign * 0.20, 0, -0.04), 'Chest')
-        elbow = bone(shoulder, (sign * 0.08, 0, -0.28), 'Chest')
-        bone(elbow, (0, 0, -0.25), 'Chest')
+        elbow = bone(shoulder, (sign * 0.08, 0, -0.28), side + ' upper arm')
+        bone(elbow, (0, 0, -0.25), side + ' lower arm')
     return segments
 
-
-def draw_skeleton(canvas, segments, live):
-    canvas.delete('all')
-    width, height = max(300, canvas.winfo_width()), max(300, canvas.winfo_height())
-    scale = min(width / 2.8, height / 2.5)
-
-    def project(v):
-        return to_screen((v[0], v[1], v[2] - 0.85), width / 2, height / 2, scale)
-
-    for i in range(-2, 3):
-        for a, b in (((i * 0.4, -0.8, 0), (i * 0.4, 0.8, 0)),
-                     ((-0.8, i * 0.4, 0), (0.8, i * 0.4, 0))):
-            canvas.create_line(*project(a)[:2], *project(b)[:2], fill='#29303c')
-    projected = [(project(a), project(b), part) for a, b, part in segments]
-    for a, b, part in sorted(projected, key=lambda segment: -(segment[0][2] + segment[1][2])):
-        color = '#666666' if part not in live else (
-            '#54baff' if part.startswith('Left') else '#ffac66' if part.startswith('Right') else '#c6d4ef')
-        canvas.create_line(*a[:2], *b[:2], fill=color, width=5, capstyle=tk.ROUND)
-        for x, y, _ in (a, b):
-            canvas.create_oval(x-4, y-4, x+4, y+4, fill=color, outline='')
 
 def age_text(t):
     if t is None:
@@ -720,126 +893,349 @@ def age_text(t):
     return f"{a / 60:.0f} min ago"
 
 
-class App:
-    CARD_W, CANVAS = 250, 150
+# ---------------------------------------------------------------- Qt window
 
-    def __init__(self, root, server, config_path=CONFIG_PATH):
-        self.root, self.server = root, server
+LEFT, RIGHT, ERROR = QColor('#3d8fd9'), QColor('#e8873a'), QColor('#d9443b')
+COLUMNS, ROWS = 4, 2  # the window fits eight trackers; more scroll
+
+
+def draw_arrow(painter, start, end, color):
+    painter.setPen(QPen(color, 2, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+    painter.drawLine(start, end)
+    dx, dy = end.x() - start.x(), end.y() - start.y()
+    length = math.hypot(dx, dy)
+    if length < 4:
+        return
+    ux, uy, size = dx / length, dy / length, 6
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(color)
+    painter.drawPolygon(QPolygonF([
+        end, QPointF(end.x() - ux * size - uy * size * 0.5, end.y() - uy * size + ux * size * 0.5),
+        QPointF(end.x() - ux * size + uy * size * 0.5, end.y() - uy * size - ux * size * 0.5)]))
+
+
+class TrackerView(QWidget):
+    """The tracker as a flat box with its X (red), Y (green) and Z (blue) axes."""
+    SIZE = 130
+
+    def __init__(self):
+        super().__init__()
+        self.setFixedSize(self.SIZE, self.SIZE)
+        self.q, self.dim = None, False
+
+    def set_rotation(self, q, dim):
+        if (q, dim) != (self.q, self.dim):
+            self.q, self.dim = q, dim
+            self.update()
+
+    def paintEvent(self, event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p.fillRect(self.rect(), self.palette().color(QPalette.ColorRole.Base))
+        if self.q is None:
+            p.setPen(self.palette().color(QPalette.ColorRole.PlaceholderText))
+            p.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, 'no data')
+            return
+        cx = cy = self.SIZE / 2
+        s = self.SIZE * 0.27
+        hx, hy, hz = BOX
+        verts = [q_rotate(self.q, (sx * hx, sy * hy, sz * hz))
+                 for sx in (-1, 1) for sy in (-1, 1) for sz in (-1, 1)]
+        pts = [to_screen(v, cx, cy, s) for v in verts]
+        p.setPen(QPen(QColor('#111'), 1))
+        for idx, col in sorted(FACES, key=lambda f: -sum(pts[i][2] for i in f[0])):
+            color = QColor(col)
+            if self.dim:
+                grey = color.lightness() // 2 + 60
+                color = QColor(grey, grey, grey)
+            p.setBrush(color)
+            p.drawPolygon(QPolygonF([QPointF(*pts[i][:2]) for i in idx]))
+        for axis, col in (((1.6, 0, 0), '#e04040'), ((0, 1.3, 0), '#3aa83a'), ((0, 0, 1.0), '#3d7fe0')):
+            x, y, _ = to_screen(q_rotate(self.q, axis), cx, cy, s)
+            draw_arrow(p, QPointF(cx, cy), QPointF(x, y), QColor('#888' if self.dim else col))
+
+
+class SkeletonView(QWidget):
+    """Fixed-proportion preview; bones without live data are grey."""
+
+    def __init__(self):
+        super().__init__()
+        self.setMinimumSize(240, 320)
+        self.segments, self.live = [], set()
+
+    def set_pose(self, segments, live):
+        self.segments, self.live = segments, live
+        self.update()
+
+    def paintEvent(self, event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        palette = self.palette()
+        p.fillRect(self.rect(), palette.color(QPalette.ColorRole.Base))
+        width, height = self.width(), self.height()
+        scale = min(width / 2.8, height / 2.5)
+
+        def project(v):
+            x, y, depth = to_screen((v[0], v[1], v[2] - 0.85), width / 2, height / 2, scale)
+            return QPointF(x, y), depth
+
+        p.setPen(QPen(palette.color(QPalette.ColorRole.Midlight), 1))
+        for i in range(-2, 3):
+            for a, b in (((i * 0.4, -0.8, 0), (i * 0.4, 0.8, 0)),
+                         ((-0.8, i * 0.4, 0), (0.8, i * 0.4, 0))):
+                p.drawLine(project(a)[0], project(b)[0])
+        idle = palette.color(QPalette.ColorRole.PlaceholderText)
+        centre = palette.color(QPalette.ColorRole.Text)
+        projected = [(project(a), project(b), part) for a, b, part in self.segments]
+        for (a, _), (b, _), part in sorted(projected, key=lambda s: -(s[0][1] + s[1][1])):
+            color = (idle if part not in self.live else LEFT if part.startswith('Left')
+                     else RIGHT if part.startswith('Right') else centre)
+            p.setPen(QPen(color, 5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+            p.drawLine(a, b)
+
+
+class TrackerCard(QGroupBox):
+    WIDTH = 200
+
+    def __init__(self, on_assign):
+        super().__init__()
+        self.setFixedWidth(self.WIDTH)
+        layout = QVBoxLayout(self)
+        layout.setSpacing(6)
+        self.role = QComboBox()
+        self.role.addItems(('Unassigned', *BODY_PARTS))
+        self.role.activated.connect(lambda i: on_assign(self.role.itemText(i)))  # user choices only
+        layout.addWidget(self.role)
+        self.view = TrackerView()
+        layout.addWidget(self.view, alignment=Qt.AlignmentFlag.AlignHCenter)
+        self.state = QLabel()
+        self.details = QLabel()
+        self.details.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        layout.addWidget(self.state)
+        layout.addWidget(self.details)
+
+    def set_role(self, part):
+        if self.role.currentText() != part:
+            self.role.setCurrentText(part)
+
+    def show_tracker(self, t, fresh, receiver):
+        name = f"ID {t['id']}" if t['id'] is not None else f"Port {t['addr'][1]}"
+        self.setTitle(f"{name}   {t['mac'] or '?'}")
+        self.view.set_rotation(t['q'], not fresh)
+        if t['status'] == 2:
+            state, color = 'Error', ERROR
+        elif fresh:
+            state, color = 'Live', None
+        else:
+            state, color = f"Not seen, {age_text(t['last_real'])}", self.palette().color(QPalette.ColorRole.PlaceholderText)
+        self.state.setText(state + (f'  ·  {receiver}' if receiver else ''))
+        self.state.setStyleSheet(f'color: {color.name()};' if color else '')
+        battery = ' '.join(filter(None, (
+            f"{t['batt_pct']:.0f}%" if t['batt_pct'] is not None else None,
+            f"{t['batt_v']:.2f} V" if t['batt_v'] is not None else None))) or '?'
+        rate = f"{t['real_rate']}/s" + (f" (+{t['held_rate']} held)" if t['held_rate'] else '')
+        self.details.setText('\n'.join((
+            f"{battery}   {t['rssi']} dBm" if t['rssi'] is not None else battery,
+            rate + (f"   {t['temp']:.0f} °C" if t['temp'] is not None else ''),
+            f"fw {t['fw'] or '?'}")))
+
+
+class App(QMainWindow):
+    def __init__(self, server, config_path=CONFIG_PATH, slimevr_path=None):
+        super().__init__()
+        self.server = server
         self.config_path = Path(config_path)
-        root.title("Slime View")
-        root.configure(bg="#1e1e1e")
-        top = tk.Frame(root, bg="#1e1e1e")
-        top.pack(fill="x", padx=8, pady=6)
-        self.header = tk.Label(top, text="", fg="#ddd", bg="#1e1e1e", anchor="w", font=("Segoe UI", 10))
-        self.header.pack(side="left", fill="x", expand=True)
-        tk.Button(top, text="Forget not seen", command=server.forget_stale).pack(side="right")
+        self.slimevr_files = slimevr_files(slimevr_path)
+        self.slimevr_state = None  # (file times, visible trackers) at the last sync
+        self.slimevr_next_check = 0
         self.skeleton = Skeleton()
-        self.role_vars = {}
         self.tracker_keys = {}
-        self.calibration_timer = None
-        body = tk.Frame(root, bg='#1e1e1e')
-        body.pack(fill='both', expand=True)
-        preview = tk.Frame(body, bg='#1e1e1e', width=360)
-        preview.pack(side='left', fill='y', padx=8, pady=4)
-        tk.Label(preview, text='Skeleton', fg='#fff', bg='#1e1e1e', font=('Segoe UI', 14, 'bold')).pack()
-        self.calibrate_button = tk.Button(preview, text='Full Reset', command=self.start_calibration)
-        self.calibrate_button.pack(fill='x')
-        self.mounting_button = tk.Button(preview, text='Mount Reset',
-                                        command=lambda: self.start_calibration(5, mounting=True), state='disabled')
-        self.mounting_button.pack(fill='x', pady=(4, 0))
-        self.skeleton_status = tk.Label(preview, text='',
-                                        fg='#ccc', bg='#1e1e1e', wraplength=340, height=3)
-        self.skeleton_status.pack(fill='x')
-        self.config_status = tk.Label(preview, text='', fg='#999', bg='#1e1e1e', wraplength=340)
-        self.config_status.pack(fill='x', pady=(0, 6))
+        self.cards = {}
+        self.order = None  # tracker order currently placed in the grid
+        self.countdown = None  # (seconds left, reset kind) while a reset counts down
+        self.setWindowTitle('Slime View')
+
+        root = QWidget()
+        body = QHBoxLayout(root)
+        self.setCentralWidget(root)
+
+        side = QVBoxLayout()
+        self.skeleton_view = SkeletonView()
+        side.addWidget(self.skeleton_view, 1)
+        buttons = QHBoxLayout()
+        self.calibrate_button = QPushButton('Full reset')
+        self.calibrate_button.clicked.connect(lambda: self.start_calibration(3, 'full'))
+        self.mounting_button = QPushButton('Mount reset')
+        self.mounting_button.clicked.connect(lambda: self.start_calibration(5, 'mount'))
+        self.feet_button = QPushButton('Feet reset')
+        self.feet_button.clicked.connect(lambda: self.start_calibration(3, 'feet'))
+        buttons.addWidget(self.calibrate_button)
+        buttons.addWidget(self.mounting_button)
+        buttons.addWidget(self.feet_button)
+        side.addLayout(buttons)
+        self.follow_slimevr = QCheckBox('Follow SlimeVR')
+        self.follow_slimevr.setChecked(bool(self.slimevr_files))
+        self.follow_slimevr.setEnabled(bool(self.slimevr_files))
+        self.follow_slimevr.setToolTip('\n'.join(str(f) for f in self.slimevr_files))
+        self.follow_slimevr.toggled.connect(self.slimevr_toggled)
+        side.addWidget(self.follow_slimevr)
+        self.message = QLabel()
+        self.message.setWordWrap(True)
+        self.message.setFixedWidth(240)
+        self.message.setMinimumHeight(self.message.fontMetrics().lineSpacing() * 3)
+        self.message.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+        side.addWidget(self.message)
+        body.addLayout(side)
+
+        cards = QWidget()
+        self.grid = QGridLayout(cards)
+        self.grid.setContentsMargins(0, 0, 0, 0)
+        self.grid.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+        self.empty = QLabel('No trackers')
+        self.empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.empty.setEnabled(False)
+        self.scroll = QScrollArea()
+        self.scroll.setWidget(cards)
+        self.scroll.setWidgetResizable(True)
+        self.scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        # Size for exactly COLUMNS x ROWS cards, keeping room for the scroll bar.
+        probe = TrackerCard(lambda part: None)
+        probe.show_tracker(dict(Tracker(('', 0)).__dict__, last_real=time.time(), batt_pct=0,
+                                batt_v=0, rssi=0, temp=0, fw='0.0.0', mac='0' * 12), True, '')
+        gap = self.grid.spacing()
+        scrollbar = self.style().pixelMetric(QStyle.PixelMetric.PM_ScrollBarExtent)
+        self.scroll.setFixedSize(COLUMNS * TrackerCard.WIDTH + (COLUMNS - 1) * gap + scrollbar + gap,
+                                 ROWS * probe.sizeHint().height() + (ROWS - 1) * gap)
+        probe.deleteLater()
+        body.addWidget(self.scroll)
+
+        self.status = QLabel()
+        self.statusBar().setSizeGripEnabled(False)  # the window has a fixed size
+        self.statusBar().addWidget(self.status, 1)
+        forget = QPushButton('Forget stale')
+        forget.clicked.connect(server.forget_stale)
+        self.statusBar().addPermanentWidget(forget)
+
+        self.calibration_timer = QTimer(self)
+        self.calibration_timer.setSingleShot(True)
+        self.calibration_timer.setInterval(1000)
+        self.calibration_timer.timeout.connect(self.countdown_step)
         try:
             self.skeleton.load(self.config_path)
         except FileNotFoundError:
             pass
         except (OSError, ValueError, OverflowError) as e:
-            self.config_status.config(text=f'Could not load config: {e}', fg='#ffac66')
-        else:
-            self.config_status.config(text=f'Loaded {self.config_path.name}')
-            self.skeleton_status.config(text=('Calibration loaded.' if self.skeleton.mounting else
-                                             'Full reset loaded.' if self.skeleton.reference else ''))
-        self.mounting_button.config(state='normal' if self.skeleton.reference else 'disabled')
-        self.skeleton_canvas = tk.Canvas(preview, width=350, height=430, bg='#151515', highlightthickness=0)
-        self.skeleton_canvas.pack(fill='both', expand=True)
-        # Scroll the cards so all assignments remain accessible on smaller screens.
-        card_area = tk.Frame(body, bg='#1e1e1e')
-        card_area.pack(side='left', fill='both', expand=True)
-        self.card_canvas = tk.Canvas(card_area, bg='#1e1e1e', highlightthickness=0)
-        scrollbar = ttk.Scrollbar(card_area, orient='vertical', command=self.card_canvas.yview)
-        scrollbar.pack(side='right', fill='y')
-        self.card_canvas.pack(side='left', fill='both', expand=True)
-        self.card_canvas.configure(yscrollcommand=scrollbar.set)
-        self.grid = tk.Frame(self.card_canvas, bg='#1e1e1e')
-        window = self.card_canvas.create_window(0, 0, window=self.grid, anchor='nw')
-        self.card_canvas.bind('<Configure>', lambda e: self.card_canvas.itemconfigure(window, width=e.width))
-        self.grid.bind('<Configure>', lambda e: self.card_canvas.configure(scrollregion=self.card_canvas.bbox('all')))
-        self.cards = {}
+            self.show_message(f'Could not load {self.config_path.name}: {e}', warn=True)
+        self.update_buttons()
         self.tick()
+        self.setFixedSize(self.sizeHint())
+        self.timer = QTimer(self)
+        self.timer.setInterval(50)
+        self.timer.timeout.connect(self.tick)
+        self.timer.start()
 
-    def assign_role(self, key):
-        self.skeleton.assign(self.tracker_keys.get(key, key), self.role_vars[key].get())
+    def show_message(self, text, warn=False):
+        self.message.setText(text)
+        self.message.setStyleSheet(f'color: {ERROR.name()};' if warn else '')
+
+    def update_buttons(self):
+        idle = self.countdown is None
+        self.calibrate_button.setEnabled(idle)
+        self.mounting_button.setEnabled(idle and bool(self.skeleton.reference))
+        self.feet_button.setEnabled(idle and any(p in self.skeleton.reference for p in FEET))
+
+    def assign_role(self, key, part):
+        self.skeleton.assign(self.tracker_keys.get(key, key), part)
         self.sync_roles()
         self.cancel_calibration()
-        self.skeleton_status.config(text='Assignments changed.')
+        # A manual choice would be overwritten by the next sync, so stop following.
+        self.follow_slimevr.setChecked(False)
+        self.show_message('Reassigned. Reset again.')
         self.save_config()
 
+    def slimevr_toggled(self):
+        self.slimevr_state = None  # sync on the next tick
+        self.slimevr_next_check = 0
+
+    def sync_slimevr(self, snap):
+        """Copy SlimeVR Server's assignments when its config or the visible trackers change."""
+        now = time.monotonic()
+        if not self.follow_slimevr.isChecked() or now < self.slimevr_next_check:
+            return
+        self.slimevr_next_check = now + 1
+        times = []
+        for f in self.slimevr_files:
+            try:
+                times.append(f.stat().st_mtime)
+            except OSError:
+                times.append(None)
+        state = (tuple(times), frozenset((normalized_mac(t['mac']), t['source']) for t in snap))
+        if state == self.slimevr_state:
+            return
+        self.slimevr_state = state
+        if not any(times):
+            self.show_message('SlimeVR config not found.', warn=True)
+            return
+        assigned = resolve_slimevr_assignments(read_slimevr_assignments(self.slimevr_files), snap)
+        if assigned and self.skeleton.apply_assignments(assigned):
+            self.sync_roles()
+            self.cancel_calibration()
+            self.show_message('Assigned from SlimeVR. Reset again.')
+            self.save_config()
+
     def sync_roles(self):
-        for addr, var in self.role_vars.items():
+        for addr, card in self.cards.items():
             identity = self.tracker_keys.get(addr, addr)
-            var.set(next((p for p, k in self.skeleton.assignments.items() if k == identity), 'Unassigned'))
+            card.set_role(next((p for p, k in self.skeleton.assignments.items() if k == identity), 'Unassigned'))
 
     def save_config(self):
         try:
             self.skeleton.save(self.config_path)
         except (OSError, ValueError) as e:
-            self.config_status.config(text=f'Could not save config: {e}', fg='#ffac66')
-        else:
-            self.config_status.config(text=f'Saved {self.config_path.name}', fg='#999')
+            self.show_message(f'Could not save {self.config_path.name}: {e}', warn=True)
 
     def cancel_calibration(self):
-        if self.calibration_timer is not None:
-            self.root.after_cancel(self.calibration_timer)
-            self.calibration_timer = None
-        self.calibrate_button.config(state='normal')
-        self.mounting_button.config(state='normal' if self.skeleton.reference else 'disabled')
+        self.calibration_timer.stop()
+        self.countdown = None
+        self.update_buttons()
 
-    def start_calibration(self, remaining=3, mounting=False):
-        self.calibration_timer = None
+    def start_calibration(self, seconds, kind):
+        self.countdown = (seconds, kind)
+        self.update_buttons()
+        self.countdown_step()
+
+    def countdown_step(self):
+        remaining, kind = self.countdown
         if remaining:
-            self.calibrate_button.config(state='disabled')
-            self.mounting_button.config(state='disabled')
-            instruction = 'Mount Reset' if mounting else 'Full Reset'
-            self.skeleton_status.config(text=f'{instruction}... {remaining}')
-            self.calibration_timer = self.root.after(1000, lambda: self.start_calibration(remaining - 1, mounting))
+            pose = {'full': 'Stand straight', 'mount': 'Ski pose, arms bent', 'feet': 'On tiptoes'}[kind]
+            self.show_message(f'{pose}… {remaining}')
+            self.countdown = (remaining - 1, kind)
+            self.calibration_timer.start()
+            return
+        snapshot, now = self.server.snapshot(), time.time()
+        if kind == 'full':
+            message = self.skeleton.calibrate(snapshot, now)
         else:
-            calibrate = self.skeleton.calibrate_mounting if mounting else self.skeleton.calibrate
-            message = calibrate(self.server.snapshot(), time.time())
-            self.skeleton_status.config(text=message)
-            self.cancel_calibration()
-            if not message.startswith('Waiting'):
-                self.save_config()
+            message = self.skeleton.calibrate_mounting(snapshot, now, feet=kind == 'feet')
+        self.cancel_calibration()
+        failed = message.startswith('Waiting')
+        self.show_message(message, warn=failed)
+        if not failed:
+            self.save_config()
 
-    def card(self, key):
-        if key not in self.cards:
-            f = tk.Frame(self.grid, bg="#2a2a2a", padx=6, pady=6)
-            title = tk.Label(f, fg="#fff", bg="#2a2a2a", font=("Segoe UI", 11, "bold"), anchor="w")
-            title.pack(fill="x")
-            identity = self.tracker_keys.get(key, key)
-            assigned = next((p for p, k in self.skeleton.assignments.items() if k == identity), 'Unassigned')
-            role = self.role_vars[key] = tk.StringVar(value=assigned)
-            selection = ttk.Combobox(f, textvariable=role, values=('Unassigned', *BODY_PARTS), state='readonly')
-            selection.pack(fill='x', pady=(5, 0))
-            selection.bind('<<ComboboxSelected>>', lambda e, k=key: self.assign_role(k))
-            c = tk.Canvas(f, width=self.CANVAS, height=self.CANVAS, bg="#151515", highlightthickness=0)
-            c.pack(pady=4)
-            info = tk.Label(f, fg="#ccc", bg="#2a2a2a", font=("Consolas", 9), justify="left", anchor="w")
-            info.pack(fill="x")
-            self.cards[key] = (f, title, c, info)
-        return self.cards[key]
+    def place_cards(self, order):
+        if order == self.order:
+            return
+        self.order = order
+        self.grid.removeWidget(self.empty)
+        for n, key in enumerate(order):
+            self.grid.addWidget(self.cards[key], n // COLUMNS, n % COLUMNS)
+        if order:
+            self.empty.hide()
+        else:
+            self.grid.addWidget(self.empty, 0, 0, ROWS, COLUMNS)
+            self.empty.show()
 
     def tick(self):
         snap = sorted(self.server.snapshot(),
@@ -849,46 +1245,27 @@ class App:
             self.save_config()
         keys = {t["addr"] for t in snap}
         for k in [k for k in self.cards if k not in keys]:
-            self.cards.pop(k)[0].destroy()
-            self.role_vars.pop(k)
-            # Keep saved assignments when a tracker disappears or is forgotten.
+            card = self.cards.pop(k)  # saved assignments stay when a tracker disappears
+            self.grid.removeWidget(card)
+            card.deleteLater()
+        for t in snap:
+            if t['addr'] not in self.cards:
+                self.cards[t['addr']] = TrackerCard(lambda part, k=t['addr']: self.assign_role(k, part))
+        self.sync_slimevr(snap)
         self.sync_roles()
-        cols = max(1, self.card_canvas.winfo_width() // (self.CARD_W + 8))
-        seen = 0
-        for n, t in enumerate(snap):
-            f, title, c, info = self.card(t["addr"])
-            f.grid(row=n // cols, column=n % cols, padx=4, pady=4, sticky="n")
-            fresh = t["last_real"] is not None and time.time() - t["last_real"] < STALE_S
-            seen += fresh
-            name = f"ID {t['id']}" if t["id"] is not None else f"port {t['addr'][1]}"
-            title.config(text=f"{name}  {t['mac'] or '?'}", fg="#fff" if fresh else "#888")
-            draw_tracker(c, t["q"], self.CANVAS, not fresh)
-            lines = [
-                f"seen    {age_text(t['last_real'])}",
-                f"status  {STATUS.get(t['status'], '?') if t['status'] is not None else '?'}"
-                + ("" if fresh else "  (not seen)"),
-                "battery " + (f"{t['batt_pct']:.0f}%" if t["batt_pct"] is not None else "?")
-                + (f"  {t['batt_v']:.2f} V" if t["batt_v"] is not None else ""),
-                "signal  " + (f"{t['rssi']} dBm" if t["rssi"] is not None else "?")
-                + ("   temp " + f"{t['temp']:.1f} C" if t["temp"] is not None else ""),
-                f"rate    {t['real_rate']}/s real, {t['held_rate']}/s held",
-            ]
-            if t["q"] is not None:
-                r, p, y = euler_deg(t["q"])
-                lines.append(f"XYZ     {r:6.1f} {p:6.1f} {y:6.1f} deg")
-            if t["fw"]:
-                lines.append(f"fw      {t['fw']}")
-            if t['source'] == 'usb':
-                receivers = sorted({s['addr'][0] for s in snap if s['source'] == 'usb'})
-                lines.append(f"source  USB receiver {receivers.index(t['addr'][0]) + 1}")
-            else:
-                lines.append(f"source  Wi-Fi hub {t['addr'][0]}")
-            info.config(text="\n".join(lines), fg="#ccc" if fresh else "#777")
-        err = f"   last error: {self.server.error}" if self.server.error else ""
-        self.header.config(text=f"{self.server.description} | {len(snap)} tracker(s), {seen} seen{err}")
-        segments, live = self.skeleton.pose(snap, time.time())
-        draw_skeleton(self.skeleton_canvas, segments, live)
-        self.root.after(50, self.tick)
+        self.place_cards(tuple(t['addr'] for t in snap))
+        receivers = sorted({s['addr'][0] for s in snap if s['source'] == 'usb'})
+        now, live = time.time(), 0
+        for t in snap:
+            fresh = t["last_real"] is not None and now - t["last_real"] < STALE_S
+            live += fresh
+            receiver = (f"R{receivers.index(t['addr'][0]) + 1}" if t['source'] == 'usb' and len(receivers) > 1
+                        else '')
+            self.cards[t['addr']].show_tracker(t, fresh, receiver)
+        error = self.server.error
+        self.status.setText(f'{self.server.description}   ·   {live}/{len(snap)} live'
+                            + (f'   ·   {error}' if error else ''))
+        self.skeleton_view.set_pose(*self.skeleton.pose(snap, now))
 
 
 def main():
@@ -898,6 +1275,12 @@ def main():
     only.add_argument("--usb", action="store_true", help="Only nRF receivers over USB-HID")
     only.add_argument("--wifi", action="store_true", help="Only the ESP32 hub over Wi-Fi")
     ap.add_argument('--config', type=Path, default=CONFIG_PATH, help='JSON assignments and calibration file')
+    slimevr = ap.add_mutually_exclusive_group()
+    slimevr.add_argument('--slimevr-config', type=Path, default=slimevr_config_dir(), metavar='PATH',
+                         help='SlimeVR Server config folder, vrconfig.yml or settings profile .json '
+                              f'(default {slimevr_config_dir()})')
+    slimevr.add_argument('--no-slimevr', action='store_true',
+                         help="Do not take body part assignments from SlimeVR Server's config")
     args = ap.parse_args()
     try:
         if args.usb:
@@ -911,10 +1294,10 @@ def main():
     except OSError as e:
         raise SystemExit(f"Cannot open UDP {args.port} ({e}). Is SlimeVR Server still running?")
     try:
-        root = tk.Tk()
-        root.geometry("1180x820")
-        App(root, server, args.config)
-        root.mainloop()
+        app = QApplication(sys.argv[:1])
+        window = App(server, args.config, None if args.no_slimevr else args.slimevr_config)
+        window.show()
+        app.exec()
     finally:
         server.close()
 

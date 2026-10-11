@@ -2,9 +2,10 @@
 
 [Documentation index](README.md)
 
-Run these commands from the repository root in Windows. Install `pyserial` and
-`hidapi` with `python -m pip install pyserial hidapi`; the graphical tools also
-need Python's Tkinter. Install the package named `hidapi`, not `hid`.
+Run these commands from the repository root in Windows. Install the dependencies
+with `python -m pip install pyserial hidapi PySide6`. Install the package named
+`hidapi`, not `hid`. `slime_view.py` uses PySide6; `serial_monitor.py` uses Python's
+Tkinter.
 
 ## Link monitor
 
@@ -44,12 +45,28 @@ otherwise the legacy ESP32 hub's Wi-Fi output. Only one source runs at a time.
 Quit SlimeVR Server before Wi-Fi mode because both need UDP 6969. USB HID is shared
 on Windows; use the viewer alone if you want an isolated diagnostic session.
 
-Assign chest, hips, both thighs and both lower legs. Click **Calibrate**, stand
-upright with straight legs during the three-second countdown, then use **Ski-pose
-mounting**: feet parallel and flat, knees bent, hips back and torso forward without
-turning; hold through the five-second countdown. Repeat after remounting or tracker
-restarts. Older valid samples can be used for inactive trackers, so ensure they
+Assign chest, hips, both thighs and both ankles; feet, upper arms and lower arms are
+optional, and an unassigned part moves with its parent. "Ankle" is SlimeVR's name for
+the lower-leg tracker. The resets follow SlimeVR Server:
+
+| Button | Pose |
+| --- | --- |
+| **Full reset** | Stand upright, legs straight, arms at your sides (3 s) |
+| **Mount reset** | Ski pose: feet parallel and flat, knees bent, hips back, torso forward without turning; upper arms back, forearms forward (5 s) |
+| **Feet reset** | On tiptoes, both feet pointing forward (3 s). Needed because feet stay flat in the ski pose |
+
+Repeat after remounting or tracker restarts. Older valid samples can be used for inactive trackers, so ensure they
 still represent the requested pose and read the status message.
+
+While **Follow SlimeVR** is ticked, body parts follow SlimeVR
+Server's own tracker assignments: `vrconfig.yml` (`trackers:` → `designation`) and
+`settings/<profile>.json` (`trackers` → `bodyPart`) in
+`%APPDATA%\dev.slimevr.SlimeVR`. Chest/upper chest map to Chest, hip/waist to Hips,
+upper legs to thighs, lower legs to ankles, plus feet, upper arms and lower arms;
+hands, shoulders and head are ignored. SlimeVR keeps separate Wi-Fi
+(`udp://MAC/0`) and HID (`MAC/0`) entries; the one for the tracker's current transport
+wins, and the newer file wins between the two formats. Choosing a part by hand unticks
+it. Use `--slimevr-config PATH` for another location or `--no-slimevr` to disable.
 
 Assignments and calibration save to `tools/slime_view_config.json`; override with
 `--config PATH`. Treat it as personal local state. The skeleton is a preview with
