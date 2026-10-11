@@ -92,7 +92,7 @@ def main():
             m = TEST.search(line)
             if m:
                 fields = dict(re.findall(r'(\w+)=(\w+)', m[2]))
-                if fields.get('confirmed') == '1' and fields.get('imu') == '0' and fields.get('hz') == '100' and fields.get('kinds') == '1f' and int(fields['age_ms']) < 1500:
+                if fields.get('confirmed') == '1' and fields.get('imu') == '0' and fields.get('hz') == '100' and int(fields.get('kinds', '0'),16) & 0x1f == 0x1f and int(fields['age_ms']) < 1500:
                     ready |= 1 << int(m[1])
         background = sum(1 << i for i,name in names.items() if name in [x.upper() for x in args.background])
         if not mask & ready or mask & ~(ready | background):

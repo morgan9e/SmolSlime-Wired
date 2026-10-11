@@ -61,6 +61,7 @@ static bool esb_paired = false;
 #include "radio_tdma.h"
 #include "radio_control.h"
 #include "radio_test.h"
+#include "radio_pending.h"
 #if CONFIG_RADIO_TDMA_HW
 #include "tdma_hw.h"
 #endif
@@ -70,13 +71,18 @@ BUILD_ASSERT(CONFIG_SYS_CLOCK_TICKS_PER_SEC >= 32768, "TDMA requires a fine syst
 BUILD_ASSERT(CONFIG_ESB_PIPE_COUNT > TDMA_BEACON_PIPE, "TDMA requires beacon pipe 2");
 static struct tdma_sync tdma_sync;
 static struct k_spinlock tdma_lock; /* IRQ beacon timestamp and pending frame */
-static bool tdma_running, tdma_tx_mode, tdma_pending, tdma_inflight;
-static uint8_t tdma_data[21], tdma_sequence;
+static bool tdma_running, tdma_tx_mode, tdma_inflight;
+static struct radio_pending tdma_queue;
+static uint8_t tdma_sequence;
+static uint32_t tdma_holdover_sent, tdma_missed_beacons, tdma_unsynced, tdma_retained;
+static int64_t tdma_unsynced_next;
+static int64_t legacy_data_next;
 static uint32_t tdma_beacons, tdma_sent, tdma_late, tdma_replaced, tdma_errors;
 static uint32_t tdma_acked, tdma_failed, tdma_empty;
 static int64_t tdma_started, tdma_submitted;
 static bool tdma_outage;
 static bool radio_tdma = true;
+static bool radio_extended;
 static struct rc_message radio_control = {.mode=RC_TDMA, .target=RC_TDMA};
 static int64_t control_reply_due;
 static uint32_t control_replies;
@@ -102,7 +108,7 @@ static void radio_test_generate(void)
 	if (!test_next) test_next = now + 1 + (paired_addr[1] * 1103u) % period;
 	if (!rft_due(now, &test_next, period, &test_skipped)) return;
 	uint8_t data[21] = {0};
-	uint8_t kind = test_generated % 5;
+	uint8_t kind = test_generated % (radio_extended ? 8 : 5);
 	uint32_t a, b;
 	k_spinlock_key_t key = k_spin_lock(&tdma_lock);
 	switch (kind) {
@@ -110,6 +116,9 @@ static void radio_test_generate(void)
 	case 2: a=tdma_sent; b=tdma_replaced; break;
 	case 3: a=tdma_acked; b=tdma_failed; break;
 	case 4: a=tdma_errors; b=CONFIG_RADIO_TEST_HZ; break;
+	case 5: a=tdma_beacons; b=tdma_holdover_sent; break;
+	case 6: a=tdma_empty; b=tdma_missed_beacons; break;
+	case 7: a=tdma_unsynced; b=tdma_retained; break;
 	default:
 		test_random ^= test_random << 13; test_random ^= test_random >> 17; test_random ^= test_random << 5;
 		a=(uint32_t)now; b=test_random; break;
@@ -118,9 +127,8 @@ static void radio_test_generate(void)
 		(IS_ENABLED(CONFIG_RADIO_TEST_IMU_WORKLOAD) ? RFT_IMU_WORKLOAD : 0);
 	rft_encode(data,paired_addr[1],kind,flags,++test_generated,a,b);
 	rft_put(data+16,crc32_k_4_2_update(0x93a409eb,data,16),4);
-	if (tdma_pending) tdma_replaced++;
-	memcpy(tdma_data,data,sizeof(data));
-	tdma_pending=true;
+	if (tdma_queue.pending) tdma_replaced++;
+	radio_pending_put(&tdma_queue, data);
 	k_spin_unlock(&tdma_lock,key);
 }
 #endif
@@ -133,6 +141,8 @@ static void tdma_receive_beacon(const struct esb_payload *p)
 	if (p->pipe == 1 && rc_decode(&m, p->data, p->length)) {
 		radio_control = m; /* receiver's authoritative mode, delivered in an ACK */
 	} else if (!tdma_tx_mode && p->pipe == TDMA_BEACON_PIPE) {
+		uint32_t previous_serial = tdma_sync.beacon_serial;
+		bool previous_valid = tdma_sync.beacon_us != 0;
 		bool control = p->length == TDMA_BEACON_LEN + RC_LEN &&
 			rc_decode(&m, p->data + TDMA_BEACON_LEN, RC_LEN);
 		if ((control || p->length == TDMA_BEACON_LEN) &&
@@ -143,6 +153,11 @@ static void tdma_receive_beacon(const struct esb_payload *p)
 			    tdma_now())) {
 #endif
 			tdma_beacons++;
+			radio_extended = tdma_sync.grid;
+			uint32_t delta = tdma_sync.beacon_serial - previous_serial;
+			if (previous_valid && delta > 1 && delta < 1000000)
+				tdma_missed_beacons += delta - 1;
+			if (!IS_ENABLED(CONFIG_RADIO_TDMA_HW)) tdma_sync.grid = false;
 			if (control) radio_control = m;
 		}
 	}
@@ -155,7 +170,7 @@ void esb_tdma_status(void)
 #if CONFIG_RADIO_TDMA
 	k_spinlock_key_t key = k_spin_lock(&tdma_lock);
 	bool locked = tdma_running && tdma_sync.valid &&
-		tdma_now() - tdma_sync.epoch_us < 2 * TDMA_FRAME_US;
+		tdma_now() - tdma_sync.beacon_us < (tdma_sync.grid ? TDMA_HOLDOVER_US : 2 * TDMA_FRAME_US);
 	uint32_t b = tdma_beacons, s = tdma_sent, l = tdma_late, r = tdma_replaced;
 	uint32_t e = tdma_errors, a = tdma_acked, f = tdma_failed, n = tdma_empty;
 	struct rc_message control = radio_control;
@@ -200,7 +215,12 @@ void event_handler(struct esb_evt const *event)
 	{
 	case ESB_EVENT_TX_SUCCESS:
 #if CONFIG_RADIO_TDMA
-		if (tdma_running && !ota_active()) tdma_acked++;
+		if (tdma_running && !ota_active()) {
+			k_spinlock_key_t key = k_spin_lock(&tdma_lock);
+			tdma_acked++;
+			radio_pending_done(&tdma_queue, true);
+			k_spin_unlock(&tdma_lock, key);
+		}
 #endif
 		if (!paired_addr[0]) // zero, not paired
 			pairing_packets++; // keep track of pairing state
@@ -222,7 +242,13 @@ void event_handler(struct esb_evt const *event)
 		break;
 	case ESB_EVENT_TX_FAILED:
 #if CONFIG_RADIO_TDMA
-		if (tdma_running && !ota_active()) tdma_failed++;
+		if (tdma_running && !ota_active()) {
+			k_spinlock_key_t key = k_spin_lock(&tdma_lock);
+			tdma_failed++;
+			if (tdma_queue.in_flight) tdma_retained++;
+			radio_pending_done(&tdma_queue, false);
+			k_spin_unlock(&tdma_lock, key);
+		}
 #endif
 		if (ota_active())
 		{
@@ -701,6 +727,7 @@ static int tdma_mode(bool tx)
 #endif
 	if (esb_initialized) esb_disable(); /* bounded stop, discards a failed frame */
 	esb_initialized = false;
+	tdma_queue.in_flight = false;
 	tdma_tx_mode = tx;
 	int err = esb_initialize(tx);
 	if (!err && !tx)
@@ -721,7 +748,7 @@ static void tdma_service(void)
 			tdma_inflight = false;
 			k_spinlock_key_t key = k_spin_lock(&tdma_lock);
 			tdma_sync.valid = false;
-			tdma_pending = false;
+			tdma_queue.pending = false;
 			k_spin_unlock(&tdma_lock, key);
 			if (!tdma_mode(true)) atomic_set(&ota_radio_ready, 1);
 		}
@@ -757,26 +784,31 @@ static void tdma_service(void)
 		if (!esb_is_idle()) return;
 		control_key = k_spin_lock(&tdma_lock);
 		bool reply = radio_control.phase != RC_IDLE && tdma_now() >= control_reply_due;
-		if (paired_addr[1] < TDMA_SLOTS && (reply || tdma_pending)) {
+		if (paired_addr[1] < TDMA_SLOTS && (reply ||
+		    (tdma_queue.pending && tdma_now() >= legacy_data_next))) {
 			struct esb_payload p = {.pipe=1, .length=21, .noack=false};
 			if (reply) {
 				struct rc_message response = radio_control;
 				response.mode = RC_LEGACY; /* acknowledge the mode actually installed */
 				p.length = RC_LEN; rc_reply(p.data, &response, paired_addr[1]);
 			} else {
-				memcpy(p.data, tdma_data, sizeof(tdma_data)); p.data[20] = tdma_sequence;
+				memcpy(p.data, tdma_queue.data, sizeof(tdma_queue.data)); p.data[20] = tdma_sequence;
 			}
 			esb_flush_tx();
+			if (!reply) radio_pending_start(&tdma_queue);
 			if (!esb_write_payload(&p)) {
 				if (reply) { control_replies++; control_reply_due = tdma_now() + 50000; }
-				else { tdma_pending = false; tdma_sequence++; tdma_sent++; }
-			} else tdma_errors++;
+				else {
+					tdma_sequence++; tdma_sent++;
+					legacy_data_next = tdma_now() + TDMA_FRAME_US;
+				}
+			} else { tdma_errors++; radio_pending_done(&tdma_queue, false); }
 		}
 		k_spin_unlock(&tdma_lock, control_key);
 		return;
 	}
 	k_spinlock_key_t sync_key = k_spin_lock(&tdma_lock);
-	int64_t last_beacon = tdma_sync.valid ? tdma_sync.epoch_us : tdma_started;
+	int64_t last_beacon = tdma_sync.beacon_us ? tdma_sync.beacon_us : tdma_started;
 	bool outage = tdma_now() - last_beacon > 1000000;
 	k_spin_unlock(&tdma_lock, sync_key);
 	if (outage && !tdma_outage) {
@@ -800,7 +832,13 @@ static void tdma_service(void)
 		return;
 	}
 	k_spinlock_key_t key = k_spin_lock(&tdma_lock);
-	enum tdma_action action = tdma_action_at(&tdma_sync, paired_addr[1], tdma_now());
+	int64_t slot_now = tdma_now();
+	tdma_holdover(&tdma_sync, slot_now);
+	if (!tdma_sync.valid && tdma_queue.pending && slot_now >= tdma_unsynced_next) {
+		tdma_unsynced++;
+		tdma_unsynced_next = slot_now + TDMA_FRAME_US;
+	}
+	enum tdma_action action = tdma_action_at(&tdma_sync, paired_addr[1], slot_now);
 	k_spin_unlock(&tdma_lock, key);
 	if (action == TDMA_PREPARE || action == TDMA_SEND) {
 		if (!tdma_tx_mode && tdma_mode(true))
@@ -812,9 +850,9 @@ static void tdma_service(void)
 		if (action == TDMA_SEND || (IS_ENABLED(CONFIG_RADIO_TDMA_HW) && action == TDMA_PREPARE)) {
 			tdma_sync.used = true;
 			bool reply = radio_control.phase != RC_IDLE && tdma_now() >= control_reply_due;
-			if (reply || tdma_pending) {
+			if (reply || tdma_queue.pending) {
 				struct esb_payload p = {.pipe = 1, .length = 21, .noack = false};
-				memcpy(p.data, tdma_data, sizeof(tdma_data));
+				memcpy(p.data, tdma_queue.data, sizeof(tdma_queue.data));
 				/* CRC covers bytes 0..15, so changing byte 20 is safe. Count
 				 * attempts, not sensor frames coalesced before their slot. */
 				p.data[20] = tdma_sequence;
@@ -824,6 +862,7 @@ static void tdma_service(void)
 					p.length = RC_LEN; rc_reply(p.data, &response, paired_addr[1]);
 				}
 				tdma_submitted = tdma_now();
+				if (!reply) radio_pending_start(&tdma_queue);
 				int err = esb_write_payload(&p);
 #if CONFIG_RADIO_TDMA_HW
 				tdma_submitted = tdma_slot_start(&tdma_sync, paired_addr[1]);
@@ -831,9 +870,12 @@ static void tdma_service(void)
 #endif
 				if (!err) {
 					if (reply) { control_replies++; control_reply_due = tdma_now() + 50000; }
-					else { tdma_sequence++; tdma_sent++; tdma_pending = false; }
+					else { tdma_sequence++; tdma_sent++; }
 					tdma_inflight = true;
+					if (tdma_sync.grid && tdma_sync.serial != tdma_sync.beacon_serial)
+						tdma_holdover_sent++;
 				} else {
+					radio_pending_done(&tdma_queue, false);
 					if (err == -ETIME) tdma_late++;
 					else tdma_errors++;
 				}
@@ -859,7 +901,7 @@ static void tdma_service(void)
 static void tdma_start(void)
 {
 	memset(&tdma_sync, 0, sizeof(tdma_sync));
-	tdma_pending = false;
+	tdma_queue.pending = false;
 	tdma_inflight = false;
 	tdma_started = tdma_now();
 	tdma_outage = false;
@@ -892,9 +934,8 @@ void esb_write(uint8_t *data)
 	if (ota_active()) return;
 #if CONFIG_RADIO_TDMA
 	k_spinlock_key_t key = k_spin_lock(&tdma_lock);
-	if (tdma_pending) tdma_replaced++;
-	memcpy(tdma_data, data, sizeof(tdma_data));
-	tdma_pending = true;
+	if (tdma_queue.pending) tdma_replaced++;
+	radio_pending_put(&tdma_queue, data);
 	k_spin_unlock(&tdma_lock, key);
 	return;
 #endif

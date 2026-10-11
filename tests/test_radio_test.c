@@ -17,6 +17,6 @@ int main(void)
     assert(rft_get(p+12,3)==0xffffff && p[15]==0);
     p[1]=8;assert(!rft_valid(p));p[1]=0;
     p[2]=2;assert(!rft_valid(p));p[2]=1;
-    p[3]=5;assert(!rft_valid(p));p[3]=0x80;assert(!rft_valid(p));
+    p[3]=7;assert(rft_valid(p));p[3]=0x80;assert(!rft_valid(p));
     puts("Radio test: deadlines, no bursts, long uptime, wire format and invalid packets passed");
 }

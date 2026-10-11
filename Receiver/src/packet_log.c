@@ -39,6 +39,7 @@
 // '#' frames arrived, 'x' frames arrived after lost ones, '.' nothing arrived.
 #include "globals.h"
 #include "packet_log.h"
+#include "radio_gap.h"
 
 #if CONFIG_PACKET_LOG
 
@@ -128,6 +129,7 @@ static struct diag_stat {
 	uint8_t rssi_worst;
 	uint8_t gaps, outages; // silences that lost frames, and those of a second or more
 	uint8_t slots[DIAG_SLOTS];
+	struct radio_gaps tail;
 } diag[MAX_TRACKERS];
 
 static struct diag_gap {
@@ -173,7 +175,10 @@ void packet_log_frame(const uint8_t *frame, uint8_t rssi)
 			d->slots[slot] |= SLOT_LOSS;
 		}
 		d->max_gap_ms = MAX(d->max_gap_ms, MIN(gap, UINT16_MAX));
-		if ((gap >= DIAG_GAP_LOG_MS && lost > 0) || lost < 0) {
+		radio_gap_record(&d->tail, (uint32_t)MIN(gap, UINT32_MAX));
+		/* A silence is harmful even when the tracker did not submit anything.
+		 * Sequence-loss-only logging hid precisely those missed-beacon gaps. */
+		if (gap >= DIAG_GAP_LOG_MS || lost < 0) {
 			if (lost < 0 && d->outages < UINT8_MAX)
 				d->outages++;
 			else if (lost > 0 && d->gaps < UINT8_MAX)
@@ -395,6 +400,9 @@ static void diag_report(uint8_t stored)
 			LOG_INF("diag id %d: rx %u, lost %u (%u.%u%%), dup %u, late %u, max gap %u ms, RSSI -%u (worst -%u) |%s|%s",
 				id, d.rx, d.lost, pm / 10, pm % 10, d.dup, d.late, d.max_gap_ms, rssi_avg, rssi_worst,
 				slots, id < stored ? "" : " (not stored)");
+			LOG_INF("diag tails id %d: ge50=%u ge100=%u ge200=%u ge400=%u ge1000=%u max_ms=%u silence_ms=%lld",
+				id,d.tail.ge50,d.tail.ge100,d.tail.ge200,d.tail.ge400,d.tail.ge1000,
+				d.tail.max_ms,k_uptime_get()-d.last_time);
 		}
 	}
 

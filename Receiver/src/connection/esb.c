@@ -88,6 +88,7 @@ static struct tdma_rx_stats {
 
 static struct radio_test_stats {
 	uint32_t generated, skipped, late, submitted, replaced, acked, failed, errors, hz;
+	uint32_t beacons, holdover, empty, missed_beacons, unsynced, retained;
 	int64_t heard;
 	uint8_t flags, kinds;
 } radio_test_rx[TDMA_SLOTS];
@@ -103,6 +104,9 @@ static void radio_test_receive(const uint8_t *p)
 	case 2: s->submitted=a; s->replaced=b; break;
 	case 3: s->acked=a; s->failed=b; break;
 	case 4: s->errors=a; s->hz=b; break;
+	case 5: s->beacons=a; s->holdover=b; break;
+	case 6: s->empty=a; s->missed_beacons=b; break;
+	case 7: s->unsynced=a; s->retained=b; break;
 	default: break;
 	}
 }
@@ -138,6 +142,9 @@ void esb_tdma_status(void)
 			printk("rftest id %u: generated=%u skipped=%u late=%u submitted=%u replaced=%u acked=%u failed=%u errors=%u hz=%u confirmed=%u imu=%u kinds=%02x age_ms=%lld\n",
 				i,t.generated,t.skipped,t.late,t.submitted,t.replaced,t.acked,t.failed,t.errors,t.hz,
 				!!(t.flags&RFT_CONFIRMED),!!(t.flags&RFT_IMU_WORKLOAD),t.kinds,k_uptime_get()-t.heard);
+		if (t.kinds & 0xe0)
+			printk("rfrecover id %u: beacons=%u holdover=%u empty=%u missed_beacons=%u unsynced=%u retained=%u\n",
+				i,t.beacons,t.holdover,t.empty,t.missed_beacons,t.unsynced,t.retained);
 	}
 #else
 	printk("tdma: disabled (legacy ESB)\n");
@@ -336,10 +343,12 @@ void event_handler(struct esb_evt const *event)
 #else
 						tdma_now();
 #endif
-					int64_t phase = received - tdma_epoch - TDMA_FIRST_SLOT_US - id * TDMA_SLOT_US;
+					/* A skipped beacon does not move the grid. Fold timestamp into
+					 * the current nominal frame before computing this slot phase. */
+					int64_t elapsed = received - tdma_epoch;
+					int64_t phase = elapsed % TDMA_FRAME_US - TDMA_FIRST_SLOT_US - id * TDMA_SLOT_US;
 					struct tdma_rx_stats *r = &tdma_rx[id];
-					/* Callback timing after the ACK, not a hardware RX-END capture.
-					 * An out-of-slot count may indicate legacy TX or scheduling jitter. */
+					/* Hardware CRCOK time when enabled; otherwise callback time. */
 					int32_t p = (int32_t)CLAMP(phase, INT32_MIN, INT32_MAX);
 					if (!r->count || p < r->min_us) r->min_us = p;
 					if (!r->count || p > r->max_us) r->max_us = p;
@@ -847,7 +856,7 @@ static void tdma_start(void)
 	tdma_tx_mode = false;
 	tdma_inflight = false;
 	tdma_epoch_valid = false;
-	tdma_next = tdma_now() + TDMA_FRAME_US;
+	tdma_next = tdma_now() + TDMA_HOLDOVER_US + TDMA_FRAME_US;
 	LOG_INF("TDMA v1: 8 slots / 10 ms, beacon pipe 2, OTA transfer pauses beacons");
 	if (stored_trackers > TDMA_SLOTS)
 		LOG_WRN("TDMA supports only tracker IDs 0-7");
@@ -872,7 +881,7 @@ static void tdma_service(void)
 		ota_radio_paused = false;
 		tdma_inflight = false;
 		tdma_mode(false);
-		tdma_next = now + TDMA_FRAME_US;
+		tdma_next = now + TDMA_HOLDOVER_US + TDMA_FRAME_US;
 		return;
 	}
 	k_spinlock_key_t control_key = k_spin_lock(&control_lock);
@@ -904,19 +913,29 @@ static void tdma_service(void)
 		tdma_mode(false);
 		return;
 	}
+	if (IS_ENABLED(CONFIG_RADIO_TDMA_HW) && control.mode == RC_TDMA) {
+		uint32_t before = tdma_serial;
+		tdma_grid_advance(&tdma_next, &tdma_serial, now + 80);
+		tdma_late += tdma_serial - before;
+		if (tdma_serial != before && tdma_tx_mode)
+			tdma_mode(false); /* stay receptive during a skipped beacon frame */
+	}
 	if (now < tdma_next - TDMA_PREPARE_US) return;
 	if (!tdma_tx_mode && tdma_mode(true)) return;
 	now = tdma_now();
 	if (!IS_ENABLED(CONFIG_RADIO_TDMA_HW) && now < tdma_next) return;
 	struct esb_payload p = {.pipe = TDMA_BEACON_PIPE,
 		.length = TDMA_BEACON_LEN + RC_LEN, .noack = true};
-	tdma_make_beacon(p.data, tdma_serial++);
+	if (IS_ENABLED(CONFIG_RADIO_TDMA_HW) && control.mode == RC_TDMA)
+		tdma_make_grid_beacon(p.data, tdma_serial++);
+	else
+		tdma_make_beacon(p.data, tdma_serial++);
 	rc_encode(p.data + TDMA_BEACON_LEN, &control);
 	atomic_clear(&tdma_done);
 	/* Manual PTX: queue first, then timestamp and start without preemption. */
 	if (esb_write_payload(&p)) {
 		tdma_errors++;
-		tdma_next = now + TDMA_FRAME_US;
+		tdma_next += TDMA_FRAME_US;
 		tdma_mode(false);
 		return;
 	}
@@ -932,12 +951,13 @@ static void tdma_service(void)
 	uint32_t late = (uint32_t)(tdma_submitted - tdma_next);
 	if (late > TDMA_START_WINDOW_US) tdma_late++;
 	if (late > tdma_max_late) tdma_max_late = late;
-	tdma_next = control.mode == RC_TDMA ? tdma_next_beacon(tdma_next, tdma_submitted) :
+	tdma_next = control.mode == RC_TDMA ?
+		(IS_ENABLED(CONFIG_RADIO_TDMA_HW) ? tdma_next + TDMA_FRAME_US : tdma_next_beacon(tdma_next, tdma_submitted)) :
 		tdma_submitted + RC_LEGACY_BEACON_US;
 	if (err) {
 		if (err == -ETIME) tdma_late++;
 		else tdma_errors++;
-		tdma_next = tdma_now() + TDMA_FRAME_US;
+		/* The already-advanced deadline stays on the original grid. */
 		tdma_inflight = false;
 		tdma_mode(false);
 	}

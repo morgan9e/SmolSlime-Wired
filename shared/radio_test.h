@@ -9,7 +9,9 @@
 #define RFT_IMU_WORKLOAD 0x10
 /* 21 bytes: type,id,version,kind|flags,generated32,value32,value24,RSSI,CRC32,seq8.
  * Kind 0: uptime us, PRNG; 1: generator skips, TDMA skips;
- * 2: submitted, replaced; 3: acknowledged, failed; 4: API errors, target Hz.
+ * 2: submitted, replaced; 3: acknowledged, failed; 4: API errors, target Hz;
+ * 5: beacons, holdover TX; 6: empty slots, missed beacons;
+ * 7: unsynchronized pending frames, retained failed updates.
  * Values are cumulative, the 24-bit values wrap. Kind snapshots arrive separately.
  */
 static inline void rft_put(uint8_t *p, uint32_t v, unsigned n)
@@ -31,5 +33,5 @@ static inline void rft_encode(uint8_t *p,uint8_t id,uint8_t kind,uint8_t flags,
     rft_put(p+4,generated,4);rft_put(p+8,a,4);rft_put(p+12,b,3);p[15]=0;
 }
 static inline bool rft_valid(const uint8_t *p)
-{ return p[0]==RFT_TYPE && p[1]<8 && p[2]==RFT_VERSION && (p[3]&7)<5 && !(p[3]&0xe0); }
+{ return p[0]==RFT_TYPE && p[1]<8 && p[2]==RFT_VERSION && !(p[3]&0xe0); }
 #endif
