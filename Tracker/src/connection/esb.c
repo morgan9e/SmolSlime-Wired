@@ -60,6 +60,7 @@ static bool esb_paired = false;
 #if CONFIG_RADIO_TDMA
 #include "radio_tdma.h"
 #include "radio_control.h"
+#include "radio_test.h"
 BUILD_ASSERT(sizeof(((struct esb_payload *)0)->data) >= TDMA_BEACON_LEN + RC_LEN,
 	"Radio control needs a 24-byte beacon payload");
 BUILD_ASSERT(CONFIG_SYS_CLOCK_TICKS_PER_SEC >= 32768, "TDMA requires a fine system clock");
@@ -82,6 +83,40 @@ static int64_t tdma_now(void)
 {
 	return k_ticks_to_us_floor64(k_uptime_ticks());
 }
+
+#if CONFIG_RADIO_TEST
+static int64_t test_next;
+static uint32_t test_generated, test_skipped, test_random = 0x73f128ab;
+static void radio_test_generate(void)
+{
+	if (!esb_ready() || ota_active()) { test_next = 0; return; }
+	int64_t now = tdma_now();
+	const uint32_t period = 1000000 / CONFIG_RADIO_TEST_HZ;
+	if (!test_next) test_next = now + 1 + (paired_addr[1] * 1103u) % period;
+	if (!rft_due(now, &test_next, period, &test_skipped)) return;
+	uint8_t data[21] = {0};
+	uint8_t kind = test_generated % 5;
+	uint32_t a, b;
+	k_spinlock_key_t key = k_spin_lock(&tdma_lock);
+	switch (kind) {
+	case 1: a=test_skipped; b=tdma_late; break;
+	case 2: a=tdma_sent; b=tdma_replaced; break;
+	case 3: a=tdma_acked; b=tdma_failed; break;
+	case 4: a=tdma_errors; b=CONFIG_RADIO_TEST_HZ; break;
+	default:
+		test_random ^= test_random << 13; test_random ^= test_random >> 17; test_random ^= test_random << 5;
+		a=(uint32_t)now; b=test_random; break;
+	}
+	uint8_t flags = (ota_image_confirmed() ? RFT_CONFIRMED : 0) |
+		(IS_ENABLED(CONFIG_RADIO_TEST_IMU_WORKLOAD) ? RFT_IMU_WORKLOAD : 0);
+	rft_encode(data,paired_addr[1],kind,flags,++test_generated,a,b);
+	rft_put(data+16,crc32_k_4_2_update(0x93a409eb,data,16),4);
+	if (tdma_pending) tdma_replaced++;
+	memcpy(tdma_data,data,sizeof(data));
+	tdma_pending=true;
+	k_spin_unlock(&tdma_lock,key);
+}
+#endif
 
 static void tdma_receive_beacon(const struct esb_payload *p)
 {
@@ -813,6 +848,7 @@ static void tdma_start(void)
 
 void esb_write(uint8_t *data)
 {
+	if (IS_ENABLED(CONFIG_RADIO_TEST)) return;
 	if (!esb_initialized || !esb_paired)
 		return;
 	if (ota_active()) return;
@@ -880,6 +916,9 @@ static void esb_thread(void)
 			set_status(SYS_STATUS_CONNECTION_ERROR, false);
 		}
 #if CONFIG_RADIO_TDMA
+		#if CONFIG_RADIO_TEST
+		radio_test_generate();
+		#endif
 		tdma_service();
 		k_usleep(100);
 #else

@@ -382,8 +382,30 @@ config RADIO_TDMA
     help
         Eight fixed slots per 10 ms frame, assigned by paired tracker ID (0-7).
         Requires matching firmware on the receiver and all trackers. No legacy
-        fallback when beacons are absent. Radio OTA transfers are disabled in
-        this first prototype; USB/MCUboot recovery and confirmation remain.
+        fallback when beacons are absent. Firmware OTA temporarily takes over
+        the radio; MCUboot recovery and confirmation remain available.
         Keeps the tracker radio listening and HFXO on: higher battery use.
+
+config RADIO_TEST
+    bool "Synthetic radio diagnostics instead of body tracking"
+    depends on RADIO_TDMA && TRACKER_OTA
+    default n
+    help
+        Generate fixed-rate 21-byte diagnostic packets, preserving pairing and
+        firmware OTA. The receiver must support radio_test.h diagnostics.
+
+config RADIO_TEST_HZ
+    int "Synthetic packet generation rate"
+    depends on RADIO_TEST
+    range 1 100
+    default 100
+
+config RADIO_TEST_IMU_WORKLOAD
+    bool "Keep sensor/fusion workload during synthetic radio test"
+    depends on RADIO_TEST
+    default n
+    help
+        Keep sensors active but discard their output. Off shuts sensors down
+        after discovery and never starts the sensor/fusion loop.
 
 source "Kconfig.zephyr"

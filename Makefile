@@ -138,12 +138,18 @@ tdma-tracker-xiao:
 tdma-receiver:
 	$(MAKE) receiver PRISTINE=always BUILD="$(BUILD)/tdma" DIST="$(DIST)/tdma" RECEIVER_EXTRA_CONF="$(ROOT)/Receiver/tdma.conf"
 
+.PHONY: radio-test-tracker
+radio-test-tracker:
+	$(MAKE) tracker-ota BUILD="$(BUILD)/radio-test" DIST="$(DIST)/radio-test" TRACKER_EXTRA_CONF="$(ROOT)/Tracker/radio_test.conf"
+
 test-tdma:
 	@mkdir -p "$(BUILD)/tests"
 	$(CC) -std=c11 -Wall -Wextra -Werror -pedantic -I"$(ROOT)/shared" "$(ROOT)/tests/test_radio_tdma.c" -o "$(BUILD)/tests/test_radio_tdma"
 	"$(BUILD)/tests/test_radio_tdma"
 
 test: test-tdma
+	$(CC) -std=c11 -Wall -Wextra -Werror -pedantic -I"$(ROOT)/shared" "$(ROOT)/tests/test_radio_test.c" -o "$(BUILD)/tests/test_radio_test"
+	"$(BUILD)/tests/test_radio_test"
 	$(CC) -std=c11 -Wall -Wextra -Werror -pedantic -I"$(ROOT)/shared" "$(ROOT)/tests/test_radio_control.c" -o "$(BUILD)/tests/test_radio_control"
 	"$(BUILD)/tests/test_radio_control"
 	cd "$(ROOT)/tools" && python3 -m unittest test_slime_link

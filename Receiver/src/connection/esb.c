@@ -58,6 +58,7 @@ K_THREAD_DEFINE(esb_packet_filter_thread_id, 256, esb_packet_filter_thread, NULL
 #if CONFIG_RADIO_TDMA
 #include "radio_tdma.h"
 #include "radio_control.h"
+#include "radio_test.h"
 #include <zephyr/random/random.h>
 BUILD_ASSERT(sizeof(((struct esb_payload *)0)->data) >= TDMA_BEACON_LEN + RC_LEN,
 	"Radio control needs a 24-byte beacon payload");
@@ -82,6 +83,27 @@ static struct tdma_rx_stats {
 	int32_t last_us, min_us, max_us;
 } tdma_rx[TDMA_SLOTS];
 
+static struct radio_test_stats {
+	uint32_t generated, skipped, late, submitted, replaced, acked, failed, errors, hz;
+	int64_t heard;
+	uint8_t flags, kinds;
+} radio_test_rx[TDMA_SLOTS];
+
+static void radio_test_receive(const uint8_t *p)
+{
+	struct radio_test_stats *s = &radio_test_rx[p[1]];
+	uint32_t generated=rft_get(p+4,4), a=rft_get(p+8,4), b=rft_get(p+12,3);
+	if (generated < s->generated) memset(s,0,sizeof(*s)); /* reboot */
+	s->generated=generated; s->flags=p[3]; s->heard=k_uptime_get(); s->kinds|=1u<<(p[3]&7);
+	switch(p[3]&7) {
+	case 1: s->skipped=a; s->late=b; break;
+	case 2: s->submitted=a; s->replaced=b; break;
+	case 3: s->acked=a; s->failed=b; break;
+	case 4: s->errors=a; s->hz=b; break;
+	default: break;
+	}
+}
+
 static int64_t tdma_now(void)
 {
 	return k_ticks_to_us_floor64(k_uptime_ticks());
@@ -97,10 +119,15 @@ void esb_tdma_status(void)
 	for (unsigned i = 0; i < TDMA_SLOTS; i++) {
 		unsigned key = irq_lock();
 		struct tdma_rx_stats r = tdma_rx[i];
+		struct radio_test_stats t = radio_test_rx[i];
 		irq_unlock(key);
 		if (r.count)
 			printk("tdma id %u: rx=%u outside=%u phase_us last=%d min=%d max=%d\n",
 				i, r.count, r.outside, r.last_us, r.min_us, r.max_us);
+		if (t.kinds)
+			printk("rftest id %u: generated=%u skipped=%u late=%u submitted=%u replaced=%u acked=%u failed=%u errors=%u hz=%u confirmed=%u imu=%u kinds=%02x age_ms=%lld\n",
+				i,t.generated,t.skipped,t.late,t.submitted,t.replaced,t.acked,t.failed,t.errors,t.hz,
+				!!(t.flags&RFT_CONFIRMED),!!(t.flags&RFT_IMU_WORKLOAD),t.kinds,k_uptime_get()-t.heard);
 	}
 #else
 	printk("tdma: disabled (legacy ESB)\n");
@@ -343,6 +370,15 @@ void event_handler(struct esb_evt const *event)
 					discovered_trackers[imu_id]++;
 					continue;
 				}
+#if CONFIG_RADIO_TDMA
+				if (rx_payload.length == 21 && rft_valid(rx_payload.data)) {
+					k_spinlock_key_t key = k_spin_lock(&control_lock);
+					rc_seen(&radio_presence, imu_id, k_uptime_get());
+					radio_test_receive(rx_payload.data);
+					k_spin_unlock(&control_lock, key);
+					break; /* diagnostics only: never put test data in SlimeVR HID */
+				}
+#endif
 				if (rx_payload.data[0] > 223) // reserved for receiver only
 					break;
 #if CONFIG_RADIO_TDMA

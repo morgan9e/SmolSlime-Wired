@@ -45,6 +45,8 @@ LOG_MODULE_REGISTER(ota, LOG_LEVEL_INF);
 /* ---- self-confirm of a new image ---- */
 
 static atomic_t acked;
+static atomic_t image_confirmed;
+bool ota_image_confirmed(void) { return atomic_get(&image_confirmed); }
 static K_SEM_DEFINE(confirm_sem, 0, 1);
 
 void ota_tx_acked(void)
@@ -58,8 +60,10 @@ void ota_tx_acked(void)
 // boots but cannot track or reach the receiver is rolled back.
 static void ota_confirm_thread(void)
 {
-	if (boot_is_img_confirmed())
+	if (boot_is_img_confirmed()) {
+		atomic_set(&image_confirmed, 1);
 		return;
+	}
 	if (CONFIG_TRACKER_OTA_CONFIRM_ACKS == 0) {
 		LOG_WRN("New image, never confirmed (TRACKER_OTA_CONFIRM_ACKS=0): the next reboot rolls back");
 		return;
@@ -70,8 +74,10 @@ static void ota_confirm_thread(void)
 	int err = boot_write_img_confirmed();
 	if (err)
 		LOG_ERR("Confirming the image failed: %d", err);
-	else
+	else {
+		atomic_set(&image_confirmed, 1);
 		LOG_INF("Image confirmed");
+	}
 }
 
 // Its own stack: the flash write needs more than the system workqueue has.

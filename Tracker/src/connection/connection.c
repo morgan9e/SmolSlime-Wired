@@ -479,6 +479,7 @@ static int64_t last_status2_time = 0;
 
 void connection_thread(void)
 {
+	if (IS_ENABLED(CONFIG_RADIO_TEST)) return; /* generator owns all data traffic */
 	uint8_t data_copy[21];
 	// TODO: checking for connection_update events from sensor_loop, here we will time and send them out
 	while (1)
