@@ -28,9 +28,14 @@ cleanup. The complete original memory is preserved in the
 `https://github.com/morgan9e/SmolSlime-mod`. The old `SlimeVR-Hub` path and
 `SmolSlime-Wired` remote in archived notes are historical.
 
-The latest recorded installations are all seven ProMicros on hardware-timed
-radio-only 0.0.29 and receiver 0.0.29; E4 remains last-known 0.0.19.
-See the current experiment below and [hardware identification](HARDWARE.md).
+The latest recorded installations (2026-10-11 ~18:52 KST) are radio-only test
+firmware that sends **no body poses**: 8A and 91 on confirmed 0.0.30, 7A with
+0.0.30 transferred but boot unverified, 59/C8/20/78 on 0.0.29; receiver 0.0.29;
+E4 last-known 0.0.19. The 0.0.30 rollout stopped when the receiver disconnected.
+The user then asked to roll back to stock tracker/receiver behaviour while keeping
+custom OTA; **that rollback has not been done**. Full record:
+[session 2026-10-10/11](SESSION-2026-10-10-11.md). See also
+[hardware identification](HARDWARE.md).
 These are observations, not a live inventory; verify by device address.
 
 Radio updates, MCUboot swap/rollback, and several refusal/abort cases were tested.
@@ -156,6 +161,10 @@ establish improved reception or range. User identifies ID 7 as the left foot.
 
 ## Next work
 
+0. Pending user request: roll back to stock tracker and receiver behaviour with
+   custom OTA retained (all trackers powered; E4 needs USB). Until then, judge any
+   radio change by per-tracker gaps ≥400 ms, not average packet rate; see the
+   [session record](SESSION-2026-10-10-11.md).
 1. Separate missed-beacon, pending-buffer and delivery failures in the current
    hardware-timed radio-only test, especially on 91. Investigate the transition
    timing anomalies. Keep placement/power/background traffic fixed.

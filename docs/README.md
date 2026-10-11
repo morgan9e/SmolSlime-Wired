@@ -12,6 +12,7 @@ Start with the [project README](../README.md) for everyday use or the
 | [PC tools](TOOLS.md) | Monitoring, viewer, console and utility usage |
 | [Protocol reference](PROTOCOL.md) | Local packet layouts and where to verify them |
 | [Testing](TESTING.md) | Reproducible link tests and outstanding hardware validation |
+| [Session record 2026-10-10/11](SESSION-2026-10-10-11.md) | Full chronology, all measurements, firmware ledger and last device state of the TDMA/OTA session |
 | [Receiver placement](RECEIVER_PLACEMENT.md) | Conditional plan; no Quest/USB-host implementation is claimed |
 | [Archive](archive/README.md) | Original notes, measurements and superseded Quest drafts |
 
