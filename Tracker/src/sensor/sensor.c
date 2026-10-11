@@ -203,6 +203,12 @@ void sensor_scan_thread(void)
 
 		err = sensor_scan(); // on POR, the sensor may not be ready yet
 	}
+	if (IS_ENABLED(CONFIG_RADIO_TEST) && !IS_ENABLED(CONFIG_RADIO_TEST_IMU_WORKLOAD)) {
+		/* Keep SPI/driver calls on this 1024-byte worker, not the 256-byte
+		 * sensor_request_scan startup thread that waits for us. */
+		if (mag_available) sensor_mag->shutdown();
+		if (sensor_sensor_init) sensor_imu->shutdown();
+	}
 	sys_interface_suspend();
 //	if (err)
 //		return err;
@@ -404,11 +410,6 @@ int sensor_request_scan(bool force)
 	k_thread_create(&sensor_thread_id, sensor_thread_id_stack, K_THREAD_STACK_SIZEOF(sensor_thread_id_stack), (k_thread_entry_t)sensor_scan_thread, NULL, NULL, NULL, SENSOR_SCAN_THREAD_PRIORITY, 0, K_NO_WAIT);
 	k_thread_join(&sensor_thread_id, K_FOREVER); // wait for the thread to finish
 	if (IS_ENABLED(CONFIG_RADIO_TEST) && !IS_ENABLED(CONFIG_RADIO_TEST_IMU_WORKLOAD)) {
-		/* A CPU reset need not reset the powered IMU. Explicitly stop its ODRs. */
-		sys_interface_resume();
-		if (mag_available) sensor_mag->shutdown();
-		if (sensor_sensor_init) sensor_imu->shutdown();
-		sys_interface_suspend();
 		LOG_INF("Radio test: sensors shut down, fusion loop disabled");
 		return !sensor_sensor_init;
 	}
