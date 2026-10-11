@@ -239,7 +239,7 @@ bounded interrupt latency; software cannot guarantee that bound under every load
 The host simulation exercises a 100 microsecond per-endpoint skew assumption,
 missed beacons, delayed wakeups, invalid IDs and serial wrap. It does not establish
 hardware latency, RF delivery or battery life. Hardware capture, sleeping between
-beacons, reserved retries, radio OTA and allocations beyond eight IDs remain
+beacons, reserved retries and allocations beyond eight IDs remain
 follow-up work.
 
 This can remove collisions between cooperating trackers. It cannot repair antenna
@@ -268,3 +268,29 @@ and receiver `tdma.h` allocator remain dormant and are not started by this mode.
 Build logs are local ignored files: `dist/tdma-final-build.log`,
 `dist/tdma-review-build.log`, and `dist/tdma-legacy-build.log`. No devices were
 flashed and no radio or battery tests were run for this implementation.
+
+## OTA restoration hardware checks, 2026-10-11
+
+Receiver 0.0.24 and tracker 0.0.21 or later restore firmware OTA in TDMA
+builds. Installed 0.0.18/0.0.19 trackers need one USB repair using the combined
+`_OTA.uf2`; changing the receiver alone cannot restore their offer handler.
+Tracker 0.0.25 also removes a persistent offer cache that incorrectly suppressed
+retries when the receiver rebooted and reused its session number.
+
+On test tracker **8A** (`628DCFC6318A`), a real radio transfer from 0.0.21 to
+0.0.22 completed in 27 seconds. Its USB console then verified the new version,
+MCUboot confirmation and resumed TDMA lock. A wrong-board offer was refused.
+A partial transfer stopped after 3,052 requested bytes timed out on the tracker;
+the confirmed 0.0.22 image remained installed and TDMA resumed. A second full
+radio transfer to 0.0.25 completed in 28 seconds, and its version appeared in
+receiver diagnostics. These checks do not establish range or battery behavior.
+
+The receiver's one-entry ACK FIFO required special handling: `esb_flush_tx()`
+returns busy during PRX, so flushing in the receive callback did not remove the
+old offer. The receiver worker now reinitializes PRX once at transfer takeover,
+then leaves it running to preserve queued firmware chunks.
+
+Local receipts: `dist/0.0.22/ota-receiver24-retry.log`,
+`dist/0.0.22/8A-after-ota.txt`, `dist/0.0.22/abort-check.txt`, and
+`dist/0.0.25/8A-ota.txt`. Protocol, deadline, eight-tracker simulation and all
+seven Python link-tool tests passed after the retry fix.

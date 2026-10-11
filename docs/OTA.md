@@ -11,6 +11,13 @@ The chosen design is MCUboot with rollback and unsigned images. MCUboot checks a
 image SHA-256 and the tracker checks transfer CRC32; these detect corruption but
 do not authenticate the sender. Tracking pauses during transfer.
 
+For experimental TDMA builds, use receiver 0.0.24 or later and tracker 0.0.25
+or later. Old 0.0.18/0.0.19 TDMA tracker installations disabled the OTA offer
+handler and require one USB repair with the combined `_OTA.uf2`. After repair,
+offers arrive in tracking ACKs; transfer temporarily takes over the radio and
+pauses TDMA beacons. Tracking resumes after completion or timeout. See the
+[TDMA hardware receipts](TDMA.md#ota-restoration-hardware-checks-2026-10-11).
+
 ## Choose the right file
 
 | File | Use |

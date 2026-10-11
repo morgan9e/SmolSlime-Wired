@@ -64,9 +64,32 @@ the charge estimate still lack recorded hardware validation.
 The user requested initial TDMA code. An opt-in receiver-beacon scheduler now
 assigns eight 1 ms slots in a nominal 10 ms frame. See [TDMA](TDMA.md) for isolated
 build targets, diagnostics, software timing limits and acceptance tests. Ordinary
-builds remain legacy ESB. The prototype keeps HFXO/RX active, uses no retries, and
-requires USB firmware updates. This work did not flash hardware; it does not
+builds remain legacy ESB. The prototype keeps HFXO/RX active and uses no retries
+for tracking. Later hardware checks are recorded in [TDMA](TDMA.md); they do not
 establish improved reception or range. User identifies ID 7 as the left foot.
+
+### OTA repair in progress, 2026-10-11
+
+- User-facing tracker names must use the last two hexadecimal address characters:
+  7A, 91, 59, C8, 20, 8A (test unit), 78; XIAO E4 is excluded for now.
+- User requested OTA restoration and a temporary bypass of idle suppression.
+  `bench on/off/status` now controls a volatile sensor-test mode, off after reboot.
+  It requires the tracker USB console and does not change TDMA scheduling.
+- Receiver 0.0.24 is installed. 8A was USB-repaired to 0.0.21, then successfully
+  updated by radio to 0.0.22 with MCUboot confirmation. Wrong-board refusal and
+  interrupted-transfer recovery were verified. A second radio transfer to 0.0.25
+  completed, and receiver diagnostics reported that version; its final USB image
+  confirmation remains to be checked after hub recovery.
+- 0.0.25 removes an offer cache that blocked retries after receiver session reuse.
+  Source commit: `4de1a01`. Images: `dist/0.0.25/tdma/`.
+- The other six ProMicros still need a one-time USB repair from 0.0.19 using
+  the combined MCUboot UF2; their installed code cannot receive OTA offers.
+  E4 remains excluded. Do not claim fleet deployment or enable bench testing
+  until each device's version and confirmation have been checked.
+- The hub disappeared during this work, returned with six tracker ports and a
+  Windows USB port-reset error, then tracker console reads stalled before the
+  next flash. No new USB flash was started on 7A. User was asked to reconnect
+  the hub. Re-enumerate devices by serial/address before continuing.
 
 ## Next work
 
