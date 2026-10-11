@@ -1,5 +1,14 @@
 # Synthetic ESB test
 
+Use diagnostic tracker **0.0.27** with receiver **0.0.26** or later. Do not deploy
+the initial 0.0.26 tracker image: the first hardware attempt did not remain on
+that image and 8A returned to confirmed 0.0.25. A likely stack problem was fixed
+by moving sensor-shutdown I/O from the 256-byte startup thread to the 1 KB sensor
+worker. The original failing boot log was not captured, so the precise original
+fault is not proven. 0.0.27 subsequently booted and confirmed over OTA, and an
+OTA return to normal 0.0.25 booted and confirmed too. USB was used only for serial
+diagnostics on 8A during these subsequent checks.
+
 `make radio-test-tracker` builds a ProMicro MCUboot diagnostic image under
 `dist/radio-test/`. It generates one ordinary-sized 21-byte ESB packet per 10 ms
 deadline in both runtime modes. Late generator deadlines are counted and skipped,
@@ -42,3 +51,9 @@ Capture serial diagnostics and counter snapshots, verify `confirmed=1 imu=0
 hz=100 kinds=1f`, and compare time windows instead of just whole-run averages.
 Single-transmitter tests require other transmitters off; a diagnostic image does
 not silently disable unrelated trackers. XIAO remains excluded from this rollout.
+
+`python tools/radio_test.py` captures three 30-second stages with beeps, raw serial
+chunks, per-interval receive diagnostics and transmitter counter snapshots. It
+verifies the currently active devices before starting. If an unmodified tracker
+cannot be turned off, `--background E4` explicitly permits and records that
+background traffic; such a run is not an isolated all-synthetic radio test.

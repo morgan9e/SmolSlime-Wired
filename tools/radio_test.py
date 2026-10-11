@@ -33,6 +33,7 @@ def main():
     ap.add_argument('--duration', type=float, default=30)
     ap.add_argument('--modes', nargs='+', choices=['tdma', 'legacy'], default=['tdma', 'legacy', 'tdma'])
     ap.add_argument('--output', type=Path)
+    ap.add_argument('--background', nargs='*', default=[], help='Address suffixes of explicitly allowed, unmodified background trackers; recorded as a confound')
     args = ap.parse_args()
     if args.duration <= 0:
         ap.error('duration must be positive')
@@ -93,9 +94,12 @@ def main():
                 fields = dict(re.findall(r'(\w+)=(\w+)', m[2]))
                 if fields.get('confirmed') == '1' and fields.get('imu') == '0' and fields.get('hz') == '100' and fields.get('kinds') == '1f' and int(fields['age_ms']) < 1500:
                     ready |= 1 << int(m[1])
-        if not mask or mask & ~ready:
+        background = sum(1 << i for i,name in names.items() if name in [x.upper() for x in args.background])
+        if not mask & ready or mask & ~(ready | background):
             raise RuntimeError(f'Active mask {mask:02x}, confirmed 100 Hz radio-only mask {ready:02x}; finish rollout/turn off other transmitters first')
-        (folder/'setup.json').write_text(json.dumps(dict(active_mask=mask, names=names, modes=args.modes, duration=args.duration), indent=2))
+        if mask & background:
+            print('BACKGROUND TRAFFIC', [name for i,name in names.items() if mask & background & (1 << i)], flush=True)
+        (folder/'setup.json').write_text(json.dumps(dict(active_mask=mask, background_mask=mask & background, names=names, modes=args.modes, duration=args.duration), indent=2))
         with (folder/'intervals.csv').open('w',newline='') as df, (folder/'counters.csv').open('w',newline='') as tf:
             dw=csv.writer(df);dw.writerow(['stage','t','tracker','rx','lost','loss_pct','duplicates','late','max_gap_ms','rssi','worst_rssi'])
             tw=csv.writer(tf);tw.writerow(['stage','t','tracker','generated','skipped','late','submitted','replaced','acked','failed','errors','hz','confirmed','imu','kinds','age_ms'])
