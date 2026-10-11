@@ -4,7 +4,7 @@ This is an opt-in implementation for the nRF52840 ProMicro, XIAO Sense and Nordi
 dongle. It schedules tracking transmissions instead of letting every tracker
 transmit immediately. The original 0.0.18 prototype passed a basic eight-tracker
 USB/radio smoke test, but showed frequent late slot skips; range improvement is
-not established. The wireless mode-control extension has the limited 0.0.19
+not established. The wireless mode-control extension has the limited 0.0.19/0.0.20
 hardware checks recorded below. Default builds keep the existing ESB behavior.
 
 ## Wireless mode control (experimental)
@@ -31,8 +31,7 @@ roll the receiver back and advertise the old mode again. `radio cancel` also
 returns to the old mode. The required snapshot stays fixed during the transaction: a selected tracker
 that disappears still causes timeout/rollback; late joiners follow the advertised
 mode without becoming required. The console shows paired, active and offline masks.
-Pairing-table
-changes cancel an in-progress transaction. Replies are checked against token,
+Pairing-table changes cancel an in-progress transaction. Replies are checked against token,
 phase, modes and required mask; duplicate replies cannot satisfy another ID.
 
 The receiver is authoritative: it repeats a 12-byte control message in tracking
@@ -74,6 +73,18 @@ The eight-slot geometry is unchanged; an absent tracker leaves its slot empty.
 Presence is recent reception, not proof that a tracker is powered off. A tracker
 blocked by interference for five seconds can be excluded and must recover through
 the normal beacons/ACKs when reception returns.
+
+### 0.0.20 receiver check — 2026-10-11 (KST)
+
+Receiver commit `2547976`, tagged `0.0.20`, was built and flashed; trackers remain
+on 0.0.19. Both TDMA → legacy and legacy → TDMA completed with `result=success`,
+`ready=ff`, `arrived=ff`, and `missing=00`. The receiver was left in TDMA and all
+eight pairings were retained. XIAO was absent from USB but still active over radio,
+so these were eight-tracker transitions. Offline selection/expiry and a fixed
+seven-tracker snapshot passed software tests; a seven-tracker hardware transition
+and late-join recovery remain untested. Receipts: `dist/0.0.20/`.
+
+ID 4's previously pending USB check also completed: 0.0.19, MCUboot confirmed.
 
 ### 0.0.19 installation check — 2026-10-11 (KST)
 
