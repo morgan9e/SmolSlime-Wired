@@ -36,6 +36,14 @@ class MonitorTest(unittest.TestCase):
         self.assertEqual((link.batt_pct, link.batt_v), (80, 3.70))
         self.assertEqual(link.gaps, 0)
 
+    def test_device_info_firmware(self):
+        m = Monitor()
+        p = bytearray(packet(0, 1, rssi=50, batt=90))
+        d = (2026 - 2020) << 9 | 10 << 5 | 10  # 2026-10-10
+        p[10], p[11], p[12], p[13], p[14] = d & 255, d >> 8, 0, 1, 2
+        m.report(0, report(bytes(p)), 0.0)
+        self.assertEqual(m.links[(0, 1)].fw, '0.1.2 2026-10-10')
+
     def test_rotation_packets_do_not_carry_rssi(self):
         m = Monitor()
         m.report(0, report(packet(1, 0), packet(4, 0)), 0.0)
