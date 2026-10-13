@@ -529,7 +529,13 @@ void sensor_fusion_invalidate(void)
 	}
 }
 
-int sensor_update_time_ms = 6;
+int sensor_update_time_ms = CONFIG_SENSOR_UPDATE_TIME_MS;
+
+// Loop period while moving: the sensor_update_time_ms setting, kept to what the loop handles
+static int sensor_low_noise_update_time_ms(void)
+{
+	return CLAMP(CONFIG_3_SETTINGS_READ(CONFIG_3_SENSOR_UPDATE_TIME_MS), 6, 33);
+}
 
 // TODO: get rid of it.. ?
 static void set_update_time_ms(int time_ms)
@@ -892,7 +898,7 @@ void sensor_loop(void)
 				switch (sensor_mode)
 				{
 				case SENSOR_SENSOR_MODE_LOW_NOISE:
-					set_update_time_ms(6);
+					set_update_time_ms(sensor_low_noise_update_time_ms());
 					LOG_INF("Switching sensors to low noise");
 					break;
 				case SENSOR_SENSOR_MODE_LOW_POWER:
@@ -904,6 +910,12 @@ void sensor_loop(void)
 					LOG_INF("Switching sensors to low power 2");
 					break;
 				};
+			}
+			else if (sensor_mode == SENSOR_SENSOR_MODE_LOW_NOISE && sensor_update_time_ms != sensor_low_noise_update_time_ms())
+			{
+				// The setting changed (write_config): apply it here too, where the FIFO is empty
+				set_update_time_ms(sensor_low_noise_update_time_ms());
+				LOG_INF("Sensor update time %d ms", sensor_update_time_ms);
 			}
 
 			// Suspend devices

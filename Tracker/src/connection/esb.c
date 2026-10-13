@@ -267,7 +267,11 @@ int esb_initialize(bool tx)
 		// config.bitrate = ESB_BITRATE_2MBPS;
 		// config.crc = ESB_CRC_16BIT;
 		config.tx_output_power = CONFIG_2_SETTINGS_READ(CONFIG_2_RADIO_TX_POWER);
-		// config.retransmit_delay = 600;
+		// All trackers share one channel. With the same retransmit delay, two trackers whose frames
+		// collide retry at the same moment and collide again on every attempt, so both lose the
+		// frame. Give each tracker its own delay from its device address: 600 (stock) to 1475 us.
+		uint32_t a = NRF_FICR->DEVICEADDR[0];
+		config.retransmit_delay = 600 + ((a ^ (a >> 8) ^ (a >> 16) ^ (a >> 24)) & 7) * 125;
 		//config.retransmit_count = 0;
 		//config.tx_mode = ESB_TXMODE_MANUAL;
 		// config.payload_length = 32;
