@@ -131,7 +131,7 @@ imu-probe:
 	@echo "-> $(DIST)/SlimeNRF_ProMicro_IMU_Probe.uf2"
 
 test:
-	cd "$(ROOT)/tools" && python3 -m unittest test_slime_link test_quest_bridge
+	cd "$(ROOT)/tools" && python3 -m unittest test_slime_link test_quest_bridge test_remote_config
 
 clean:
 	rm -rf "$(BUILD)"

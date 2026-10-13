@@ -160,6 +160,14 @@ config TRACKER_OTA_CONFIRM_ACKS
     help
         0 never confirms (for testing the rollback).
 
+config TRACKER_REMOTE_CONFIG
+    bool "Settings over the radio"
+    default y
+    help
+        The tracker's settings (list_config) can be read, written and reset from the PC through
+        the receiver (tools/remote_config.py, receiver console "cfg"). Works with or without the
+        MCUboot build. See docs/OTA.md.
+
 config SENSOR_UPDATE_TIME_MS
     int "Sensor loop period while moving (ms)"
     range 6 33

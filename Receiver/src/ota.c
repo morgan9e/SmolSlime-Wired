@@ -22,6 +22,7 @@
 */
 #include "ota.h"
 #include "ota_proto.h"
+#include "remote_config.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -70,6 +71,11 @@ static void stall_fn(struct k_work *work)
 			target, OTA_PROTOCOL);
 }
 static K_WORK_DELAYABLE_DEFINE(stall_work, stall_fn);
+
+bool ota_busy(void)
+{
+	return atomic_get(&state) != OTA_IDLE;
+}
 
 /* ---- radio (ESB event handler, interrupt context) ---- */
 
@@ -182,6 +188,7 @@ void ota_console(int argc, char **argv)
 	const char *cmd = argc > 1 ? argv[1] : "status";
 	if (strcmp(cmd, "begin") == 0 && argc == 6) {
 		// ota begin <size> <crc32 hex> <board crc32 hex> <tracker id>: offer at once, data follows
+		remote_config_cancel(); // the offer takes the ACKs on pipe 1
 		atomic_set(&state, OTA_IDLE);
 		k_work_cancel_delayable(&stall_work);
 		img_size = strtoul(argv[2], NULL, 0);

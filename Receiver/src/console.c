@@ -26,6 +26,7 @@
 #include "parse_args.h"
 #include "packet_log.h"
 #include "ota.h"
+#include "remote_config.h"
 
 #define USB DT_NODELABEL(usbd)
 #if DT_NODE_HAS_STATUS(USB, okay)
@@ -185,6 +186,7 @@ static void print_help(void)
 	printk("\ndiag [on|off]                Log radio link diagnostics every second (off at boot)\n");
 #endif
 	printk("ota [status|stop]            Tracker firmware updates over the radio (tools/ota.py)\n");
+	printk("cfg <id> get|set|reset ...   Tracker settings over the radio (tools/remote_config.py)\n");
 #if DFU_EXISTS
 	printk("\ndfu                          Enter DFU bootloader\n");
 #endif
@@ -302,6 +304,10 @@ static void console_thread(void)
 		else if (strcmp(argv[0], "ota") == 0)
 		{
 			ota_console(argc, argv);
+		}
+		else if (strcmp(argv[0], "cfg") == 0)
+		{
+			remote_config_console(argc, argv);
 		}
 		else if (strcmp(argv[0], command_diag) == 0)
 		{

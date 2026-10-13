@@ -24,6 +24,9 @@ receiver, ProMicro stacked trackers and a Seeed XIAO nRF52840 Sense.
 - **Firmware updates over the radio (OTA)**: MCUboot builds of the tracker take new images
   through the receiver (`tools/ota.py`), with rollback if a new image never reaches the
   receiver. See [docs/OTA.md](docs/OTA.md).
+- **Settings over the radio**: read, write and reset a tracker's settings from the PC through the
+  receiver, no USB cable (`tools/remote_config.py`, receiver console `cfg`), in every tracker
+  build. See [docs/OTA.md](docs/OTA.md#settings-over-the-radio).
 - The tracker version comes from this repository's tags (`tools/bump_version.py`).
 - Fix: the stock tracker did not build for the stacked I2C board.
 
@@ -60,6 +63,7 @@ Install with `python -m pip install pyserial hidapi PySide6`.
 | `serial_monitor.py` | Console for the receiver and trackers |
 | `flash_usb.py` | USB-flash trackers by ID (`--only 0,3`) |
 | `ota.py` | Update a tracker over the radio through the receiver |
+| `remote_config.py` | Read and change a tracker's settings over the radio (`--tracker 3 set sensor_update_time_ms 10`) |
 | `quest_bridge.py` | PC side of the Quest Bridge |
 | `dfu_zip.py` | Package the dongle image for Nordic DFU (`make receiver` calls it) |
 | `bump_version.py` | Tag the next patch version on HEAD |

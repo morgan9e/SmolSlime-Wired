@@ -56,8 +56,8 @@ void esb_reset_pair(void);
 void esb_clear_pair(void);
 
 void esb_write(uint8_t *data); // TODO: give packets some names
-#if CONFIG_TRACKER_OTA
-int esb_write_ota(const uint8_t *data, uint8_t len); // a firmware update message (ota.c)
+#if CONFIG_TRACKER_OTA || CONFIG_TRACKER_REMOTE_CONFIG
+int esb_write_ota(const uint8_t *data, uint8_t len); // a message on the OTA pipe (ota.c, remote_config.c)
 #endif
 
 bool esb_ready(void);

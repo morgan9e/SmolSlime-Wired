@@ -67,6 +67,42 @@ static inline const char *ota_status_name(uint8_t status)
 	return status < sizeof(names) / sizeof(names[0]) ? names[status] : "unknown";
 }
 
+// Tracker settings over the radio (docs/OTA.md, "Settings over the radio"). The same transport
+// as an update offer: the receiver queues the request on the ACK of every tracker frame on pipe 1
+// until the addressed tracker answers on the OTA pipe, or a few seconds pass.
+//
+// CFG_REQ   receiver -> tracker, ACK payload on pipe 1:
+//           [type][tracker id][seq][op][setting id u16][value i32]
+// CFG_RESP  tracker -> receiver, pipe 7:
+//           [type][tracker id][seq][status][setting id u16][value i32]
+// The setting id is the tracker console's (list_config): all settings in order. The tracker
+// carries out a request once per seq and answers repeats of it from its last answer; value is
+// the setting after the request (read, written or reset), or 0 if it failed.
+#define CFG_MSG_REQ 0xF6
+#define CFG_MSG_RESP 0xF7
+#define CFG_MSG_LEN 10
+
+enum cfg_op {
+	CFG_OP_READ = 0,
+	CFG_OP_WRITE = 1,
+	CFG_OP_RESET = 2, // back to the firmware default
+};
+
+enum cfg_status {
+	CFG_STATUS_OK = 0,
+	CFG_STATUS_BAD_ID = 1,    // no setting with that id
+	CFG_STATUS_BAD_VALUE = 2, // out of range for the setting
+	CFG_STATUS_BAD_OP = 3,
+	CFG_STATUS_BUSY = 4,      // receiving a firmware update
+};
+
+static inline const char *cfg_status_name(uint8_t status)
+{
+	static const char *const names[] = {"ok", "no such setting", "value out of range", "unknown operation",
+					    "busy with a firmware update"};
+	return status < sizeof(names) / sizeof(names[0]) ? names[status] : "unknown";
+}
+
 static inline uint32_t ota_position(uint8_t session, uint32_t offset)
 {
 	return (uint32_t)session << OTA_OFFSET_BITS | (offset & OTA_OFFSET_MASK);

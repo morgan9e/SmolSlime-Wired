@@ -27,6 +27,7 @@
 #include "packet_log.h"
 #include "ota.h"
 #include "ota_proto.h"
+#include "remote_config.h"
 
 #include <zephyr/drivers/clock_control/nrf_clock_control.h>
 #include <zephyr/sys/crc.h>
@@ -143,12 +144,14 @@ void event_handler(struct esb_evt const *event)
 				continue;
 			default: // base address 1
 			}
-			if (rx_payload.pipe == OTA_PIPE) // a tracker receiving a firmware update
+			if (rx_payload.pipe == OTA_PIPE) // a tracker receiving a firmware update, or answering a settings request
 			{
 				ota_esb_rx(&rx_payload);
+				remote_config_esb_rx(&rx_payload);
 				continue;
 			}
 			ota_esb_tracker_frame(); // keeps an update offer queued while offering
+			remote_config_esb_tracker_frame(); // keeps a settings request queued while waiting
 			switch (rx_payload.length)
 			{
 			case 21: // has sequence number

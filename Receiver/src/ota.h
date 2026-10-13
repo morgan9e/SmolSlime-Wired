@@ -23,4 +23,7 @@ void ota_hid_data(const uint8_t *report, int len);
 void ota_esb_rx(const struct esb_payload *payload);
 void ota_esb_tracker_frame(void);
 
+// Offering or sending an update: no settings requests meanwhile (remote_config.c)
+bool ota_busy(void);
+
 #endif

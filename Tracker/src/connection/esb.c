@@ -33,6 +33,7 @@
 #include "esb.h"
 #include "ota.h"
 #include "ota_proto.h"
+#include "remote_config.h"
 
 uint8_t last_reset = 0;
 //const nrfx_timer_t m_timer = NRFX_TIMER_INSTANCE(1);
@@ -153,6 +154,7 @@ void event_handler(struct esb_evt const *event)
 				else
 				{
 					ota_rx_ack(rx_payload.data, rx_payload.length, paired_addr[1]); // update offers and chunks
+					remote_config_rx_ack(rx_payload.data, rx_payload.length, paired_addr[1]); // settings requests
 				}
 			}
 		}
@@ -497,8 +499,9 @@ void esb_clear_pair(void)
 	LOG_INF("Pairing data reset");
 }
 
-#if CONFIG_TRACKER_OTA
-// A firmware update message on the OTA pipe (ota.c); tracking is paused meanwhile
+#if CONFIG_TRACKER_OTA || CONFIG_TRACKER_REMOTE_CONFIG
+// A message on the OTA pipe: firmware updates (ota.c; tracking is paused meanwhile) and answers to
+// settings requests (remote_config.c)
 int esb_write_ota(const uint8_t *data, uint8_t len)
 {
 	static struct esb_payload ota_payload = ESB_CREATE_PAYLOAD(OTA_PIPE, 0);

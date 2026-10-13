@@ -125,6 +125,37 @@ Tested on a ProMicro (0.0.15 / 0.0.16) unless marked otherwise.
 | MCUboot or both slots broken | UF2 bootloader: double-tap reset, flash the `_OTA.uf2` over USB |
 | Settings | NVS area untouched by every step: pairing and calibration survive (tested) |
 
+## Settings over the radio
+
+The same transport carries the tracker's settings (`list_config` / `write_config` on its console),
+so they can be read and changed without a USB cable. Any build of this repository's tracker has it
+(`CONFIG_TRACKER_REMOTE_CONFIG`, default on), with or without MCUboot; the receiver must be this
+repository's too.
+
+    python tools/remote_config.py --tracker 3 list
+    python tools/remote_config.py --tracker 3 get sensor_update_time_ms
+    python tools/remote_config.py --tracker 3 set sensor_update_time_ms 10
+    python tools/remote_config.py --tracker 3 reset radio_tx_power
+
+On the receiver's console that is `cfg <tracker id> get|set|reset <setting id> [value]` and
+`cfg status`; the setting ids are `list_config`'s, which `remote_config.py` maps from names.
+
+1. The receiver queues `CFG_REQ` (`[type][tracker id][seq][op][setting id u16][value i32]`) on
+   the ACK of every tracker frame on pipe 1, as it does an update offer; only the addressed
+   tracker takes it.
+2. The tracker carries it out on its own thread (a write goes to flash), with the same checks as
+   `write_config`, and answers `CFG_RESP` (`[type][tracker id][seq][status][setting id u16]
+   [value i32]`, value = the setting afterwards) on the OTA pipe.
+3. The receiver keeps queuing the request until the answer with its seq arrives, at most 3 s. The
+   tracker carries out each seq once and answers repeats from its last answer, so a lost answer
+   never applies a write twice.
+
+An update offer and a settings request share the ACKs on pipe 1, so the receiver takes one at a
+time (`ota begin` ends a waiting request, `cfg` is refused during an update), and a tracker busy
+with an update answers `busy`. Some settings take effect at once (`sensor_update_time_ms`),
+others on the tracker's next start (`radio_tx_power`, the sensor rates). A setting that cuts the
+tracker off the receiver has to be undone over USB.
+
 ## Open
 
 - No authentication: anyone who knows the receiver's address could offer an image (MCUboot
