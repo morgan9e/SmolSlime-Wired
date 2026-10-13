@@ -139,6 +139,27 @@ config CONNECTION_TIMEOUT_DELAY
     help
         Connection timeout duration when receiver is not detected.
 
+config TRACKER_OTA
+    bool "Firmware updates over the radio (OTA)"
+    default y if BOOTLOADER_MCUBOOT
+    depends on BOOTLOADER_MCUBOOT
+    select FLASH
+    select FLASH_MAP
+    select STREAM_FLASH
+    select IMG_MANAGER
+    select IMG_ERASE_PROGRESSIVELY
+    help
+        Set by the MCUboot build (make tracker-ota). The running image confirms itself once the
+        receiver has acknowledged TRACKER_OTA_CONFIRM_ACKS frames; until then MCUboot swaps the
+        previous image back on the next reboot. See docs/OTA.md.
+
+config TRACKER_OTA_CONFIRM_ACKS
+    int "Acknowledged frames before a new image confirms itself"
+    depends on TRACKER_OTA
+    default 200
+    help
+        0 never confirms (for testing the rollback).
+
 config SENSOR_UPDATE_TIME_MS
     int "Sensor loop period while moving (ms)"
     range 6 33

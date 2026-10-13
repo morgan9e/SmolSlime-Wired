@@ -21,7 +21,11 @@ receiver, ProMicro stacked trackers and a Seeed XIAO nRF52840 Sense.
   `write_config sensor_update_time_ms <6-33>`, no rebuild. Each tracker also gets its own ESB
   retransmit delay from its device address, so trackers whose frames collide do not retry in
   lockstep.
+- **Firmware updates over the radio (OTA)**: MCUboot builds of the tracker take new images
+  through the receiver (`tools/ota.py`), with rollback if a new image never reaches the
+  receiver. See [docs/OTA.md](docs/OTA.md).
 - The tracker version comes from this repository's tags (`tools/bump_version.py`).
+- Fix: the stock tracker did not build for the stacked I2C board.
 
 ## Build (WSL/Linux) and flash (Windows)
 
@@ -30,7 +34,15 @@ make tracker        # ProMicro stacked SPI
 make tracker-i2c    # ProMicro stacked I2C: an IMU whose CS/SDO are not wired to the ProMicro
 make tracker-xiao   # XIAO nRF52840 Sense
 make receiver       # nRF52840 Dongle
+
+make tracker-ota       # ProMicro SPI with MCUboot: _OTA.uf2 (first USB install) + _OTA_app.bin (OTA)
+make tracker-ota-i2c   # the same, stacked I2C
+make tracker-ota-xiao  # the same, XIAO
 ```
+
+A tracker running MCUboot must be USB-flashed with its `_OTA.uf2` only: the plain `.uf2`
+overwrites MCUboot. Updates after that go over the radio:
+`python tools/ota.py dist/SlimeNRF_ProMicro_StackedSPI_Tracker_OTA_app.bin --tracker <id>`.
 
 Images land in `dist/`. Flash trackers with `python tools/flash_usb.py <image> --only <id>`
 (console `dfu`, then the UF2 drive), the dongle with the `.zip` through nrfutil or the `.hex`
@@ -47,6 +59,7 @@ Install with `python -m pip install pyserial hidapi PySide6`.
 | `slime_view.py` | Orientation and skeleton viewer (`--usb`) |
 | `serial_monitor.py` | Console for the receiver and trackers |
 | `flash_usb.py` | USB-flash trackers by ID (`--only 0,3`) |
+| `ota.py` | Update a tracker over the radio through the receiver |
 | `quest_bridge.py` | PC side of the Quest Bridge |
 | `dfu_zip.py` | Package the dongle image for Nordic DFU (`make receiver` calls it) |
 | `bump_version.py` | Tag the next patch version on HEAD |

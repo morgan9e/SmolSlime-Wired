@@ -1,0 +1,41 @@
+/* Tracker app in the XIAO OTA build (make tracker-ota-xiao passes it as Tracker_EXTRA_DTC_OVERLAY_FILE):
+ * the partition labels MCUboot's image tools need, the same layout as pm_static/mcuboot_xiao_ble.yml
+ * (which the build uses for the actual placement) and sysbuild/mcuboot_xiao.overlay. The board's
+ * own table names its UF2 bootloader boot_partition, so the table is replaced, not extended. */
+/ {
+	chosen {
+		zephyr,code-partition = &slot0_partition;
+	};
+};
+
+&flash0 {
+	/delete-node/ partitions;
+
+	partitions {
+		compatible = "fixed-partitions";
+		#address-cells = <1>;
+		#size-cells = <1>;
+
+		reserved_partition_0: partition@0 {
+			label = "SoftDevice";
+			read-only;
+			reg = <0x00000000 0x00027000>;
+		};
+		boot_partition: partition@27000 {
+			label = "mcuboot";
+			reg = <0x00027000 0x0000c000>;
+		};
+		slot0_partition: partition@33000 {
+			label = "image-0";
+			reg = <0x00033000 0x0005c000>;
+		};
+		slot1_partition: partition@8f000 {
+			label = "image-1";
+			reg = <0x0008f000 0x0005b000>;
+		};
+		storage_partition: partition@ee000 {
+			label = "storage";
+			reg = <0x000ee000 0x00006000>;
+		};
+	};
+};

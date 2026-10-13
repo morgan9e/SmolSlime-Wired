@@ -5,6 +5,12 @@
 #   make tracker      ProMicro stacked SPI tracker (.uf2)
 #   make tracker-i2c  ProMicro stacked I2C tracker (.uf2), for an IMU that only answers on I2C
 #   make tracker-xiao Seeed XIAO nRF52840 Sense tracker (.uf2)
+#   make tracker-ota  ProMicro stacked SPI tracker with MCUboot (docs/OTA.md): _OTA.uf2 (MCUboot +
+#                     app, USB flash and recovery) and _OTA_app.bin (the image an update installs)
+#   make tracker-ota-i2c   the same for the stacked I2C tracker
+#   make tracker-ota-xiao  the same for the XIAO nRF52840 Sense
+#   make tracker-ota-slot1 the SPI OTA app as a UF2 for the secondary slot, marked for a test swap
+#                     (tests MCUboot over USB); with OTA_NOCONFIRM=1 an image that never confirms
 #   make receiver     nRF52840 Dongle receiver (.hex for nRF Connect Programmer, .zip for nrfutil)
 #   make imu-probe    ProMicro IMU-on-SPI probe (ImuProbe/README.md)
 #   make test         PC tool tests
@@ -38,7 +44,24 @@ FW_GIT_BRANCH = $(shell cd "$(ROOT)" && "$(GIT)" branch --show-current 2>/dev/nu
 
 RECEIVER_HEX  := $(DIST)/SlimeNRF_Nordic_Dongle_Receiver.hex
 
+# The OTA build per board: OTA_LAYOUT picks Tracker/ota<layout>.overlay and
+# Tracker/sysbuild/mcuboot<layout>.overlay (the pm_static file goes by the board, sysbuild.cmake)
+OTA_BOARD     ?= promicro_uf2/nrf52840/stackedspi
+OTA_NAME      ?= ProMicro_StackedSPI
+OTA_LAYOUT    ?=
+TRACKER_OTA_UF2 = $(DIST)/SlimeNRF_$(OTA_NAME)_Tracker_OTA.uf2
+TRACKER_OTA_BIN = $(DIST)/SlimeNRF_$(OTA_NAME)_Tracker_OTA_app.bin
+TRACKER_OTA_SLOT1_UF2 := $(DIST)/SlimeNRF_ProMicro_StackedSPI_Tracker_OTA_slot1_test.uf2
+OTA_CONF      := $(ROOT)/Tracker/ota.conf$(if $(OTA_NOCONFIRM),;$(ROOT)/Tracker/ota_noconfirm.conf)$(if $(TRACKER_EXTRA_CONF),;$(TRACKER_EXTRA_CONF))
+IMGTOOL       := $(NCS_TRACKER)/bootloader/mcuboot/scripts/imgtool.py
+# Secondary slot of pm_static/mcuboot_nrf52840_uf2.yml
+OTA_SLOT1_ADDR := 0x7c000
+OTA_SLOT1_SIZE := 0x6e000
+UF2CONV       := $(NCS_TRACKER)/zephyr/scripts/build/uf2conv.py
+UF2_FAMILY_NRF52840 := 0xADA52840
+
 .PHONY: all tracker tracker-i2c tracker-xiao receiver imu-probe test clean
+.PHONY: tracker-ota tracker-ota-i2c tracker-ota-xiao tracker-ota-slot1
 
 all: tracker receiver
 
@@ -62,6 +85,30 @@ tracker-i2c:
 
 tracker-xiao:
 	$(call tracker_build,xiao_ble/nrf52840/sense,tracker-xiao,SlimeNRF_XIAO_Sense_Tracker.uf2)
+
+# MCUboot without signature (the image's SHA-256 is still checked), swap with rollback. Always
+# pristine: the image version in MCUboot's header is only taken when the build is configured.
+tracker-ota:
+	@mkdir -p $(DIST)
+	cd "$(NCS_TRACKER)" && $(ZEPHYR_ENV) FW_GIT_DESCRIBE="$(FW_GIT_DESCRIBE)" FW_GIT_BRANCH="$(FW_GIT_BRANCH)" 		west build --board $(OTA_BOARD) --pristine=always 		--build-dir "$(BUILD)/tracker-ota-$(OTA_NAME)" "$(ROOT)/Tracker" 		-- -DNCS_TOOLCHAIN_VERSION=NONE -DBOARD_ROOT="$(ROOT)/Tracker" 		-DSB_CONFIG_BOOTLOADER_MCUBOOT=y -DSB_CONFIG_MCUBOOT_MODE_SWAP_USING_MOVE=y 		-DSB_CONFIG_BOOT_SIGNATURE_TYPE_NONE=y -Dmcuboot_BOARD=nrf52840dk/nrf52840 		-Dmcuboot_DTC_OVERLAY_FILE="$(ROOT)/Tracker/sysbuild/mcuboot$(OTA_LAYOUT).overlay" 		-DTracker_EXTRA_CONF_FILE="$(OTA_CONF)" -DTracker_EXTRA_DTC_OVERLAY_FILE="$(ROOT)/Tracker/ota$(OTA_LAYOUT).overlay"
+	python3 "$(UF2CONV)" -c -f $(UF2_FAMILY_NRF52840) -o "$(TRACKER_OTA_UF2)" "$(BUILD)/tracker-ota-$(OTA_NAME)/merged.hex"
+	cp "$(BUILD)/tracker-ota-$(OTA_NAME)/Tracker/zephyr/zephyr.signed.bin" "$(TRACKER_OTA_BIN)"
+	@echo "-> $(TRACKER_OTA_UF2), $(TRACKER_OTA_BIN)"
+
+# Same flash layout as the SPI ProMicro
+tracker-ota-i2c:
+	$(MAKE) tracker-ota OTA_BOARD=promicro_uf2/nrf52840/stackedi2c OTA_NAME=ProMicro_StackedI2C
+
+# The XIAO keeps its bootloader's SoftDevice area: MCUboot at 0x27000 (pm_static/mcuboot_xiao_ble.yml)
+tracker-ota-xiao:
+	$(MAKE) tracker-ota OTA_BOARD=xiao_ble/nrf52840/sense OTA_NAME=XIAO_Sense OTA_LAYOUT=_xiao
+
+# The tracker-ota app padded to the secondary slot, with the trailer that asks MCUboot for a test
+# swap on the next boot, as a UF2 for that slot (same imgtool arguments as the build, plus --pad)
+tracker-ota-slot1: tracker-ota
+	version=$$(grep -o -m1 -- '--version [^ ]*' "$(BUILD)/tracker-ota-$(OTA_NAME)/Tracker/build.ninja" | head -1 | cut -d' ' -f2); 	"$(WEST_VENV)/bin/python" "$(IMGTOOL)" sign --version "$$version" --align 4 --slot-size $(OTA_SLOT1_SIZE) 		--pad-header --header-size 0x200 --pad 		"$(BUILD)/tracker-ota-$(OTA_NAME)/Tracker/zephyr/zephyr.bin" "$(BUILD)/tracker-ota-$(OTA_NAME)/slot1_test.bin"
+	python3 "$(UF2CONV)" -c -b $(OTA_SLOT1_ADDR) -f $(UF2_FAMILY_NRF52840) -o "$(TRACKER_OTA_SLOT1_UF2)" 		"$(BUILD)/tracker-ota-$(OTA_NAME)/slot1_test.bin"
+	@echo "-> $(TRACKER_OTA_SLOT1_UF2)"
 
 # The dongle board's own USB console (new USB stack) clashes with the receiver's legacy one in
 # this SDK: BOARD_SERIAL_BACKEND_CDC_ACM off.
