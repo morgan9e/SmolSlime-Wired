@@ -10,7 +10,6 @@ receiver, ProMicro stacked trackers and a Seeed XIAO nRF52840 Sense.
 | `Tracker` | SlimeVR-Tracker-nRF (git subtree of upstream) |
 | `tools` | PC tools |
 | `QuestForwarder` | Android app: forwards the receiver's USB HID to SlimeVR Server (Quest Bridge) |
-| `ImuProbe` | Test firmware: is there an IMU on the stacked ProMicro's SPI pins? |
 
 ## Changes from stock
 

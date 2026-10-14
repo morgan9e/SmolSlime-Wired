@@ -1,7 +1,0 @@
-# The board defconfig sets these tracker options; declared here so they are accepted.
-config BATTERY_USE_REG_LDO_MAPPING
-	bool "Unused (tracker option)"
-config SENSOR_ROTATION_270
-	bool "Unused (tracker option)"
-
-source "Kconfig.zephyr"

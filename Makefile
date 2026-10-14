@@ -12,7 +12,6 @@
 #   make tracker-ota-slot1 the SPI OTA app as a UF2 for the secondary slot, marked for a test swap
 #                     (tests MCUboot over USB); with OTA_NOCONFIRM=1 an image that never confirms
 #   make receiver     nRF52840 Dongle receiver (.hex for nRF Connect Programmer, .zip for nrfutil)
-#   make imu-probe    ProMicro IMU-on-SPI probe (ImuProbe/README.md)
 #   make test         PC tool tests
 #   make clean        remove the build directories
 #
@@ -60,7 +59,7 @@ OTA_SLOT1_SIZE := 0x6e000
 UF2CONV       := $(NCS_TRACKER)/zephyr/scripts/build/uf2conv.py
 UF2_FAMILY_NRF52840 := 0xADA52840
 
-.PHONY: all tracker tracker-i2c tracker-xiao receiver imu-probe test clean
+.PHONY: all tracker tracker-i2c tracker-xiao receiver test clean
 .PHONY: tracker-ota tracker-ota-i2c tracker-ota-xiao tracker-ota-slot1
 
 all: tracker receiver
@@ -120,15 +119,6 @@ receiver:
 	cp "$(BUILD)/receiver/Receiver/zephyr/zephyr.hex" "$(RECEIVER_HEX)"
 	python3 "$(ROOT)/tools/dfu_zip.py" "$(RECEIVER_HEX)" "$(RECEIVER_HEX:.hex=.zip)"
 	@echo "-> $(RECEIVER_HEX), $(RECEIVER_HEX:.hex=.zip)"
-
-# Linked at 0x1000 like the tracker (ImuProbe/pm_static.yml); see ImuProbe/README.md
-imu-probe:
-	@mkdir -p $(DIST)
-	cd "$(NCS_TRACKER)" && $(ZEPHYR_ENV) west build --board promicro_uf2/nrf52840 --pristine=$(PRISTINE) \
-		--build-dir "$(BUILD)/imu-probe" "$(ROOT)/ImuProbe" \
-		-- -DNCS_TOOLCHAIN_VERSION=NONE -DBOARD_ROOT="$(ROOT)/Tracker"
-	cp "$(BUILD)/imu-probe/ImuProbe/zephyr/zephyr.uf2" "$(DIST)/SlimeNRF_ProMicro_IMU_Probe.uf2"
-	@echo "-> $(DIST)/SlimeNRF_ProMicro_IMU_Probe.uf2"
 
 test:
 	cd "$(ROOT)/tools" && python3 -m unittest test_slime_link test_quest_bridge test_remote_config
