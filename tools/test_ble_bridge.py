@@ -159,6 +159,14 @@ class SerialReceiverTests(unittest.TestCase):
         self.rx.line("F 0 " + answer.hex(), 0)
         self.assertEqual(answers, [("0791", answer)])
 
+    def test_hid_receiver_settings_only(self):
+        # The ESP32-S3 hands SlimeVR the trackers over USB HID: no data through the bridge then
+        self.rx.line("I SlimeBleReceiver 2 hid", 0)
+        self.rx.line("C 0 847BEBC50791", 0)
+        self.rx.line("D 0 " + notification(info(), 1).hex(), 0)
+        self.assertIsNone(self.bridge.links[MAC].device)
+        self.assertIn("0791", self.bridge.clients)  # settings still go through
+
     def test_ignores_other_lines(self):
         for text in ("", "# scanning", "I SlimeBleReceiver 1", "E - connect_failed 13", "D x zz", "C 1 0102",
                      "ESP-ROM:esp32c6-20220919"):

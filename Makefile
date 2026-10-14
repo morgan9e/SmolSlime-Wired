@@ -14,6 +14,7 @@
 #   make receiver     nRF52840 Dongle receiver (.hex for nRF Connect Programmer, .zip for nrfutil)
 #   make ble-receiver ESP32-C6 BLE receiver for trackers in BLE mode (BleReceiver/, docs/BLE.md):
 #                     one .bin from 0x0, flash with esptool (ESP-IDF v5.5 in ~/esp/esp-idf)
+#   make ble-receiver-s3  the same for the XIAO ESP32-S3: USB HID like the nRF receiver
 #   make test         PC tool tests
 #   make clean        remove the build directories
 #
@@ -62,16 +63,15 @@ UF2CONV       := $(NCS_TRACKER)/zephyr/scripts/build/uf2conv.py
 UF2_FAMILY_NRF52840 := 0xADA52840
 
 .PHONY: all tracker tracker-i2c tracker-xiao receiver test clean
-.PHONY: tracker-ota tracker-ota-i2c tracker-ota-xiao tracker-ota-slot1 ble-receiver
+.PHONY: tracker-ota tracker-ota-i2c tracker-ota-xiao tracker-ota-slot1 ble-receiver ble-receiver-s3
 
-# ESP-IDF v5.5 for the ESP32-C6 BLE receiver. Its export.sh is not needed (and fails without
+# ESP-IDF v5.5 for the ESP32 BLE receivers. Its export.sh is not needed (and fails without
 # openocd): the build only takes these.
 IDF_PATH_DIR  ?= $(HOME)/esp/esp-idf
 IDF_TOOLS     ?= $(HOME)/.espressif/tools
 IDF_PYENV     ?= $(firstword $(wildcard $(HOME)/.espressif/python_env/idf5.5_py*_env))
-IDF_BIN = $(firstword $(wildcard $(IDF_TOOLS)/riscv32-esp-elf/*/riscv32-esp-elf/bin)):$(firstword $(wildcard $(IDF_TOOLS)/cmake/*/bin)):$(firstword $(wildcard $(IDF_TOOLS)/ninja/*))
+IDF_BIN = $(firstword $(wildcard $(IDF_TOOLS)/riscv32-esp-elf/*/riscv32-esp-elf/bin)):$(firstword $(wildcard $(IDF_TOOLS)/xtensa-esp-elf/*/xtensa-esp-elf/bin)):$(firstword $(wildcard $(IDF_TOOLS)/cmake/*/bin)):$(firstword $(wildcard $(IDF_TOOLS)/ninja/*))
 IDF_ENV = IDF_PATH="$(IDF_PATH_DIR)" IDF_PYTHON_ENV_PATH="$(IDF_PYENV)" PATH="$(IDF_BIN):$(IDF_PYENV)/bin:$(IDF_PATH_DIR)/tools:$$PATH"
-BLE_RECEIVER_BIN := $(DIST)/SlimeNRF_ESP32C6_BleReceiver.bin
 
 all: tracker receiver
 
@@ -131,12 +131,22 @@ receiver:
 	python3 "$(ROOT)/tools/dfu_zip.py" "$(RECEIVER_HEX)" "$(RECEIVER_HEX:.hex=.zip)"
 	@echo "-> $(RECEIVER_HEX), $(RECEIVER_HEX:.hex=.zip)"
 
-ble-receiver:
+# $(call ble_receiver_build,target,build dir name,output name)
+define ble_receiver_build
 	@mkdir -p $(DIST)
-	$(IDF_ENV) idf.py -C "$(ROOT)/BleReceiver" -B "$(BUILD)/ble-receiver" \
-		-DSDKCONFIG="$(BUILD)/ble-receiver/sdkconfig" -DIDF_TARGET=esp32c6 build
-	cd "$(BUILD)/ble-receiver" && $(IDF_ENV) python -m esptool --chip esp32c6 merge_bin -o "$(BLE_RECEIVER_BIN)" @flash_args
-	@echo "-> $(BLE_RECEIVER_BIN) (python -m esptool --chip esp32c6 -p COMx write-flash 0x0 <it>)"
+	$(IDF_ENV) idf.py -C "$(ROOT)/BleReceiver" -B "$(BUILD)/$(2)" \
+		-DSDKCONFIG="$(BUILD)/$(2)/sdkconfig" -DIDF_TARGET=$(1) build
+	cd "$(BUILD)/$(2)" && $(IDF_ENV) python -m esptool --chip $(1) merge_bin -o "$(DIST)/$(3)" @flash_args
+	@echo "-> $(DIST)/$(3) (python -m esptool --chip $(1) -p COMx write-flash 0x0 <it>)"
+endef
+
+ble-receiver:
+	$(call ble_receiver_build,esp32c6,ble-receiver,SlimeNRF_ESP32C6_BleReceiver.bin)
+
+# Its USB is TinyUSB's: esptool reaches the ROM download mode after the console command B
+# (docs/BLE.md), or BOOT held while plugging in
+ble-receiver-s3:
+	$(call ble_receiver_build,esp32s3,ble-receiver-s3,SlimeNRF_ESP32S3_BleReceiver.bin)
 
 test:
 	cd "$(ROOT)/tools" && python3 -m unittest test_slime_link test_quest_bridge test_remote_config test_ble_bridge

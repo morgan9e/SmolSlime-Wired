@@ -238,10 +238,13 @@ class ControlPort(asyncio.DatagramProtocol):
 
 
 RECEIVER_USB = (0x303A, 0x1001)  # ESP32-C6 USB Serial/JTAG
+# ESP32-S3 BLE receiver: the nRF receiver's USB id (SlimeVR reads its HID), told apart by its
+# serial number ("S3" and the chip's MAC, BleReceiver/main/link_usb.c)
+HID_RECEIVER_USB, HID_RECEIVER_SERIAL_PREFIX = (0x1209, 0x7690), "5333"
 
 
 class SerialSlot:
-    """A tracker on the ESP32-C6 receiver, as the settings path (Bridge.config_write) uses it."""
+    """A tracker on the ESP32 receiver, as the settings path (Bridge.config_write) uses it."""
 
     def __init__(self, receiver, slot):
         self.receiver, self.slot = receiver, slot
@@ -251,12 +254,14 @@ class SerialSlot:
 
 
 class SerialReceiver:
-    """BleReceiver/ (ESP32-C6) on its USB serial port: its text lines (BleReceiver/main/main.c)
-    to the Bridge's Links, settings requests back to it."""
+    """BleReceiver/ on its USB serial port: its text lines (BleReceiver/main/main.c) to the
+    Bridge's Links, settings requests back to it. A receiver with USB HID (ESP32-S3, "I ... hid")
+    hands SlimeVR the trackers itself: then only settings go through here."""
 
     def __init__(self, bridge, write):
         self.bridge, self.write = bridge, write
         self.slots = {}  # receiver slot -> (name without SlimeNRF-, Link)
+        self.hid = False
 
     def line(self, text, now):
         parts = text.split()
@@ -265,7 +270,7 @@ class SerialReceiver:
         kind, args = parts[0], parts[1:]
         try:
             if kind == "D" and len(args) == 2:
-                if int(args[0]) in self.slots:
+                if int(args[0]) in self.slots and not self.hid:
                     self.slots[int(args[0])][1].receive(bytes.fromhex(args[1]), now)
             elif kind == "C" and len(args) == 2:
                 slot, mac = int(args[0]), bytes.fromhex(args[1])
@@ -288,7 +293,12 @@ class SerialReceiver:
             elif kind == "F" and len(args) == 2:
                 if int(args[0]) in self.slots:
                     self.bridge.config_answer(self.slots[int(args[0])][0], bytes.fromhex(args[1]))
-            elif kind in ("E", "I", "A"):
+            elif kind == "I":
+                LOG.info("Receiver: %s", text)
+                if "hid" in args and not self.hid:
+                    self.hid = True
+                    LOG.info("USB HID receiver: SlimeVR Server reads the trackers from it; settings only here")
+            elif kind in ("E", "A"):
                 LOG.info("Receiver: %s", text)
             else:
                 LOG.debug("Receiver: %s", text)
@@ -298,9 +308,10 @@ class SerialReceiver:
 
 def find_receiver_port():
     from serial.tools import list_ports
-    ports = [p.device for p in list_ports.comports() if (p.vid, p.pid) == RECEIVER_USB]
+    ports = [p.device for p in list_ports.comports() if (p.vid, p.pid) == RECEIVER_USB or (
+        (p.vid, p.pid) == HID_RECEIVER_USB and (p.serial_number or "").startswith(HID_RECEIVER_SERIAL_PREFIX))]
     if len(ports) != 1:
-        raise SystemExit(f"--serial: {'no' if not ports else 'more than one'} ESP32-C6 receiver found "
+        raise SystemExit(f"--serial: {'no' if not ports else 'more than one'} ESP32 BLE receiver found "
                          f"{ports or ''}; name its port, e.g. --serial COM23")
     return ports[0]
 

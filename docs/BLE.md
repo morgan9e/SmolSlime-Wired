@@ -77,6 +77,26 @@ them to SlimeVR as usual, and settings work the same way:
   `# ...` status every 5 s (per tracker: packets/s, RSSI, interval). `O 0791,B8C8` limits it to
   those trackers, `K <slot>` disconnects one.
 
+### ESP32-S3 receiver (USB HID)
+
+The same firmware on a XIAO ESP32-S3 (`make ble-receiver-s3`) is a USB device like the nRF
+receiver: VID/PID 1209:7690, a CDC console and the receiver's HID interface and reports
+(`BleReceiver/main/link_usb.c`), so SlimeVR Server reads it directly, no bridge. Each tracker gets
+a stable id in NVS (console `L` lists, `Z` forgets them). `ble_bridge.py --serial` still carries
+settings (it finds the S3 by its serial number `5333…` and forwards no data).
+
+- Flashing: its USB is TinyUSB's. Console `B` (or BOOT held while plugging in) reboots it into the
+  ROM download mode; then `python -m esptool --chip esp32s3 -p COMx --before no-reset --after
+  watchdog-reset write-flash 0x0 dist/SlimeNRF_ESP32S3_BleReceiver.bin`.
+- Needs an antenna on its U.FL connector (no chip antenna): without, -92 to -98 dBm and no
+  connection gets established (HCI 0x3E); with a 900 MHz antenna at desk range, -20 to -48 dBm.
+- Its controller reserves 3.75 ms per connection in the interval: two trackers at 7.5 ms, four at
+  15 ms, then HCI 0x0D (limited resources); the connection event length makes no difference. So
+  30 ms by default, for eight, at most ~66 packets/s each (two notifications per event), short of
+  the 100 Hz moving rate; `P 12` (15 ms) for up to four. Tested (2026-10-14): four at 15 ms and
+  five at 30 ms, ~22 packets/s each while still, read by `slime_link.py` as a receiver. The nRF
+  dongle as BLE receiver has no such limit.
+
 LED: short blink every second while advertising (as when pairing), four flashes on connect.
 With `user_shutdown` on, a tracker that stays unconnected for `connection_timeout_delay` powers
 off, as it does without a receiver.

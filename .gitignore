@@ -7,3 +7,7 @@ __pycache__/
 
 # Per-PC settings of tools/serial_monitor.py (port, device serial number)
 tools/serial_monitor_settings.json
+
+# ESP-IDF component manager downloads (BleReceiver: esp_tinyusb for the ESP32-S3)
+BleReceiver/managed_components/
+BleReceiver/dependencies.lock

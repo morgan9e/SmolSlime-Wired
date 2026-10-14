@@ -1,0 +1,6 @@
+## USB (TinyUSB) for the ESP32-S3: it shows up as the nRF receiver (USB HID). The ESP32-C6 has no USB OTG.
+dependencies:
+  espressif/esp_tinyusb:
+    version: "~2.4.0"
+    rules:
+      - if: "target in [esp32s3]"

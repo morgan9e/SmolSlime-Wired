@@ -1,11 +1,16 @@
 /*
-	BLE receiver: trackers in BLE mode (Tracker/src/connection/ble.c) to the PC over USB, on an
-	ESP32-C6. It finds trackers by their service UUID, connects up to MAX_TRACKERS of them,
-	subscribes to their data and settings notifications and passes both on to the PC as text
-	lines on its USB Serial/JTAG port; tools/ble_bridge.py --serial forwards them to SlimeVR.
+	BLE receiver: trackers in BLE mode (Tracker/src/connection/ble.c) to the PC over USB. It finds
+	trackers by their service UUID, connects up to MAX_TRACKERS of them, subscribes to their data
+	and settings notifications and passes both on to the PC (link.h):
+	- ESP32-S3 (link_usb.c): as the nRF receiver does, over USB HID, so SlimeVR Server reads the
+	  trackers directly. Each tracker gets a stable id (kept in NVS, like the receiver's pairing
+	  list), in the order they first connected. The text lines below on its CDC console, without
+	  the data lines unless asked (D 1).
+	- ESP32-C6 (link_jtag.c): text lines on its USB Serial/JTAG port; tools/ble_bridge.py --serial
+	  forwards them to SlimeVR.
 
 	To the PC, one line each (slot: 0..MAX_TRACKERS-1, hex without separators):
-		I SlimeBleReceiver <version>           at boot and on "?"
+		I SlimeBleReceiver <version> hid|serial at boot and on "?"
 		C <slot> <mac>                         tracker ready: device address (12 hex, as `info`)
 		D <slot> <34 hex>                      data notification: 16-byte packet and sequence
 		F <slot> <20 hex>                      settings answer (CFG_RESP)
@@ -19,30 +24,46 @@
 		K <slot>                               disconnect that tracker
 		O <names>                              only these trackers (SlimeNRF- suffixes, comma
 		                                       separated, e.g. O 0791,B8C8); "O" alone: all
+		D 0|1                                  data lines off/on (default: on without HID)
+		L                                      the tracker ids: "# id <id> <mac>" each
+		Z                                      forget the tracker ids (as the receiver's clear)
+		B                                      reboot into the ROM download mode (ESP32-S3: for
+		                                       esptool, which cannot reset it there itself)
 */
 #include <ctype.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
 
-#include "driver/usb_serial_jtag.h"
-#include "driver/usb_serial_jtag_vfs.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "host/ble_hs.h"
 #include "host/util/util.h"
+#include "link.h"
 #include "nimble/nimble_port.h"
 #include "nimble/nimble_port_freertos.h"
+#include "nvs.h"
 #include "nvs_flash.h"
 
-#define VERSION "1"
+#define VERSION "2"
 #define MAX_TRACKERS CONFIG_BT_NIMBLE_MAX_CONNECTIONS
 #define NAME_PREFIX "SlimeNRF-"
 #define CFG_MSG_LEN 10
 #define PACKET_LEN 17
-#define CONN_INTERVAL 6 // 7.5 ms (1.25 ms units)
+// Connection interval (1.25 ms units, console P): 7.5 ms. The ESP32-S3 controller reserves 3.75 ms
+// per connection within the interval (whatever the event length asked for): it took two trackers
+// at 7.5 ms, four at 15 ms, then rejected the next (HCI 0x0D). There 30 ms, for eight trackers;
+// two notifications per event then carry ~66 packets/s each, short of the 100 Hz moving rate
+// (P 12: 15 ms for up to four at ~133/s).
+#if CONFIG_IDF_TARGET_ESP32S3
+#define CONN_INTERVAL_DEFAULT 24
+#else
+#define CONN_INTERVAL_DEFAULT 6
+#endif
+#define CONN_CE_LEN 0 // the controller decides
+static uint16_t conn_interval = CONN_INTERVAL_DEFAULT;
 #define CONN_TIMEOUT 100 // supervision timeout, 10 ms units: a lost tracker reconnects 1 s later
 
 // 6e5c000N-7a3b-4c8e-9f1d-2b4a5c6d7e8f (Tracker/src/connection/ble.c), little endian
@@ -61,8 +82,18 @@ typedef struct {
 	uint16_t svc_start, svc_end;
 	uint16_t data_handle, address_handle, config_handle; // value handles; each CCC follows its value
 	uint8_t mac[6]; // device address as the tracker reads it (little endian)
+	int id; // tracker id (ids[]), -1 when the table is full
+	uint8_t rssi; // -dBm, as the receiver passes it on
 	uint32_t packets, reported;
 } slot_t;
+
+// Tracker ids for the HID reports: device addresses in the order they first connected, kept in
+// NVS (the receiver's pairing list does the same). 16 at most, as the receiver's address packets
+// are sent round robin.
+#define MAX_IDS 16
+static uint8_t ids[MAX_IDS][6];
+static int id_count;
+static bool data_lines; // D lines; off with HID, SlimeVR reads the trackers there (app_main)
 
 static slot_t slots[MAX_TRACKERS];
 static SemaphoreHandle_t lock; // slots and the scan state, from the host task and the PC task
@@ -81,7 +112,6 @@ static uint32_t adv_reports; // every advertising report, for the status line
 static void scan_resume(void);
 
 // Output to the PC. Lines are dropped while nobody reads the port, so BLE never waits on USB.
-static SemaphoreHandle_t out_lock;
 static void out(const char *fmt, ...)
 {
 	char buf[400]; // the status line with 8 trackers
@@ -94,11 +124,7 @@ static void out(const char *fmt, ...)
 	if (n > (int)sizeof(buf) - 2)
 		n = sizeof(buf) - 2;
 	buf[n++] = '\n';
-	if (!usb_serial_jtag_is_connected())
-		return;
-	xSemaphoreTake(out_lock, portMAX_DELAY);
-	usb_serial_jtag_write_bytes(buf, n, 0);
-	xSemaphoreGive(out_lock);
+	link_write(buf, n);
 }
 
 static void hex(char *dst, const uint8_t *src, int len)
@@ -180,13 +206,59 @@ static void setup_failed(int i, const char *what, int status)
 	ble_gap_terminate(slots[i].conn, BLE_ERR_REM_USER_CONN_TERM);
 }
 
+static void mac_str(const uint8_t *le, char *buf) // as `info` and the receiver's `list` print it
+{
+	uint8_t be[6];
+	for (int k = 0; k < 6; k++)
+		be[k] = le[5 - k];
+	hex(buf, be, 6);
+}
+
+static void ids_save(void)
+{
+	nvs_handle_t nvs;
+	if (nvs_open("slime", NVS_READWRITE, &nvs) == ESP_OK)
+	{
+		nvs_set_blob(nvs, "ids", ids, id_count * 6);
+		nvs_commit(nvs);
+		nvs_close(nvs);
+	}
+	link_hid_trackers(ids, id_count);
+}
+
+static void ids_load(void)
+{
+	nvs_handle_t nvs;
+	size_t len = sizeof(ids);
+	if (nvs_open("slime", NVS_READONLY, &nvs) == ESP_OK)
+	{
+		if (nvs_get_blob(nvs, "ids", ids, &len) == ESP_OK)
+			id_count = len / 6;
+		nvs_close(nvs);
+	}
+	link_hid_trackers(ids, id_count);
+}
+
+// The tracker's id, a new one for a new tracker; -1 when all are taken
+static int tracker_id(const uint8_t *mac)
+{
+	for (int k = 0; k < id_count; k++)
+		if (!memcmp(ids[k], mac, 6))
+			return k;
+	if (id_count == MAX_IDS)
+		return -1;
+	memcpy(ids[id_count++], mac, 6);
+	ids_save();
+	return id_count - 1;
+}
+
 static void setup_done(int i)
 {
 	char mac[13];
-	uint8_t be[6];
-	for (int k = 0; k < 6; k++)
-		be[k] = slots[i].mac[5 - k];
-	hex(mac, be, 6);
+	mac_str(slots[i].mac, mac);
+	slots[i].id = tracker_id(slots[i].mac);
+	if (slots[i].id < 0)
+		out("E %d no_tracker_id %d", i, MAX_IDS);
 	slots[i].state = SLOT_READY;
 	out("C %d %s", i, mac);
 	xSemaphoreTake(lock, portMAX_DELAY);
@@ -316,14 +388,14 @@ static void report_seen(const ble_addr_t *a, int rssi, const struct ble_hs_adv_f
 
 static int gap_event(struct ble_gap_event *event, void *arg);
 
-static void connect_to(const ble_addr_t *a)
+static void connect_to(const ble_addr_t *a, int rssi)
 {
-	// 7.5 ms (the controller takes the longest interval offered), no latency; scan 30 of 30 ms
-	// while connecting
-	static const struct ble_gap_conn_params params = {
+	// conn_interval exactly (the controller takes the longest interval offered), no latency; scan
+	// 30 of 30 ms while connecting
+	const struct ble_gap_conn_params params = {
 		.scan_itvl = 0x30, .scan_window = 0x30,
-		.itvl_min = CONN_INTERVAL, .itvl_max = CONN_INTERVAL, .latency = 0, .supervision_timeout = CONN_TIMEOUT,
-		.min_ce_len = 0, .max_ce_len = 0,
+		.itvl_min = conn_interval, .itvl_max = conn_interval, .latency = 0, .supervision_timeout = CONN_TIMEOUT,
+		.min_ce_len = CONN_CE_LEN, .max_ce_len = CONN_CE_LEN,
 	};
 	ble_gap_disc_cancel();
 	int rc = ble_gap_connect(own_addr_type, a, 3000, &params, gap_event, NULL);
@@ -331,11 +403,14 @@ static void connect_to(const ble_addr_t *a)
 	if (rc)
 	{
 		out("E - connect %s %d", addr_str(a, buf), rc);
+		xSemaphoreTake(lock, portMAX_DELAY);
 		connecting = false;
+		xSemaphoreGive(lock);
+		scan_resume(); // cancelled above
 		return;
 	}
 	connect_started = xTaskGetTickCount();
-	out("# connecting %s", addr_str(a, buf));
+	out("# connecting %s, %d dBm", addr_str(a, buf), rssi);
 }
 
 static void scan_resume(void)
@@ -376,7 +451,7 @@ static int gap_event(struct ble_gap_event *event, void *arg)
 			connecting = true;
 		xSemaphoreGive(lock);
 		if (go)
-			connect_to(&event->disc.addr);
+			connect_to(&event->disc.addr, event->disc.rssi);
 		return 0;
 	}
 	case BLE_GAP_EVENT_DISC_COMPLETE:
@@ -442,9 +517,19 @@ static int gap_event(struct ble_gap_event *event, void *arg)
 		if (event->notify_rx.attr_handle == slots[i].data_handle && len == PACKET_LEN)
 		{
 			os_mbuf_copydata(event->notify_rx.om, 0, len, data);
-			hex(buf, data, len);
 			slots[i].packets++;
-			out("D %d %s", i, buf);
+			if (data_lines)
+			{
+				hex(buf, data, len);
+				out("D %d %s", i, buf);
+			}
+			if (link_hid && slots[i].id >= 0 && data[0] < 224) // 224-255 are the receiver's own types
+			{
+				data[1] = slots[i].id;
+				if (data[0] != 1 && data[0] != 4) // 1 and 4 use every byte (full precision)
+					data[15] = slots[i].rssi;
+				link_hid_packet(data);
+			}
 		}
 		else if (event->notify_rx.attr_handle == slots[i].config_handle && len == CFG_MSG_LEN)
 		{
@@ -464,11 +549,11 @@ static int gap_event(struct ble_gap_event *event, void *arg)
 		// per event at 15 ms carries 66 packets/s, short of its 100 Hz moving rate; and after a
 		// receiver reset the tracker would send into the void for the whole timeout before it
 		// advertises again. The receiver, as central, sets its own once the tracker's are in.
-		if (desc.conn_itvl != CONN_INTERVAL || desc.conn_latency || desc.supervision_timeout != CONN_TIMEOUT)
+		if (desc.conn_itvl != conn_interval || desc.conn_latency || desc.supervision_timeout != CONN_TIMEOUT)
 		{
-			static const struct ble_gap_upd_params params = {
-				.itvl_min = CONN_INTERVAL, .itvl_max = CONN_INTERVAL, .latency = 0,
-				.supervision_timeout = CONN_TIMEOUT, .min_ce_len = 0, .max_ce_len = 0,
+			const struct ble_gap_upd_params params = {
+				.itvl_min = conn_interval, .itvl_max = conn_interval, .latency = 0,
+				.supervision_timeout = CONN_TIMEOUT, .min_ce_len = CONN_CE_LEN, .max_ce_len = CONN_CE_LEN,
 			};
 			int rc = ble_gap_update_params(event->conn_update.conn_handle, &params);
 			if (rc)
@@ -511,15 +596,12 @@ static void host_task(void *param)
 
 static void hello(void)
 {
-	out("I SlimeBleReceiver " VERSION);
+	out("I SlimeBleReceiver " VERSION " %s", link_hid ? "hid" : "serial");
 	for (int i = 0; i < MAX_TRACKERS; i++)
 		if (slots[i].state == SLOT_READY)
 		{
 			char mac[13];
-			uint8_t be[6];
-			for (int k = 0; k < 6; k++)
-				be[k] = slots[i].mac[5 - k];
-			hex(mac, be, 6);
+			mac_str(slots[i].mac, mac);
 			out("C %d %s", i, mac);
 		}
 }
@@ -559,6 +641,49 @@ static void command(char *line)
 		xSemaphoreGive(lock);
 		out("# only: %s", only[0] ? only : "all");
 	}
+	else if (line[0] == 'D' && sscanf(line + 1, "%d", &i) == 1)
+	{
+		data_lines = i;
+		out("# data lines %s", data_lines ? "on" : "off");
+	}
+	else if (line[0] == 'P' && sscanf(line + 1, "%d", &i) == 1 && i >= 6 && i <= 80)
+	{
+		conn_interval = i; // the connected trackers too
+		const struct ble_gap_upd_params params = {
+			.itvl_min = i, .itvl_max = i, .latency = 0, .supervision_timeout = CONN_TIMEOUT, .min_ce_len = CONN_CE_LEN, .max_ce_len = CONN_CE_LEN,
+		};
+		for (int k = 0; k < MAX_TRACKERS; k++)
+			if (slots[k].state == SLOT_READY)
+				ble_gap_update_params(slots[k].conn, &params);
+		out("# interval %d.%02d ms", i * 125 / 100, i * 125 % 100);
+	}
+	else if (line[0] == 'L')
+	{
+		for (int k = 0; k < id_count; k++)
+		{
+			char mac[13];
+			mac_str(ids[k], mac);
+			out("# id %d %s", k, mac);
+		}
+		out("# %d tracker ids", id_count);
+	}
+	else if (line[0] == 'Z')
+	{
+		xSemaphoreTake(lock, portMAX_DELAY);
+		id_count = 0;
+		ids_save();
+		for (int k = 0; k < MAX_TRACKERS; k++)
+			if (slots[k].state != SLOT_FREE)
+				ble_gap_terminate(slots[k].conn, BLE_ERR_REM_USER_CONN_TERM); // new ids as they come back
+		xSemaphoreGive(lock);
+		out("# tracker ids cleared");
+	}
+	else if (line[0] == 'B')
+	{
+		out("# download mode");
+		vTaskDelay(pdMS_TO_TICKS(100)); // let the line out
+		link_download_mode();
+	}
 }
 
 static void pc_task(void *param)
@@ -568,7 +693,7 @@ static void pc_task(void *param)
 	while (1)
 	{
 		uint8_t c;
-		if (usb_serial_jtag_read_bytes(&c, 1, portMAX_DELAY) != 1)
+		if (link_read(&c, 1, portMAX_DELAY) != 1)
 			continue;
 		if (c == '\r' || c == '\n')
 		{
@@ -582,13 +707,25 @@ static void pc_task(void *param)
 	}
 }
 
-// Every 5 s: one line per tracker with its notification rate and link
+// Every second the trackers' RSSI (for the HID packets); every 5 s one line per tracker with its
+// notification rate and link
 static void status_task(void *param)
 {
 	uint32_t last_adv = 0;
+	int ticks = 0;
 	while (1)
 	{
-		vTaskDelay(pdMS_TO_TICKS(5000));
+		vTaskDelay(pdMS_TO_TICKS(1000));
+		for (int i = 0; i < MAX_TRACKERS; i++)
+		{
+			int8_t rssi;
+			if (slots[i].state == SLOT_READY && !ble_gap_conn_rssi(slots[i].conn, &rssi) && rssi < 0)
+				slots[i].rssi = -rssi;
+		}
+		scan_resume(); // whenever it should run but does not (a path that missed restarting it)
+		if (++ticks < 5)
+			continue;
+		ticks = 0;
 		// An attempt whose end never came back would stop scanning for good: drop it
 		xSemaphoreTake(lock, portMAX_DELAY);
 		bool stuck = connecting && xTaskGetTickCount() - connect_started > pdMS_TO_TICKS(CONNECT_STUCK_MS);
@@ -618,12 +755,10 @@ static void status_task(void *param)
 			if (slots[i].state == SLOT_FREE)
 				continue;
 			struct ble_gap_conn_desc desc;
-			int8_t rssi = 0;
 			uint32_t packets = slots[i].packets;
-			ble_gap_conn_rssi(slots[i].conn, &rssi);
 			int itvl = ble_gap_conn_find(slots[i].conn, &desc) ? 0 : desc.conn_itvl * 125 / 100;
-			n += snprintf(line + n, sizeof(line) - n, "; %d %02X%02X %s %lu/s %ddBm %dms", i, slots[i].mac[1], slots[i].mac[0],
-				slots[i].state == SLOT_READY ? "ok" : "setup", (unsigned long)(packets - slots[i].reported) / 5, rssi, itvl);
+			n += snprintf(line + n, sizeof(line) - n, "; %d %02X%02X %s %lu/s -%ddBm %dms", i, slots[i].mac[1], slots[i].mac[0],
+				slots[i].state == SLOT_READY ? "ok" : "setup", (unsigned long)(packets - slots[i].reported) / 5, slots[i].rssi, itvl);
 			slots[i].reported = packets;
 		}
 		out("%s", line);
@@ -633,11 +768,6 @@ static void status_task(void *param)
 void app_main(void)
 {
 	lock = xSemaphoreCreateMutex();
-	out_lock = xSemaphoreCreateMutex();
-
-	usb_serial_jtag_driver_config_t usb = {.tx_buffer_size = 8192, .rx_buffer_size = 512};
-	ESP_ERROR_CHECK(usb_serial_jtag_driver_install(&usb));
-	usb_serial_jtag_vfs_use_driver(); // ESP_LOG through the driver too
 
 	esp_err_t err = nvs_flash_init();
 	if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND)
@@ -647,6 +777,9 @@ void app_main(void)
 	}
 	ESP_ERROR_CHECK(err);
 
+	link_init();
+	data_lines = !link_hid;
+	ids_load();
 	hello();
 	ESP_ERROR_CHECK(nimble_port_init());
 	ble_hs_cfg.sync_cb = on_sync;

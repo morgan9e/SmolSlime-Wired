@@ -1,0 +1,2 @@
+# The PC link: USB Serial/JTAG (the board's only USB port), also the console
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
