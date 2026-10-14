@@ -50,7 +50,8 @@ const char *config_settings_names[] = {
 	"active_timeout_threshold",
 	"active_timeout_delay",
 	"battery_low_runtime_threshold",
-	"sensor_update_time_ms"
+	"sensor_update_time_ms",
+	"connection_over_ble"
 };
 
 const bool config_0_settings_defaults[16] = {
@@ -137,6 +138,7 @@ const int32_t config_3_settings_defaults[16] = {
 #endif
 	CONFIG_BATTERY_LOW_RUNTIME_THRESHOLD,
 	CONFIG_SENSOR_UPDATE_TIME_MS, // 6-33, see sensor_low_noise_update_time_ms
+	IS_ENABLED(CONFIG_CONNECTION_OVER_BLE), // 0-1, see ble.c
 };
 
 LOG_MODULE_REGISTER(config, LOG_LEVEL_INF);

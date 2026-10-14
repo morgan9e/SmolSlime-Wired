@@ -121,7 +121,7 @@ receiver:
 	@echo "-> $(RECEIVER_HEX), $(RECEIVER_HEX:.hex=.zip)"
 
 test:
-	cd "$(ROOT)/tools" && python3 -m unittest test_slime_link test_quest_bridge test_remote_config
+	cd "$(ROOT)/tools" && python3 -m unittest test_slime_link test_quest_bridge test_remote_config test_ble_bridge
 
 clean:
 	rm -rf "$(BUILD)"

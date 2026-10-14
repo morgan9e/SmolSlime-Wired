@@ -2,6 +2,7 @@
 #include "console.h"
 #include "hid.h"
 #include "system/status.h"
+#include "system/power.h"
 
 #if CONFIG_USB_DEVICE_STACK
 #define USB DT_NODELABEL(usbd)
@@ -71,9 +72,55 @@ static void status_cb(enum usb_dc_status_code status, const uint8_t *param)
 	}
 }
 
+// USB self-check: if USB power is present but the host has not configured the device within
+// USB_WATCHDOG_MS, reboot, up to USB_WATCHDOG_TRIES times per plug-in. A stalled USB stack
+// recovers only by a reboot, and the tracker may be out of reach otherwise (no button, remote PC).
+// On a plain charger (power, no host) this costs a few reboots once, then it stops.
+#define USB_WATCHDOG_MS 15000
+#define USB_WATCHDOG_TRIES 3
+#define USB_WATCHDOG_MAGIC 0x55B0D06Eu
+
+static __noinit struct {
+	uint32_t magic;
+	uint32_t tries;
+} usb_watchdog; // kept over a reboot
+
+static int64_t vbus_since;
+
+static void usb_watchdog_handler(struct k_work *work);
+static K_WORK_DELAYABLE_DEFINE(usb_watchdog_work, usb_watchdog_handler);
+
+static void usb_watchdog_handler(struct k_work *work)
+{
+	bool vbus = NRF_POWER->USBREGSTATUS & POWER_USBREGSTATUS_VBUSDETECT_Msk;
+	if (usb_watchdog.magic != USB_WATCHDOG_MAGIC)
+	{
+		usb_watchdog.magic = USB_WATCHDOG_MAGIC;
+		usb_watchdog.tries = 0;
+	}
+	if (!vbus || configured)
+	{
+		vbus_since = 0;
+		usb_watchdog.tries = 0;
+	}
+	else if (!vbus_since)
+	{
+		vbus_since = k_uptime_get();
+	}
+	else if (k_uptime_get() - vbus_since > USB_WATCHDOG_MS && usb_watchdog.tries < USB_WATCHDOG_TRIES)
+	{
+		usb_watchdog.tries++;
+		LOG_WRN("USB powered but not set up by the host in %d s, rebooting (%u/%d)", USB_WATCHDOG_MS / 1000, usb_watchdog.tries, USB_WATCHDOG_TRIES);
+		sys_request_system_reboot(false);
+		return;
+	}
+	k_work_schedule(&usb_watchdog_work, K_SECONDS(1));
+}
+
 static void usb_init_thread(void)
 {
 	usb_enable(status_cb);
+	k_work_schedule(&usb_watchdog_work, K_SECONDS(1));
 }
 
 #endif

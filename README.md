@@ -26,6 +26,12 @@ receiver, ProMicro stacked trackers and a Seeed XIAO nRF52840 Sense.
 - **Settings over the radio**: read, write and reset a tracker's settings from the PC through the
   receiver, no USB cable (`tools/remote_config.py`, receiver console `cfg`), in every tracker
   build. See [docs/OTA.md](docs/OTA.md#settings-over-the-radio).
+- **BLE mode** (tracker console `ble on` / `ble off`, reboots): the tracker talks BLE to a PC
+  instead of ESB to the receiver; `tools/ble_bridge.py` forwards it to SlimeVR Server. No dongle;
+  settings over BLE (`remote_config.py --ble 0791 ...`), no OTA in it. nRF52840 trackers. See
+  [docs/BLE.md](docs/BLE.md).
+- **Always on**: no sleep when still (`USE_IMU_WAKE_UP=n`, `USE_ACTIVE_TIMEOUT=n`), as SlimeVR's
+  "Sleep (WOM) off" builds. A tracker still powers off after 5 min without its receiver.
 - The tracker version comes from this repository's tags (`tools/bump_version.py`).
 - Fix: the stock tracker did not build for the stacked I2C board.
 
@@ -64,5 +70,6 @@ Install with `python -m pip install pyserial hidapi PySide6`.
 | `ota.py` | Update a tracker over the radio through the receiver |
 | `remote_config.py` | Read and change a tracker's settings over the radio (`--tracker 3 set sensor_update_time_ms 10`) |
 | `quest_bridge.py` | PC side of the Quest Bridge |
+| `ble_bridge.py` | Trackers in BLE mode to SlimeVR Server (needs `bleak`) |
 | `dfu_zip.py` | Package the dongle image for Nordic DFU (`make receiver` calls it) |
 | `bump_version.py` | Tag the next patch version on HEAD |

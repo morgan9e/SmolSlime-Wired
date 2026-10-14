@@ -4,6 +4,7 @@
 #include "sensor/sensor.h"
 #include "sensor/calibration.h"
 #include "connection/esb.h"
+#include "connection/ble.h"
 #include "build_defines.h"
 #include "parse_args.h"
 #include "ota.h"
@@ -168,6 +169,9 @@ static void print_connection(void)
 	printk(paired ? "Tracker ID: %u\n" : "Tracker ID: None\n", retained->paired_addr[1]);
 	printk("Device address: %012llX\n", *(uint64_t *)NRF_FICR->DEVICEADDR & 0xFFFFFFFFFFFF);
 	printk(paired ? "Receiver address: %012llX\n" : "Receiver address: None\n", (*(uint64_t *)&retained->paired_addr[0] >> 16) & 0xFFFFFFFFFFFF);
+#if CONFIG_TRACKER_BLE
+	ble_print_status();
+#endif
 	ota_print_status();
 }
 
@@ -501,6 +505,9 @@ static void print_help(void)
 	printk("\nset <address>                Manually set receiver\n");
 	printk("pair                         Enter pairing mode\n");
 	printk("clear                        Clear pairing data\n");
+#if CONFIG_TRACKER_BLE
+	printk("ble [on|off]                 BLE status, or switch to BLE / ESB (reboots)\n");
+#endif
 #if DFU_EXISTS
 	printk("\ndfu                          Enter DFU bootloader\n");
 #endif
@@ -558,6 +565,11 @@ static void console_thread(void)
 	const char command_set[] = "set";
 	const char command_pair[] = "pair";
 	const char command_clear[] = "clear";
+#if CONFIG_TRACKER_BLE
+	const char command_ble[] = "ble";
+	const char command_ble_arg_on[] = "on";
+	const char command_ble_arg_off[] = "off";
+#endif
 #if DFU_EXISTS
 	const char command_dfu[] = "dfu";
 #endif
@@ -663,6 +675,19 @@ static void console_thread(void)
 		{
 			esb_clear_pair();
 		}
+#if CONFIG_TRACKER_BLE
+		else if (strcmp(argv[0], command_ble) == 0)
+		{
+			if (argc == 1)
+				ble_print_status();
+			else if (argc == 2 && strcmp(argv[1], command_ble_arg_on) == 0)
+				ble_set_mode(true);
+			else if (argc == 2 && strcmp(argv[1], command_ble_arg_off) == 0)
+				ble_set_mode(false);
+			else
+				printk("Invalid argument\n");
+		}
+#endif
 #if DFU_EXISTS
 		else if (strcmp(argv[0], command_dfu) == 0)
 		{

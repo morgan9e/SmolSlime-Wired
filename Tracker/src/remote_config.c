@@ -6,6 +6,8 @@
 #include "ota.h"
 #include "ota_proto.h"
 #include "connection/esb.h"
+#include "connection/ble.h"
+#include "system/system.h"
 
 #include <string.h>
 #include <zephyr/kernel.h>
@@ -112,6 +114,19 @@ static uint8_t carry_out(uint8_t op, uint16_t id, int32_t *value)
 	return status;
 }
 
+static uint16_t id_of(const uint8_t *msg)
+{
+	return msg[4] | msg[5] << 8;
+}
+
+#if CONFIG_TRACKER_BLE
+static bool is_connection_over_ble(uint16_t id)
+{
+	int group, index;
+	return find_setting(id, &group, &index) && group == 3 && index == CONFIG_3_CONNECTION_OVER_BLE;
+}
+#endif
+
 static void remote_config_thread(void)
 {
 	while (1) {
@@ -140,10 +155,23 @@ static void remote_config_thread(void)
 			else
 				LOG_WRN("Setting %u over the radio: %s", id, cfg_status_name(status));
 		}
-		for (int i = 0; i < RESP_REPEATS; i++) {
-			esb_write_ota(response, sizeof(response));
-			k_msleep(5);
+		if (ble_mode()) {
+			ble_write_config(response, sizeof(response)); // acknowledged by the link; one is enough
+		} else {
+			for (int i = 0; i < RESP_REPEATS; i++) {
+				esb_write_ota(response, sizeof(response));
+				k_msleep(5);
+			}
 		}
+#if CONFIG_TRACKER_BLE
+		// connection_over_ble written or reset over the radio: switch now, as the console's ble on|off
+		if (response[3] == CFG_STATUS_OK && request[3] != CFG_OP_READ && is_connection_over_ble(id_of(response)) &&
+		    (bool)CONFIG_3_SETTINGS_READ(CONFIG_3_CONNECTION_OVER_BLE) != ble_mode()) {
+			LOG_INF("Switching to %s, rebooting", ble_mode() ? "ESB" : "BLE");
+			k_msleep(500); // let the answer go out, and its repeats if the PC asks again
+			sys_request_system_reboot(false);
+		}
+#endif
 		atomic_set(&busy, 0);
 	}
 }

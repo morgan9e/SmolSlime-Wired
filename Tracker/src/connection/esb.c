@@ -31,6 +31,7 @@
 #include <zephyr/sys/crc.h>
 
 #include "esb.h"
+#include "ble.h"
 #include "ota.h"
 #include "ota_proto.h"
 #include "remote_config.h"
@@ -272,6 +273,9 @@ static uint8_t base_addr_0[4], base_addr_1[4], addr_prefix[8] = {0};
 int esb_initialize(bool tx)
 {
 	int err;
+
+	if (ble_mode())
+		return -EPERM; // the radio belongs to BLE this boot (ble.c)
 
 	struct esb_config config = ESB_DEFAULT_CONFIG;
 
@@ -545,6 +549,9 @@ bool esb_ready(void)
 
 static void esb_thread(void)
 {
+	if (ble_mode())
+		return; // no pairing or receiver timeout; ble.c runs the connection
+
 	bool use_hid = CONFIG_0_SETTINGS_READ(CONFIG_0_CONNECTION_OVER_HID);
 	bool use_shutdown = CONFIG_0_SETTINGS_READ(CONFIG_0_USER_SHUTDOWN);
 	int64_t start_time = k_uptime_get();

@@ -23,6 +23,7 @@
 #include "globals.h"
 #include "util.h"
 #include "esb.h"
+#include "ble.h"
 #include "build_defines.h"
 #include "hid.h"
 #include "system/battery_tracker.h"
@@ -496,7 +497,10 @@ void connection_thread(void)
 			data_copy[20] = packet_sequence++;
 			uint32_t *crc_ptr = (uint32_t *)&data_copy[16];
 			*crc_ptr = crc32_k_4_2_update(0x93a409eb, data_copy, 16);
-			esb_write(data_copy);
+			if (ble_mode())
+				ble_write(data_copy);
+			else
+				esb_write(data_copy);
 		}
 		// mag is higher priority (skip accel, quat is full precision)
 		else if (mag_update_time && k_uptime_get() - last_mag_time > 200)

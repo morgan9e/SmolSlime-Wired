@@ -1,0 +1,7 @@
+/* BLE mode (CONFIG_TRACKER_BLE, included by the nrf52840*.overlay files): random numbers from the
+ * RNG peripheral. The SoC default is CryptoCell, whose driver needs nrf_security. */
+/ {
+	chosen {
+		zephyr,entropy = &rng;
+	};
+};

@@ -65,6 +65,7 @@ enum config_3_settings_id {
 	CONFIG_3_ACTIVE_TIMEOUT_DELAY,
 	CONFIG_3_BATTERY_LOW_RUNTIME_THRESHOLD,
 	CONFIG_3_SENSOR_UPDATE_TIME_MS, // appended so the ids of the other settings stay the same
+	CONFIG_3_CONNECTION_OVER_BLE, // 0: ESB, 1: BLE; read at boot (ble on|off)
 	CONFIG_3_SETTINGS_END
 };
 

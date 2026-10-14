@@ -11,15 +11,25 @@ and paired; no USB cable to it.
     python remote_config.py --tracker 3 reset radio_tx_power
     python remote_config.py --tracker 3 set 29 10 --port COM29     # setting by id
 
+A tracker in BLE mode (docs/BLE.md) is reached through tools/ble_bridge.py instead, which must be
+running; name it by its BLE name without SlimeNRF-:
+
+    python remote_config.py --ble 0791 get sensor_update_time_ms
+    python remote_config.py --ble 0791 set connection_over_ble 0    # back to ESB (reboots)
+    python remote_config.py --tracker 3 set connection_over_ble 1   # to BLE (reboots)
+
 A setting is the same as on the tracker's console (list_config, write_config). Some take effect
 at once (sensor_update_time_ms), others on the tracker's next start (radio_tx_power, sensor
-rates). A setting that cuts the tracker off (e.g. a very low radio_tx_power) has to be undone over
-USB.
+rates); connection_over_ble restarts the tracker in the other mode. A setting that cuts the
+tracker off (e.g. a very low radio_tx_power) has to be undone over USB.
 
-Needs pyserial: python -m pip install pyserial
+Needs pyserial for the receiver: python -m pip install pyserial
 """
 import argparse
+import random
 import re
+import socket
+import struct
 import sys
 import time
 
@@ -41,7 +51,7 @@ SETTINGS = [
     # 3: int32
     'connection_timeout_delay', 'sensor_lp_timeout', 'imu_timeout_ramp_min', 'imu_timeout_ramp_max',
     'active_timeout_threshold', 'active_timeout_delay', 'battery_low_runtime_threshold',
-    'sensor_update_time_ms',
+    'sensor_update_time_ms', 'connection_over_ble',
 ]
 
 RESULT = re.compile(r'cfg: (?:idle, last: )?tracker (\d+) setting (\d+)(?: = (-?\d+)|: (.+))$')
@@ -105,6 +115,78 @@ class Console:
         return None, 'no result from the receiver'
 
 
+# Tracker/src/ota_proto.h CFG_MSG_*: [type][tracker id][seq][op|status][setting id u16][value i32]
+CFG_MSG_REQ, CFG_MSG_RESP = 0xF6, 0xF7
+CFG_MSG = struct.Struct('<BBBBHi')
+CFG_OPS = {'get': 0, 'set': 1, 'reset': 2}
+CFG_STATUS = ['ok', 'no such setting', 'value out of range', 'unknown operation', 'busy with a firmware update']
+CFG_BUSY = 4
+
+
+def cfg_request(seq, op, sid, value=0):
+    return CFG_MSG.pack(CFG_MSG_REQ, 0, seq & 0xff, CFG_OPS[op], sid, value)
+
+
+def cfg_answer(data):
+    """(seq, status, setting id, value) of a tracker's answer, or None."""
+    if len(data) != CFG_MSG.size or data[0] != CFG_MSG_RESP:
+        return None
+    _, _, seq, status, sid, value = CFG_MSG.unpack(data)
+    return seq, status, sid, value
+
+
+class BleBridge:
+    """A tracker in BLE mode, through ble_bridge.py's control port."""
+
+    def __init__(self, name, port, attempt_s=0.7):
+        import ble_bridge
+        self.bb = ble_bridge
+        self.name = name.upper().removeprefix('SLIMENRF-')
+        self.addr = ('127.0.0.1', port)
+        self.attempt_s = attempt_s
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.sock.bind(('127.0.0.1', 0))
+        self.seq = random.randrange(256)
+
+    def request(self, tracker, op, sid, value=None):
+        """(value, None) or (None, reason). The same seq is sent again until answered: the tracker
+        carries a request out once and answers repeats from its last answer."""
+        self.seq = (self.seq + 1) & 0xff
+        message = self.bb.control_pack(self.name, cfg_request(self.seq, op, sid, value or 0))
+        heard = False
+        end = time.monotonic() + TIMEOUT_S
+        while time.monotonic() < end:
+            self.sock.sendto(message, self.addr)
+            attempt_end = min(end, time.monotonic() + self.attempt_s)
+            while time.monotonic() < attempt_end:
+                self.sock.settimeout(max(0.01, attempt_end - time.monotonic()))
+                try:
+                    data = self.sock.recv(64)
+                except socket.timeout:
+                    break
+                except ConnectionResetError:  # Windows: nothing listens on the control port
+                    return None, 'ble_bridge.py is not running'
+                try:
+                    name, payload = self.bb.control_unpack(data)
+                except ValueError:
+                    continue
+                if name != self.name:
+                    continue
+                heard = True
+                if not payload:
+                    return None, f'SlimeNRF-{self.name} is not connected to ble_bridge.py'
+                answer = cfg_answer(payload)
+                if not answer or answer[0] != self.seq or answer[2] != sid:
+                    continue
+                status, value = answer[1], answer[3]
+                if status == CFG_BUSY:
+                    break  # ask again
+                if status:
+                    return None, CFG_STATUS[status] if status < len(CFG_STATUS) else f'status {status}'
+                return value, None
+        return None, 'did not answer' if heard else 'no answer from ble_bridge.py (is it running?)'
+
+
 def find_port(port):
     if port:
         return port
@@ -119,8 +201,11 @@ def find_port(port):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument('--tracker', type=int, required=True, help='tracker id (the receiver\'s "list" order)')
+    who = ap.add_mutually_exclusive_group(required=True)
+    who.add_argument('--tracker', type=int, help='tracker id (the receiver\'s "list" order)')
+    who.add_argument('--ble', metavar='NAME', help='tracker in BLE mode, e.g. 0791 for SlimeNRF-0791 (via ble_bridge.py)')
     ap.add_argument('--port', help='receiver console serial port')
+    ap.add_argument('--bridge-port', type=int, default=6971, help='ble_bridge.py control port')
     ap.add_argument('command', choices=('list', 'get', 'set', 'reset'))
     ap.add_argument('setting', nargs='?', help='setting name or id (list_config)')
     ap.add_argument('value', nargs='?', type=int)
@@ -129,27 +214,32 @@ def main(argv=None):
         ap.error(f'{args.command} needs a setting')
     if args.command == 'set' and args.value is None:
         ap.error('set needs a value')
-    try:
-        import serial  # noqa: F401
-    except ImportError:
-        sys.exit('Needs pyserial: python -m pip install pyserial')
-
-    con = Console(find_port(args.port))
+    if args.ble:
+        con = BleBridge(args.ble, args.bridge_port)
+        label = f'SlimeNRF-{con.name}'
+    else:
+        try:
+            import serial  # noqa: F401
+        except ImportError:
+            sys.exit('Needs pyserial: python -m pip install pyserial')
+        con = Console(find_port(args.port))
+        label = f'tracker {args.tracker}'
     if args.command == 'list':
         failed = 0
         for sid, name in enumerate(SETTINGS):
             value, err = con.request(args.tracker, 'get', sid)
             print(f'{sid:3} {name:32} {value if err is None else "(" + err + ")"}')
-            if err and 'did not answer' in err:
+            if err and err not in CFG_STATUS:  # the link failed, not this setting: stop
                 sys.exit(1)
             failed += err is not None
         sys.exit(1 if failed else 0)
     sid = setting_id(args.setting)
-    op = {'get': 'get', 'set': 'set', 'reset': 'reset'}[args.command]
-    value, err = con.request(args.tracker, op, sid, args.value if args.command == 'set' else None)
+    value, err = con.request(args.tracker, args.command, sid, args.value if args.command == 'set' else None)
     if err:
-        sys.exit(f'tracker {args.tracker} {setting_name(sid)}: {err}')
-    print(f'tracker {args.tracker} {setting_name(sid)} = {value}')
+        sys.exit(f'{label} {setting_name(sid)}: {err}')
+    print(f'{label} {setting_name(sid)} = {value}')
+    if setting_name(sid) == 'connection_over_ble' and args.command != 'get':
+        print(f'{label} restarts in {"BLE" if value else "ESB"} mode if it was not in it')
 
 
 if __name__ == '__main__':

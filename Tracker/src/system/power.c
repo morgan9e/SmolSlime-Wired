@@ -6,6 +6,7 @@
 #include "system.h"
 #include "led.h"
 #include "connection/esb.h"
+#include "connection/ble.h"
 #include "ota.h"
 
 #include <zephyr/drivers/gpio.h>
@@ -294,7 +295,7 @@ static void sys_WOM(bool force) // TODO: if IMU interrupt does not exist what do
 {
 	LOG_INF("IMU wake up requested");
 #if IMU_INT_EXISTS
-	if (CONFIG_0_SETTINGS_READ(CONFIG_0_DELAY_SLEEP_ON_STATUS) && !force && (!esb_ready() || !status_ready())) // Wait for esb to pair in case the user is still trying to pair the device
+	if (CONFIG_0_SETTINGS_READ(CONFIG_0_DELAY_SLEEP_ON_STATUS) && !force && (!(ble_mode() ? ble_connected() : esb_ready()) || !status_ready())) // Wait for esb to pair (or ble to connect) in case the user is still trying to pair the device
 	{
 		if (!system_off_timeout)
 			system_off_timeout = k_uptime_get() + 30000; // allow system off after 30 seconds if status errors are still active
