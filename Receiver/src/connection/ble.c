@@ -49,18 +49,18 @@ static const struct bt_uuid_128 config_uuid = BT_UUID_INIT_128(SLIME_UUID_VAL(4)
 #define PACKET_LEN 17 // the 16-byte packet and its sequence
 #define CFG_LEN 10
 
-// No latency, 1 s supervision timeout (after a receiver reset a tracker advertises again 1 s
-// later); the tracker asks 7.5-15 ms and 4 s, the receiver keeps its own (le_param_req).
-// The interval leaves each tracker 1.5 ms (Kconfig BT_CTLR_SDC_MAX_CONN_EVENT_LEN_DEFAULT), two
-// notification exchanges: 10 ms for up to six trackers (200 packets/s each), 12.5 ms for seven
-// or eight (160/s). A moving tracker sends about 167/s. Measured with six moving: one exchange per
-// event (7.5 ms / 0.9 ms, 10 ms / 1.2 ms: the controller budgets each exchange for 27-byte
-// packets both ways) lost ~30% of the packets at the trackers.
+// 12.5 ms, no latency, 1 s supervision timeout (after a receiver reset a tracker advertises again
+// 1 s later); the tracker asks 7.5-15 ms and 4 s, the receiver keeps its own (le_param_req).
+// The interval holds eight trackers of 1.5 ms each (Kconfig BT_CTLR_SDC_MAX_CONN_EVENT_LEN_DEFAULT),
+// two notification exchanges: up to 160 packets/s per tracker (a moving one sends ~167/s, ~130/s
+// get through; ESB gave 100). One interval for every count: the connections keep the places the
+// controller gave them when they connected. Measured with six moving: one exchange per event
+// (7.5 ms / 0.9 ms, 10 ms / 1.2 ms: the controller budgets 27-byte packets both ways) lost ~30% at
+// the trackers; switching six connections from 10 to 12.5 ms when a seventh came left one or two
+// of eight moving trackers at half rate (overlapping events take turns).
+#define CONN_INTERVAL 10
 #define CONN_TIMEOUT 100
-#define CONN_INTERVAL_FEW 8 // 10 ms
-#define CONN_INTERVAL_MANY 10 // 12.5 ms
-#define CONN_FEW 6
-static struct bt_le_conn_param conn_param = BT_LE_CONN_PARAM_INIT(CONN_INTERVAL_FEW, CONN_INTERVAL_FEW, 0, CONN_TIMEOUT);
+static const struct bt_le_conn_param conn_param = BT_LE_CONN_PARAM_INIT(CONN_INTERVAL, CONN_INTERVAL, 0, CONN_TIMEOUT);
 
 enum link_state { LINK_FREE, LINK_SETUP, LINK_READY };
 
@@ -164,27 +164,6 @@ static struct link *link_by_id(int id)
 		if (links[i].state == LINK_READY && links[i].id == id)
 			return &links[i];
 	return NULL;
-}
-
-// The interval for this many trackers; the connected ones move to it. links_lock held.
-static void interval_for(int trackers)
-{
-	uint16_t interval = trackers > CONN_FEW ? CONN_INTERVAL_MANY : CONN_INTERVAL_FEW;
-	if (interval == conn_param.interval_min)
-		return;
-	conn_param.interval_min = conn_param.interval_max = interval;
-	LOG_INF("%d trackers: interval %u.%02u ms", trackers, interval * 125 / 100, interval * 125 % 100);
-	for (int i = 0; i < ARRAY_SIZE(links); i++)
-		if (links[i].state == LINK_READY)
-			bt_conn_le_param_update(links[i].conn, &conn_param);
-}
-
-static int used_count(void)
-{
-	int n = 0;
-	for (int i = 0; i < ARRAY_SIZE(links); i++)
-		n += links[i].state != LINK_FREE;
-	return n;
 }
 
 static struct link *link_free(void)
@@ -416,7 +395,6 @@ static void disconnected(struct bt_conn *conn, uint8_t reason)
 	bt_conn_unref(l->conn);
 	memset(l, 0, sizeof(*l));
 	l->id = -1;
-	interval_for(used_count());
 	k_mutex_unlock(&links_lock);
 	if (was_setup)
 		connecting = false;
@@ -480,7 +458,6 @@ static void device_found(const bt_addr_le_t *addr, int8_t rssi, uint8_t type, st
 	}
 	connecting = true;
 	connect_started = k_uptime_get();
-	interval_for(used_count() + 1); // with the new one
 	bt_le_scan_stop();
 	struct bt_conn *conn = NULL;
 	int err = bt_conn_le_create(addr, BT_CONN_LE_CREATE_CONN, &conn_param, &conn);

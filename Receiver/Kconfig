@@ -102,7 +102,7 @@ if RECEIVER_BLE
 config BT_MAX_CONN
     default 8
 
-# Each connection 1500 us in the interval (ble.c: 10 ms for six, 12.5 ms for eight): two
+# Each connection 1500 us in the 12.5 ms interval (ble.c, eight trackers): two
 # notification exchanges (the controller budgets 27-byte packets both ways, ~0.6 ms each on 2M,
 # so 1200 us fitted one); connection event extension gives more while the others leave time
 config BT_CTLR_SDC_MAX_CONN_EVENT_LEN_DEFAULT_OVERRIDE

@@ -2,9 +2,11 @@
 
 **Recommended receiver: the nRF52840 Dongle in BLE mode** (receiver console `ble on`, below).
 SlimeVR Server reads it as always (USB HID), trackers keep their ids, settings work through it.
-Tested 2026-10-14 with six ProMicro trackers in BLE mode: all connected within 15 s of `ble on`,
-10 ms interval, 2M PHY; still ~22 packets/s each, 0 gaps; all six moving at once ~135 packets/s
-each, no gap over 50 ms, 0.1-0.3% of their packets dropped at the trackers (newest kept).
+Tested 2026-10-14 with eight trackers in BLE mode (seven ProMicro, a XIAO): all connected within
+15 s of `ble on`, 12.5 ms interval, 2M PHY; still ~22-30 packets/s each, 0 gaps; all eight moving at
+once 122-136 packets/s each (ESB gave 100), no gap over 50 ms, 0.0-0.3% of their packets dropped
+at the trackers (newest kept). AB6C reached only ~63/s: its IMU interrupt line does not work, it
+polls.
 
 Status (2026-10-14): built for every tracker image; PC bridge unit-tested. On hardware (ProMicro
 D235, standard MPSL clocks): ESB on the dongle 28.9 packets/s with no gaps; BLE from a Linux laptop
@@ -81,9 +83,11 @@ The receiver firmware (`make receiver`, the nRF52840 Dongle) has a BLE central b
   disconnect the trackers so the ids follow.
 - Settings: `cfg` on the console and `remote_config.py --tracker <id>` go to the tracker's settings
   characteristic (no ACKs to ride on). Firmware updates (`ota`) need ESB.
-- Timing: up to 8 trackers; each gets 1.5 ms of the connection interval, two notification
-  exchanges (`BT_CTLR_SDC_MAX_CONN_EVENT_LEN_DEFAULT`): 10 ms for up to six (200 packets/s each),
-  12.5 ms for seven or eight (160/s); a moving tracker sends about 167/s. 1 s supervision timeout.
+- Timing: up to 8 trackers in a 12.5 ms interval, each 1.5 ms of it, two notification exchanges
+  (`BT_CTLR_SDC_MAX_CONN_EVENT_LEN_DEFAULT`): up to 160 packets/s per tracker; a moving tracker
+  sends about 167/s, ~130/s get through. 1 s supervision timeout. One interval for any count:
+  10 ms for up to six, switched to 12.5 ms when a seventh connected, left one or two of eight
+  moving trackers at half rate (their events overlapped after the switch).
   Measured on the way there (six moving): 7.5 ms with 0.9 ms each, and 10 ms with 1.2 ms each,
   allowed one exchange per event (the controller budgets 27-byte packets both ways, ~0.6 ms on
   2M) and the trackers dropped ~17-30%. Scanning stays at 30 ms a second while any tracker is
