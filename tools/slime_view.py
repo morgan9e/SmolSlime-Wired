@@ -896,7 +896,7 @@ def age_text(t):
 # ---------------------------------------------------------------- Qt window
 
 LEFT, RIGHT, ERROR = QColor('#3d8fd9'), QColor('#e8873a'), QColor('#d9443b')
-COLUMNS, ROWS = 4, 2  # the window fits eight trackers; more scroll
+COLUMNS, ROWS = 4, 2  # smallest card grid; it grows to fit more trackers while the screen allows
 
 
 def draw_arrow(painter, start, end, color):
@@ -1099,15 +1099,15 @@ class App(QMainWindow):
         self.scroll.setWidgetResizable(True)
         self.scroll.setFrameShape(QFrame.Shape.NoFrame)
         self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        # Size for exactly COLUMNS x ROWS cards, keeping room for the scroll bar.
+        # Cards have a fixed size; the scroll area is sized for whole cards plus a scroll bar,
+        # which only appears when the screen cannot fit them all.
         probe = TrackerCard(lambda part: None)
         probe.show_tracker(dict(Tracker(('', 0)).__dict__, last_real=time.time(), batt_pct=0,
                                 batt_v=0, rssi=0, temp=0, fw='0.0.0', mac='0' * 12), True, '')
-        gap = self.grid.spacing()
-        scrollbar = self.style().pixelMetric(QStyle.PixelMetric.PM_ScrollBarExtent)
-        self.scroll.setFixedSize(COLUMNS * TrackerCard.WIDTH + (COLUMNS - 1) * gap + scrollbar + gap,
-                                 ROWS * probe.sizeHint().height() + (ROWS - 1) * gap)
+        self.card_height = probe.sizeHint().height()
         probe.deleteLater()
+        self.columns = self.rows = None
+        self.set_grid(COLUMNS, ROWS)
         body.addWidget(self.scroll)
 
         self.status = QLabel()
@@ -1224,17 +1224,69 @@ class App(QMainWindow):
         if not failed:
             self.save_config()
 
+    def grid_area(self, columns, rows):
+        gap = self.grid.spacing()
+        scrollbar = self.style().pixelMetric(QStyle.PixelMetric.PM_ScrollBarExtent)
+        return (columns * TrackerCard.WIDTH + (columns - 1) * gap + scrollbar + gap,
+                rows * self.card_height + (rows - 1) * gap)
+
+    def set_grid(self, columns, rows):
+        if (columns, rows) == (self.columns, self.rows):
+            return False
+        self.columns, self.rows = columns, rows
+        self.scroll.setFixedSize(*self.grid_area(columns, rows))
+        return True
+
+    def fit_grid(self, count):
+        """Grow the grid for `count` cards: more columns first, then rows, within the screen."""
+        screen = (self.screen() or QApplication.primaryScreen()).availableGeometry()
+        frame = self.frameGeometry().size() - self.size() if self.isVisible() else None
+        frame_w, frame_h = (frame.width(), frame.height()) if frame else (16, 40)
+        # Everything except the card area: side panel, margins, status bar, window frame.
+        current_w, current_h = self.grid_area(self.columns, self.rows)
+        window = self.sizeHint()
+        spare_w = screen.width() - (window.width() - current_w + frame_w)
+        spare_h = screen.height() - (window.height() - current_h + frame_h)
+
+        def fits(columns, rows):
+            w, h = self.grid_area(columns, rows)
+            return w <= spare_w and h <= spare_h
+
+        shape = None
+        for rows in range(ROWS, max(ROWS, math.ceil(count / COLUMNS)) + 1):
+            columns = max(COLUMNS, math.ceil(count / rows))
+            if fits(columns, rows):
+                shape = columns, rows
+                break
+        if shape is None:  # too many for this screen: the largest grid that fits, then scroll
+            columns = max([c for c in range(COLUMNS, count + 1) if fits(c, ROWS)], default=COLUMNS)
+            rows = max([r for r in range(ROWS, count + 1) if fits(columns, r)], default=ROWS)
+            shape = columns, rows
+        if not self.set_grid(*shape):
+            return
+        self.centralWidget().layout().activate()  # so sizeHint includes the new grid size
+        self.setFixedSize(self.sizeHint())
+        if self.isVisible():  # keep the grown window on screen
+            box = self.frameGeometry()
+            x = max(screen.left(), min(box.x(), screen.right() + 1 - box.width()))
+            y = max(screen.top(), min(box.y(), screen.bottom() + 1 - box.height()))
+            if (x, y) != (box.x(), box.y()):
+                self.move(x, y)
+
     def place_cards(self, order):
         if order == self.order:
             return
         self.order = order
-        self.grid.removeWidget(self.empty)
+        self.fit_grid(len(order))
+        # Re-adding a widget at another cell would leave its old cell in the layout.
+        for widget in (self.empty, *self.cards.values()):
+            self.grid.removeWidget(widget)
         for n, key in enumerate(order):
-            self.grid.addWidget(self.cards[key], n // COLUMNS, n % COLUMNS)
+            self.grid.addWidget(self.cards[key], n // self.columns, n % self.columns)
         if order:
             self.empty.hide()
         else:
-            self.grid.addWidget(self.empty, 0, 0, ROWS, COLUMNS)
+            self.grid.addWidget(self.empty, 0, 0, self.rows, self.columns)
             self.empty.show()
 
     def tick(self):

@@ -42,6 +42,10 @@ otherwise the legacy ESP32 hub's Wi-Fi output. Only one source runs at a time.
 `--usb` is the explicit choice for this wireless tracker/dongle setup. The
 `--usb` and `--wifi` flags are mutually exclusive.
 
+The window shows eight tracker cards (4 × 2). With more trackers it grows, adding
+columns and then rows while it still fits on the screen. It only scrolls when the
+screen is too small for every card.
+
 Quit SlimeVR Server before Wi-Fi mode because both need UDP 6969. USB HID is shared
 on Windows; use the viewer alone if you want an isolated diagnostic session.
 
