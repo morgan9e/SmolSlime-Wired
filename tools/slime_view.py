@@ -6,6 +6,9 @@ the ESP32 hub over Wi-Fi (the hub finds this program on UDP 6969 and relays ever
 It checks every 2 s and switches when a receiver is plugged in or unplugged. Over Wi-Fi, quit
 SlimeVR Server first so it does not compete for tracker data. Shows per tracker: 3D orientation, last
 real data, status, battery, signal, temperature and packet rates.
+With an nRF receiver on USB: Pair (status bar) puts it into pairing mode until clicked again,
+and Remove on a tracker card unpairs that tracker (the others keep their ids). Both use the
+receiver's console (needs pyserial and a receiver firmware with `unpair`).
 For a simple skeleton, select a body part on each tracker card: chest, hips, thighs and
 ankles, optionally feet, upper arms and lower arms. Unassigned parts move with their parent.
 The resets follow SlimeVR Server:
@@ -37,6 +40,7 @@ import json
 import math
 import os
 from pathlib import Path
+import re
 import socket
 import struct
 import threading
@@ -48,8 +52,8 @@ try:
     from PySide6.QtCore import QPointF, Qt, QTimer
     from PySide6.QtGui import QColor, QPainter, QPalette, QPen, QPolygonF
     from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QFrame, QGridLayout, QGroupBox,
-                                   QHBoxLayout, QLabel, QMainWindow, QPushButton, QScrollArea, QStyle,
-                                   QVBoxLayout, QWidget)
+                                   QHBoxLayout, QLabel, QMainWindow, QMessageBox, QPushButton, QScrollArea,
+                                   QStyle, QVBoxLayout, QWidget)
 except ImportError as e:
     raise SystemExit('Slime View needs PySide6. Run: python -m pip install PySide6') from e
 
@@ -70,6 +74,7 @@ class Tracker:
         self.addr = addr  # (ip, port) of the hub socket for this tracker
         self.id = addr[1] - PORT_BASE if 0 <= addr[1] - PORT_BASE < 64 else None
         self.source = 'wifi'  # or 'usb'
+        self.receiver = None  # USB: the receiver's USB serial number (its console has the same)
         self.mac = None
         self.fw = None
         self.status = None
@@ -183,6 +188,53 @@ class Server:
             for a in [a for a, t in self.trackers.items() if now - t.last_any > STALE_S]:
                 del self.trackers[a]
 
+    def forget(self, addr):
+        with self.lock:
+            self.trackers.pop(addr, None)
+
+    def receivers(self):
+        return []  # the Wi-Fi hub has no pairing here
+
+
+# The receiver's console (its USB CDC interface, same USB serial number as its HID interface):
+# pairing and unpairing. The ESP32-S3 BLE receiver (BleReceiver/, serial 5333...) has the same USB
+# id but another console.
+ANSI = re.compile(r'\x1b\[[0-9;]*m')
+
+
+def pairable(receiver_serial):
+    return bool(receiver_serial) and not receiver_serial.startswith('5333')
+
+
+def receiver_command(receiver_serial, command, replies, timeout=2.0, serial_module=None):
+    """Runs one console command on the receiver with this USB serial number. Returns the first
+    reply line starting with one of `replies`, 'Unknown command' (older firmware), or None."""
+    if serial_module is None:
+        import serial as serial_module
+        from serial.tools import list_ports
+    else:
+        list_ports = serial_module.list_ports
+    port = next((p.device for p in list_ports.comports()
+                 if (p.vid, p.pid) == (0x1209, 0x7690) and p.serial_number == receiver_serial), None)
+    if port is None:
+        raise OSError('its console port was not found')
+    s = serial_module.Serial(port, 115200, timeout=0.1)
+    try:
+        s.dtr = True
+        s.read(65536)  # whatever was waiting
+        s.write((command + '\r\n').encode('ascii'))
+        buf, end = b'', time.monotonic() + timeout
+        while time.monotonic() < end:
+            buf += s.read(4096)
+            *lines, buf = buf.split(b'\n')
+            for raw in lines:
+                line = ANSI.sub('', raw.decode('utf-8', 'replace')).strip()
+                if line.startswith(tuple(replies)) or line == 'Unknown command':
+                    return line
+        return None
+    finally:
+        s.close()
+
 
 def decode_hid_packet(t, p):
     """Decode receiver firmware's 16-byte record (see src/Hub/main/decoder.c)."""
@@ -234,6 +286,7 @@ class USBServer:
     """Read all matching nRF receivers. Only the worker owns device handles."""
     snapshot = Server.snapshot
     forget_stale = Server.forget_stale
+    forget = Server.forget
 
     def __init__(self, hid_module=None):
         if hid_module is None:
@@ -246,6 +299,7 @@ class USBServer:
         self.hid = hid_module
         self.lock = threading.Lock()
         self.trackers = {}
+        self.serials = {}  # receiver (HID path) -> its USB serial number, while open
         self.error = None
         self.description = 'USB, no receiver'
         self.stop = threading.Event()
@@ -255,6 +309,10 @@ class USBServer:
     def close(self):
         self.stop.set()
         self.thread.join(timeout=2)
+
+    @staticmethod
+    def receiver_key(path):
+        return path.hex() if isinstance(path, bytes) else str(path)
 
     def handle(self, data, receiver):
         b = bytes(data)
@@ -275,7 +333,13 @@ class USBServer:
                     t.id = p[1]
                     t.source = 'usb'
                     t.last_any = 0
+                t.receiver = self.serials.get(receiver)
                 decode_hid_packet(t, p)
+
+    def receivers(self):
+        """USB serial numbers of the open receivers, in the order their trackers are listed."""
+        with self.lock:
+            return [self.serials[k] for k in sorted(self.serials) if self.serials[k]]
 
     def run(self):
         devices = {}
@@ -291,6 +355,8 @@ class USBServer:
                         for path in list(devices):
                             if path not in found:
                                 devices.pop(path).close()
+                                with self.lock:
+                                    self.serials.pop(self.receiver_key(path), None)
                         for path in found:
                             if path in devices:
                                 continue
@@ -299,6 +365,8 @@ class USBServer:
                                 dev.open_path(path)
                                 dev.set_nonblocking(1)
                                 devices[path] = dev
+                                with self.lock:
+                                    self.serials[self.receiver_key(path)] = found[path].get('serial_number')
                             except (OSError, ValueError) as e:
                                 dev.close()
                                 errors.append(str(e))
@@ -312,7 +380,7 @@ class USBServer:
                             data = dev.read(65)
                             if not data:
                                 break
-                            self.handle(data, path.hex() if isinstance(path, bytes) else str(path))
+                            self.handle(data, self.receiver_key(path))
                     except (OSError, ValueError) as e:
                         self.error = str(e)
                         devices.pop(path).close()
@@ -391,6 +459,12 @@ class AutoServer:
 
     def forget_stale(self):
         self.active.forget_stale()
+
+    def forget(self, addr):
+        self.active.forget(addr)
+
+    def receivers(self):
+        return self.active.receivers()
 
     def close(self):
         self.stop.set()
@@ -997,7 +1071,7 @@ class SkeletonView(QWidget):
 class TrackerCard(QGroupBox):
     WIDTH = 200
 
-    def __init__(self, on_assign):
+    def __init__(self, on_assign, on_remove=None):
         super().__init__()
         self.setFixedWidth(self.WIDTH)
         layout = QVBoxLayout(self)
@@ -1013,12 +1087,23 @@ class TrackerCard(QGroupBox):
         self.details.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         layout.addWidget(self.state)
         layout.addWidget(self.details)
+        # Unpair from its receiver (USB trackers on an nRF receiver); the card keeps its height
+        self.remove = QPushButton('Remove')
+        self.remove.setToolTip("Unpair this tracker from its receiver; the others keep their ids")
+        if on_remove:
+            self.remove.clicked.connect(on_remove)
+        policy = self.remove.sizePolicy()
+        policy.setRetainSizeWhenHidden(True)
+        self.remove.setSizePolicy(policy)
+        layout.addWidget(self.remove)
 
     def set_role(self, part):
         if self.role.currentText() != part:
             self.role.setCurrentText(part)
 
-    def show_tracker(self, t, fresh, receiver):
+    def show_tracker(self, t, fresh, receiver, removable=False, busy=False):
+        self.remove.setVisible(removable)
+        self.remove.setEnabled(not busy)
         name = f"ID {t['id']}" if t['id'] is not None else f"Port {t['addr'][1]}"
         self.setTitle(f"{name}   {t['mac'] or '?'}")
         self.view.set_rotation(t['q'], not fresh)
@@ -1113,6 +1198,29 @@ class App(QMainWindow):
         self.status = QLabel()
         self.statusBar().setSizeGripEnabled(False)  # the window has a fixed size
         self.statusBar().addWidget(self.status, 1)
+        # Pairing on an nRF receiver (its console: pair / exit); which one, when there are several
+        try:
+            import serial  # noqa: F401  (pyserial, for the receiver's console)
+            self.console_note = None
+        except ImportError:
+            self.console_note = 'Pair and Remove need pyserial: python -m pip install pyserial'
+        self.console_results = []  # (callback, reply or exception) from console threads
+        self.console_busy = False
+        self.pairing = set()  # receivers (USB serial numbers) in pairing mode
+        self.snap = {}  # the last snapshot by tracker address
+        self.pair_receiver = QComboBox()
+        self.pair_receiver.setToolTip('Receiver to pair with')
+        self.pair_receiver.hide()
+        self.pair_receiver.currentIndexChanged.connect(lambda i: self.update_pair_button())
+        self.statusBar().addPermanentWidget(self.pair_receiver)
+        self.pair_button = QPushButton('Pair')
+        self.pair_button.setCheckable(True)
+        self.pair_button.setToolTip(self.console_note or
+                                    'Pairing mode on the receiver: trackers asking to pair are added '
+                                    '(in BLE mode: trackers in BLE mode not paired yet). Click again to stop.')
+        self.pair_button.clicked.connect(self.pair_clicked)
+        self.pair_button.hide()  # until an nRF receiver is on USB
+        self.statusBar().addPermanentWidget(self.pair_button)
         forget = QPushButton('Forget stale')
         forget.clicked.connect(server.forget_stale)
         self.statusBar().addPermanentWidget(forget)
@@ -1138,6 +1246,94 @@ class App(QMainWindow):
     def show_message(self, text, warn=False):
         self.message.setText(text)
         self.message.setStyleSheet(f'color: {ERROR.name()};' if warn else '')
+
+    # ---- receiver console: pairing and unpairing ----
+
+    def run_console(self, receiver, command, replies, done):
+        """The command on a worker thread (the console answers within ~2 s); done(reply or
+        exception) runs on the next tick."""
+        self.console_busy = True
+
+        def work():
+            try:
+                result = receiver_command(receiver, command, replies)
+            except Exception as e:  # serial errors vary by platform
+                result = e
+            self.console_results.append((done, result))
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def console_failed(self, result, what):
+        if isinstance(result, Exception):
+            self.show_message(f'{what}: {result}', warn=True)
+        elif result == 'Unknown command':
+            self.show_message(f'{what}: this receiver firmware cannot do it (update the receiver).', warn=True)
+        elif result is None:
+            self.show_message(f'{what}: no answer from the receiver (older receiver firmware does not '
+                              'confirm; update it).', warn=True)
+        else:
+            return False
+        return True
+
+    def pair_target(self):
+        receivers = self.pair_receiver.property('serials') or []
+        i = self.pair_receiver.currentIndex()
+        return receivers[i] if 0 <= i < len(receivers) else None
+
+    def update_pair_button(self):
+        target = self.pair_target()
+        self.pair_button.setEnabled(bool(target) and not self.console_busy and not self.console_note)
+        self.pair_button.setChecked(target in self.pairing)
+        self.pair_button.setText('Stop pairing' if target in self.pairing else 'Pair')
+
+    def pair_clicked(self):
+        target = self.pair_target()
+        if not target:
+            return
+        on = target not in self.pairing
+
+        def done(result):
+            if not self.console_failed(result, 'Pairing'):
+                if result.startswith('Pairing on'):
+                    self.pairing.add(target)
+                    self.show_message('Pairing: put a tracker into pairing mode (or switch it to BLE); '
+                                      'it appears here when added. Click Stop pairing when done.')
+                else:
+                    self.pairing.discard(target)
+                    self.show_message('Pairing stopped.')
+
+        self.run_console(target, 'pair' if on else 'exit', ('Pairing on', 'Pairing off'), done)
+        self.update_pair_button()
+
+    def remove_tracker(self, addr):
+        t = self.snap.get(addr)
+        if not t or t['id'] is None or not pairable(t['receiver']):
+            return
+        name = f"ID {t['id']} ({t['mac'] or '?'})"
+        answer = QMessageBox.question(
+            self, 'Remove tracker',
+            f'Unpair {name} from its receiver?\n\nIts data is ignored from now on; it comes back only '
+            'by pairing again. The other trackers keep their ids.')
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+
+        def done(result):
+            if not self.console_failed(result, f'Remove {name}'):
+                if result.startswith('Unpaired'):
+                    self.server.forget(addr)
+                    self.show_message(f'Removed {name}.')
+                else:
+                    self.show_message(f'Remove {name}: {result}', warn=True)
+
+        self.run_console(t['receiver'], f"unpair {t['id']}", ('Unpaired', 'Unpair:', 'Usage: unpair'), done)
+
+    def closeEvent(self, event):
+        for receiver in list(self.pairing):  # leave no receiver in pairing mode
+            try:
+                receiver_command(receiver, 'exit', ('Pairing off',), timeout=1.0)
+            except Exception:
+                pass
+        super().closeEvent(event)
 
     def update_buttons(self):
         idle = self.countdown is None
@@ -1237,9 +1433,31 @@ class App(QMainWindow):
             self.grid.addWidget(self.empty, 0, 0, ROWS, COLUMNS)
             self.empty.show()
 
+    def tick_console(self):
+        while self.console_results:
+            done, result = self.console_results.pop(0)
+            self.console_busy = False
+            done(result)
+        receivers = [r for r in self.server.receivers() if pairable(r)]
+        self.pairing &= set(receivers)  # unplugged
+        if receivers != (self.pair_receiver.property('serials') or []):
+            current = self.pair_target()
+            self.pair_receiver.blockSignals(True)
+            self.pair_receiver.clear()
+            self.pair_receiver.addItems([f'R{n + 1} …{r[-4:]}' for n, r in enumerate(receivers)])
+            self.pair_receiver.setProperty('serials', receivers)
+            if current in receivers:
+                self.pair_receiver.setCurrentIndex(receivers.index(current))
+            self.pair_receiver.blockSignals(False)
+            self.pair_receiver.setVisible(len(receivers) > 1)
+            self.pair_button.setVisible(bool(receivers))
+        self.update_pair_button()
+
     def tick(self):
+        self.tick_console()
         snap = sorted(self.server.snapshot(),
                       key=lambda t: (t['source'], t["addr"][0], t["id"] if t["id"] is not None else 99))
+        self.snap = {t['addr']: t for t in snap}
         self.tracker_keys = {t['addr']: tracker_key(t) for t in snap}
         if self.skeleton.migrate_assignments(snap):
             self.save_config()
@@ -1250,7 +1468,8 @@ class App(QMainWindow):
             card.deleteLater()
         for t in snap:
             if t['addr'] not in self.cards:
-                self.cards[t['addr']] = TrackerCard(lambda part, k=t['addr']: self.assign_role(k, part))
+                self.cards[t['addr']] = TrackerCard(lambda part, k=t['addr']: self.assign_role(k, part),
+                                                    lambda checked=False, k=t['addr']: self.remove_tracker(k))
         self.sync_slimevr(snap)
         self.sync_roles()
         self.place_cards(tuple(t['addr'] for t in snap))
@@ -1261,7 +1480,8 @@ class App(QMainWindow):
             live += fresh
             receiver = (f"R{receivers.index(t['addr'][0]) + 1}" if t['source'] == 'usb' and len(receivers) > 1
                         else '')
-            self.cards[t['addr']].show_tracker(t, fresh, receiver)
+            removable = t['source'] == 'usb' and t['id'] is not None and pairable(t['receiver']) and not self.console_note
+            self.cards[t['addr']].show_tracker(t, fresh, receiver, removable, self.console_busy)
         error = self.server.error
         self.status.setText(f'{self.server.description}   ·   {live}/{len(snap)} live'
                             + (f'   ·   {error}' if error else ''))

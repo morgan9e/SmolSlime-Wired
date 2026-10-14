@@ -34,6 +34,7 @@
 
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/console/console.h>
+#include <stdlib.h>
 #include <zephyr/sys/reboot.h>
 #include <zephyr/logging/log_ctrl.h>
 #include "connection/esb.h"
@@ -161,7 +162,7 @@ static void print_list(void)
 {
 	printk("Stored devices:\n");
 	for (uint8_t i = 0; i < stored_trackers; i++)
-		printk("%012llX\n", stored_tracker_addr[i]);
+		printk("%012llX%s\n", stored_tracker_addr[i], stored_tracker_addr[i] ? "" : " (free, unpaired)");
 }
 
 static inline void strtolower(char *str) {
@@ -180,6 +181,7 @@ static void print_help(void)
 	printk("reboot                       Soft reset the device\n");
 	printk("\nadd <address>                Manually add a device\n");
 	printk("remove                       Remove last device\n");
+	printk("unpair <id>                  Remove that device; the others keep their ids\n");
 	printk("pair                         Enter pairing mode\n");
 	printk("exit                         Exit pairing mode\n");
 	printk("clear                        Clear stored devices\n");
@@ -281,13 +283,32 @@ static void console_thread(void)
 		else if (strcmp(line, command_pair) == 0)
 		{
 			if (ble_mode())
-				printk("BLE mode: trackers in BLE mode are added when they connect\n");
+				ble_set_pairing(true);
 			else
 				esb_reset_pair();
+			printk("Pairing on%s\n", ble_mode() ? " (BLE: new trackers in BLE mode are added when they connect)" : "");
 		}
 		else if (strcmp(line, command_exit) == 0)
 		{
-			esb_finish_pair();
+			if (ble_mode())
+				ble_set_pairing(false);
+			else
+				esb_finish_pair();
+			printk("Pairing off\n");
+		}
+		else if (strcmp(argv[0], "unpair") == 0)
+		{
+			char *end = NULL;
+			unsigned long id = argc == 2 ? strtoul(argv[1], &end, 10) : 0;
+			if (argc != 2 || !end || *end || id > 255)
+				printk("Usage: unpair <id>\n");
+			else if (esb_unpair(id))
+				printk("Unpair: no device on id %lu\n", id);
+			else
+			{
+				ble_disconnect_id(id);
+				printk("Unpaired id %lu\n", id);
+			}
 		}
 		else if (strcmp(line, command_clear) == 0)
 		{

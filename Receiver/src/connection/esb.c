@@ -189,7 +189,7 @@ void event_handler(struct esb_evt const *event)
 				// Fall-throught
 			case 16:
 				uint8_t imu_id = rx_payload.data[1];
-				if (imu_id >= stored_trackers) // not a stored tracker
+				if (imu_id >= stored_trackers || !stored_tracker_addr[imu_id]) // not a stored tracker (or unpaired)
 				{
 					packet_log_drop(imu_id, PACKET_DROP_UNKNOWN_ID);
 					continue;
@@ -383,9 +383,18 @@ inline void esb_set_addr_paired(void)
 static bool esb_pairing = false;
 static bool esb_paired = false;
 
+// The id a new tracker gets: the first one freed by unpair, else the next after the list
+uint16_t esb_free_id(void)
+{
+	for (int i = 0; i < stored_trackers; i++)
+		if (!stored_tracker_addr[i])
+			return i;
+	return stored_trackers;
+}
+
 void esb_add_pair(uint64_t addr, bool checksum)
 {
-	int id = stored_trackers;
+	int id = -1;
 	if (checksum)
 	{
 		for (int i = 0; i < stored_trackers; i++) // Check if the device is already stored
@@ -396,13 +405,22 @@ void esb_add_pair(uint64_t addr, bool checksum)
 			}
 		}
 	}
-	if (id == stored_trackers)
+	if (id < 0 && esb_free_id() >= MAX_TRACKERS)
 	{
+		LOG_WRN("No room for another device");
+		return;
+	}
+	if (id < 0)
+	{
+		id = esb_free_id();
 		LOG_INF("Added device on id %d with address %012llX", id, addr);
 		stored_tracker_addr[id] = addr;
 		sys_write(STORED_ADDR_0 + id, NULL, &stored_tracker_addr[id], sizeof(stored_tracker_addr[0]));
-		stored_trackers++;
-		sys_write(STORED_TRACKERS, NULL, &stored_trackers, sizeof(stored_trackers));
+		if (id == stored_trackers)
+		{
+			stored_trackers++;
+			sys_write(STORED_TRACKERS, NULL, &stored_trackers, sizeof(stored_trackers));
+		}
 	}
 	else
 	{
@@ -437,22 +455,45 @@ void esb_pop_pair(void)
 	}
 }
 
+// One tracker off the list without renumbering the others (their own pairing holds their ids):
+// its address becomes 0, its frames are dropped, and the next new tracker takes the id. The last
+// one (and empty ids before it) leave the list as esb_pop_pair does. Returns 0, or -ENOENT.
+int esb_unpair(uint16_t id)
+{
+	if (id >= stored_trackers || !stored_tracker_addr[id])
+		return -ENOENT;
+	LOG_INF("Removed device on id %d with address %012llX", id, stored_tracker_addr[id]);
+	stored_tracker_addr[id] = 0;
+	sys_write(STORED_ADDR_0 + id, NULL, &stored_tracker_addr[id], sizeof(stored_tracker_addr[0]));
+	uint8_t count = stored_trackers;
+	while (count > 0 && !stored_tracker_addr[count - 1])
+		count--;
+	if (count != stored_trackers)
+	{
+		stored_trackers = count;
+		sys_write(STORED_TRACKERS, NULL, &stored_trackers, sizeof(stored_trackers));
+	}
+	return 0;
+}
+
 void esb_parse_pair()
 {
 	uint64_t found_addr = (*(uint64_t *)pairing_buf >> 16) & 0xFFFFFFFFFFFF;
-	uint16_t send_tracker_id = stored_trackers; // Use new tracker id
+	uint16_t send_tracker_id = esb_free_id(); // Use new tracker id
+	bool stored = false;
 	for (int i = 0; i < stored_trackers; i++) // Check if the device is already stored
 	{
 		if (found_addr != 0 && stored_tracker_addr[i] == found_addr)
 		{
 			//LOG_INF("Found device linked to id %d with address %012llX", i, found_addr);
 			send_tracker_id = i;
+			stored = true;
 		}
 	}
 	uint8_t checksum = crc8_ccitt(0x07, &pairing_buf[2], 6); // make sure the packet is valid
 	if (checksum == 0)
 		checksum = 8;
-	if (checksum == pairing_buf[0] && found_addr != 0 && send_tracker_id == stored_trackers && stored_trackers < MAX_TRACKERS) // New device, add to NVS
+	if (checksum == pairing_buf[0] && found_addr != 0 && !stored && send_tracker_id < MAX_TRACKERS) // New device, add to NVS
 	{
 		esb_add_pair(found_addr, false);
 		set_led(SYS_LED_PATTERN_ONESHOT_PROGRESS, SYS_LED_PRIORITY_HIGHEST);

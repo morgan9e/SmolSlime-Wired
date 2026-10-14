@@ -34,6 +34,8 @@ void esb_set_addr_paired(void);
 
 void esb_add_pair(uint64_t addr, bool checksum);
 void esb_pop_pair(void);
+uint16_t esb_free_id(void); // the id a new tracker gets
+int esb_unpair(uint16_t id); // that tracker off the list, the others keep their ids
 
 void esb_pair(void);
 void esb_reset_pair(void);

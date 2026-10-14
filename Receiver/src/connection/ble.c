@@ -9,7 +9,8 @@
 
 	A tracker's id is its place in the paired list, as over ESB: the address characteristic holds
 	the same device address the tracker sends when pairing over ESB, so paired trackers keep their
-	ids, and a new one is added to the list (no pairing step in BLE mode).
+	ids. As over ESB, a tracker not in the list is added only while pairing (console pair / exit);
+	otherwise it is disconnected and left alone until pairing starts.
 
 	ESB and BLE do not share the radio: the receiver_ble setting picks one at boot. MPSL keeps its
 	default clock control in both modes (the tracker's Kconfig, TRACKER_BLE, has why); in ESB mode
@@ -79,6 +80,45 @@ static struct link links[CONFIG_BT_MAX_CONN];
 static struct k_mutex links_lock;
 static bool connecting; // a connection or its setup runs: scanning waits
 static int64_t connect_started;
+
+// Pairing (console pair / exit): only then are trackers not in the paired list added. A tracker
+// turned away is not connected again until pairing starts, as it would only be turned away again.
+static bool pairing;
+#define REJECTED_MAX 16
+static bt_addr_le_t rejected[REJECTED_MAX];
+static int rejected_count, rejected_next;
+
+static int paired_id(uint64_t addr)
+{
+	for (int i = 0; i < stored_trackers; i++)
+		if (addr && stored_tracker_addr[i] == addr)
+			return i;
+	return -1;
+}
+
+static void reject(const bt_addr_le_t *addr)
+{
+	rejected[rejected_next] = *addr;
+	rejected_next = (rejected_next + 1) % REJECTED_MAX;
+	if (rejected_count < REJECTED_MAX)
+		rejected_count++;
+}
+
+static bool is_rejected(const bt_addr_le_t *addr)
+{
+	for (int i = 0; i < rejected_count; i++)
+		if (bt_addr_le_eq(&rejected[i], addr))
+			return true;
+	return false;
+}
+
+void ble_set_pairing(bool on)
+{
+	pairing = on;
+	if (on)
+		rejected_count = rejected_next = 0; // try them all again
+	set_led(on ? SYS_LED_PATTERN_SHORT : SYS_LED_PATTERN_OFF, SYS_LED_PRIORITY_CONNECTION);
+}
 static int8_t mode = -1; // latched at boot
 
 static void scan_start(void);
@@ -249,14 +289,19 @@ static uint8_t on_address(struct bt_conn *conn, uint8_t err, struct bt_gatt_read
 	}
 	uint64_t addr = 0;
 	memcpy(&addr, data, 6); // little endian, as the paired list holds it
-	int id = -1;
-	for (int i = 0; i < stored_trackers; i++)
-		if (stored_tracker_addr[i] == addr)
-			id = i;
-	if (id < 0 && stored_trackers < MAX_TRACKERS)
+	int id = paired_id(addr);
+	if (id < 0 && !pairing)
 	{
-		esb_add_pair(addr, true); // a new tracker: appended to the paired list
-		id = stored_trackers - 1;
+		// Not paired: left alone until pairing starts (console pair), as over ESB
+		reject(bt_conn_get_dst(conn));
+		LOG_INF("Tracker %012llX is not paired: ignored until pairing", addr);
+		bt_conn_disconnect(l->conn, BT_HCI_ERR_REMOTE_USER_TERM_CONN);
+		return BT_GATT_ITER_STOP;
+	}
+	if (id < 0)
+	{
+		esb_add_pair(addr, true); // a new tracker: the first free id
+		id = paired_id(addr);
 	}
 	if (id < 0)
 	{
@@ -418,6 +463,8 @@ static void device_found(const bt_addr_le_t *addr, int8_t rssi, uint8_t type, st
 	bt_data_parse(ad, ad_has_service, &found);
 	if (!found)
 		return;
+	if (is_rejected(addr))
+		return;
 	struct bt_conn *existing = bt_conn_lookup_addr_le(BT_ID_DEFAULT, addr);
 	if (existing)
 	{
@@ -528,7 +575,19 @@ void ble_print_status(void)
 			       interval_us && info.le.phy ? (info.le.phy->tx_phy == BT_GAP_LE_PHY_2M ? "2M" : "1M") : "?", l->packets);
 	}
 	k_mutex_unlock(&links_lock);
-	printk("BLE: %d of %d connections%s\n", count, CONFIG_BT_MAX_CONN, connecting ? ", connecting" : "");
+	printk("BLE: %d of %d connections%s%s\n", count, CONFIG_BT_MAX_CONN, connecting ? ", connecting" : "",
+	       pairing ? ", pairing (new trackers are added)" : "");
+}
+
+void ble_disconnect_id(int id)
+{
+	if (!ble_mode())
+		return;
+	k_mutex_lock(&links_lock, K_FOREVER);
+	struct link *l = link_by_id(id);
+	if (l)
+		bt_conn_disconnect(l->conn, BT_HCI_ERR_REMOTE_USER_TERM_CONN);
+	k_mutex_unlock(&links_lock);
 }
 
 void ble_disconnect_all(void)

@@ -69,10 +69,16 @@ The receiver firmware (`make receiver`, the nRF52840 Dongle) has a BLE central b
     ble off      # back to ESB
 
 - One radio, one mode per boot, as on the tracker; the USB HID output is the same in both.
-- Trackers are found by the service UUID and connected automatically (no `pair`). A tracker's id
-  is its place in the paired list: the address characteristic holds the device address it sends
-  when pairing over ESB, so trackers paired over ESB keep their ids; new ones are appended (`list`,
-  `remove` and `clear` as before; they disconnect the trackers so the ids follow).
+- Paired trackers are found by the service UUID and connected automatically. A tracker's id is
+  its place in the paired list: the address characteristic holds the device address it sends
+  when pairing over ESB, so trackers paired over ESB keep their ids.
+- New trackers, as over ESB, only while pairing: console `pair` (or Pair in `slime_view.py`), then
+  `exit`. Meanwhile a tracker in BLE mode not in the list is added (the first free id) when it
+  connects; otherwise it is disconnected and left alone until pairing starts.
+- `unpair <id>` (or Remove on a card in `slime_view.py`) removes one tracker without renumbering
+  the others: its id is empty (`list` shows it as free, its data is dropped) and the next new
+  tracker takes it. In both modes. `remove` (the last one) and `clear` as before; in BLE mode they
+  disconnect the trackers so the ids follow.
 - Settings: `cfg` on the console and `remote_config.py --tracker <id>` go to the tracker's settings
   characteristic (no ACKs to ride on). Firmware updates (`ota`) need ESB.
 - Timing: up to 8 trackers; each gets 1.5 ms of the connection interval, two notification

@@ -14,11 +14,15 @@ void ble_start(void); // BLE mode: the paired list is loaded, start scanning (es
 void ble_set_mode(bool on); // stores the setting and reboots when the mode changes
 void ble_print_status(void);
 void ble_disconnect_all(void); // the paired list changed: trackers get their ids anew
+void ble_disconnect_id(int id); // that tracker was unpaired
+void ble_set_pairing(bool on); // pair / exit: only while on are trackers not in the paired list added
 int ble_write_config(uint8_t tracker_id, const uint8_t *data, uint8_t len); // settings request (remote_config.c)
 #else
 static inline bool ble_mode(void) { return false; }
 static inline void ble_start(void) {}
 static inline void ble_disconnect_all(void) {}
+static inline void ble_disconnect_id(int id) {}
+static inline void ble_set_pairing(bool on) {}
 static inline int ble_write_config(uint8_t tracker_id, const uint8_t *data, uint8_t len) { return -1; }
 #endif
 

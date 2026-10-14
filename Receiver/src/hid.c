@@ -113,10 +113,22 @@ static void packet_device_addr(uint8_t *report, uint16_t id) // associate id and
 static uint32_t dropped_reports = 0;
 static uint16_t max_dropped_reports = 0;
 
+// The next paired id after `id`, round robin, skipping ids freed by unpair (address 0); -1: none
+static int next_paired(int id)
+{
+	for (int k = 0; k < stored_trackers; k++)
+	{
+		id = (id + 1) % stored_trackers;
+		if (stored_tracker_addr[id])
+			return id;
+	}
+	return -1;
+}
+
 static void send_report(struct k_work *work)
 {
 	if (!usb_enabled) return;
-	if (!stored_trackers) return;
+	if (next_paired(0) < 0) return; // no paired tracker (an empty slot would read as a tracker packet)
 
 	// Get current FIFO status atomically
 	size_t write_idx = (size_t)atomic_get(&report_write_index);
@@ -147,9 +159,10 @@ static void send_report(struct k_work *work)
 
 		// Pad remaining report slots with device addr
 		for (; epind < HID_EP_REPORT_COUNT; epind++) {
-			if (stored_trackers > 0) {
+			int id = next_paired(sent_device_addr);
+			if (id >= 0) {
+				sent_device_addr = id;
 				packet_device_addr(ep_report_buffer[epind].data, sent_device_addr);
-				sent_device_addr = (sent_device_addr + 1) % stored_trackers;
 			}
 		}
 
