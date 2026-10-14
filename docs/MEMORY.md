@@ -24,18 +24,22 @@ cleanup. The complete original memory is preserved in the
 
 ## Current source and last hardware state
 
-`main` contains `Tracker/`, `Receiver/`, `tools/` and the root Makefile. Origin is
+Branches (2026-10-14): `main` is the stock-based line (stock tracker `cbfff16` /
+receiver `e3d66d5` plus link diagnostics, the `sensor_update_time_ms` setting, OTA
+and settings over the radio), checked out in the worktree `../SmolSlime-stock`;
+`dev` is the former `main`; `tdma` is this TDMA/radio-only line. Origin is
 `https://github.com/morgan9e/SmolSlime-mod`. The old `SlimeVR-Hub` path and
 `SmolSlime-Wired` remote in archived notes are historical.
 
-The latest recorded installations (2026-10-11 ~18:52 KST) are radio-only test
-firmware that sends **no body poses**: 8A and 91 on confirmed 0.0.30, 7A with
-0.0.30 transferred but boot unverified, 59/C8/20/78 on 0.0.29; receiver 0.0.29;
-E4 last-known 0.0.19. The 0.0.30 rollout stopped when the receiver disconnected.
-The user then asked to roll back to stock tracker/receiver behaviour while keeping
-custom OTA; **that rollback has not been done**. Full record:
+The latest recorded installations (2026-10-14 01:20 KST) are **plain stock
+firmware**, not this branch: DE/D2/04/84/2D/74 on stock SPI `cbfff16`, 7A
+(`7A936EB7AB6C`) on stock I2C `aa93e5c`, the XIAO on stock `cbfff16`, receiver
+stock 0.6.9+0. 6D (`6DF7EC0CB8C8`) is retired (IMU never detected). The 10-13
+session names boards by the **first** two address characters; earlier notes use
+the last two. The new `main` images were built but never flashed. Full record:
+[session 2026-10-13](SESSION-2026-10-13.md); earlier:
 [session 2026-10-10/11](SESSION-2026-10-10-11.md). See also
-[hardware identification](HARDWARE.md).
+[hardware identification](HARDWARE.md) (not yet updated for 10-13).
 These are observations, not a live inventory; verify by device address.
 
 Radio updates, MCUboot swap/rollback, and several refusal/abort cases were tested.
@@ -161,10 +165,11 @@ establish improved reception or range. User identifies ID 7 as the left foot.
 
 ## Next work
 
-0. Pending user request: roll back to stock tracker and receiver behaviour with
-   custom OTA retained (all trackers powered; E4 needs USB). Until then, judge any
-   radio change by per-tracker gaps ≥400 ms, not average packet rate; see the
-   [session record](SESSION-2026-10-10-11.md).
+0. Hardware-test the stock-based `main` (receiver, then one tracker's `_OTA.uf2`;
+   `diag on`, `tools/remote_config.py`, one OTA update) before rolling it out; 7A
+   needs the I2C image. Open hardware items are in the
+   [10-13 record](SESSION-2026-10-13.md#open-items). Judge any radio change by
+   per-tracker gaps ≥400 ms, not average packet rate.
 1. Separate missed-beacon, pending-buffer and delivery failures in the current
    hardware-timed radio-only test, especially on 91. Investigate the transition
    timing anomalies. Keep placement/power/background traffic fixed.
