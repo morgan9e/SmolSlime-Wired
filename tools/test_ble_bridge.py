@@ -1,10 +1,12 @@
+import asyncio
 import socket
 import struct
 import threading
 import unittest
 
 import remote_config as rc
-from ble_bridge import Link, control_pack, control_unpack, split, tracker_mac, wanted
+from ble_bridge import (CONFIG_UUID, Bridge, Link, SerialReceiver, control_pack, control_unpack, split,
+                        tracker_mac, wanted)
 
 MAC = bytes.fromhex("847bebc50791")
 
@@ -122,6 +124,46 @@ class ControlTests(unittest.TestCase):
         answer = struct.pack("<BBBBHi", 0xF7, 0, 44, 0, 30, -4)
         self.assertEqual(rc.cfg_answer(answer), (44, 0, 30, -4))
         self.assertIsNone(rc.cfg_answer(req))
+
+
+class SerialReceiverTests(unittest.TestCase):
+    """BleReceiver/ (ESP32-C6) lines through ble_bridge.py --serial"""
+
+    def setUp(self):
+        self.bridge = Bridge(None)
+        self.bridge.links[MAC] = Link(MAC, None, FakeDevice)  # no SlimeVR socket
+        self.written = []
+        self.rx = SerialReceiver(self.bridge, self.written.append)
+
+    def test_data_after_connect(self):
+        self.rx.line("D 2 " + notification(info(), 0).hex(), 0)  # not connected yet: ignored
+        self.rx.line("C 2 847BEBC50791", 0)
+        self.rx.line("D 2 " + notification(info(), 1).hex().upper(), 0)
+        self.rx.line("D 2 " + notification(quat(), 2).hex(), 0)
+        link = self.bridge.links[MAC]
+        self.assertEqual(link.device.records, [info(), quat()])
+        self.assertEqual(self.bridge.linked, {"0791"})
+        self.rx.line("X 2 213", 0)
+        self.assertEqual(self.bridge.linked, set())
+        self.assertNotIn("0791", self.bridge.clients)
+        self.assertIsNone(link.sequence)
+
+    def test_settings(self):
+        self.rx.line("C 0 847BEBC50791", 0)
+        req = rc.cfg_request(5, "get", 29)
+        asyncio.run(self.bridge.clients["0791"].write_gatt_char(CONFIG_UUID, req))
+        self.assertEqual(self.written, ["W 0 " + req.hex().upper()])
+        answers = []
+        self.bridge.config_answer = lambda name, data: answers.append((name, data))
+        answer = struct.pack("<BBBBHi", 0xF7, 0, 5, 0, 29, 10)
+        self.rx.line("F 0 " + answer.hex(), 0)
+        self.assertEqual(answers, [("0791", answer)])
+
+    def test_ignores_other_lines(self):
+        for text in ("", "# scanning", "I SlimeBleReceiver 1", "E - connect_failed 13", "D x zz", "C 1 0102",
+                     "ESP-ROM:esp32c6-20220919"):
+            self.rx.line(text, 0)
+        self.assertEqual((self.rx.slots, self.bridge.linked), ({}, set()))
 
 
 class FakeBridge(threading.Thread):

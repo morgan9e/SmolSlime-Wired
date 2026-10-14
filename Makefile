@@ -12,6 +12,8 @@
 #   make tracker-ota-slot1 the SPI OTA app as a UF2 for the secondary slot, marked for a test swap
 #                     (tests MCUboot over USB); with OTA_NOCONFIRM=1 an image that never confirms
 #   make receiver     nRF52840 Dongle receiver (.hex for nRF Connect Programmer, .zip for nrfutil)
+#   make ble-receiver ESP32-C6 BLE receiver for trackers in BLE mode (BleReceiver/, docs/BLE.md):
+#                     one .bin from 0x0, flash with esptool (ESP-IDF v5.5 in ~/esp/esp-idf)
 #   make test         PC tool tests
 #   make clean        remove the build directories
 #
@@ -60,7 +62,16 @@ UF2CONV       := $(NCS_TRACKER)/zephyr/scripts/build/uf2conv.py
 UF2_FAMILY_NRF52840 := 0xADA52840
 
 .PHONY: all tracker tracker-i2c tracker-xiao receiver test clean
-.PHONY: tracker-ota tracker-ota-i2c tracker-ota-xiao tracker-ota-slot1
+.PHONY: tracker-ota tracker-ota-i2c tracker-ota-xiao tracker-ota-slot1 ble-receiver
+
+# ESP-IDF v5.5 for the ESP32-C6 BLE receiver. Its export.sh is not needed (and fails without
+# openocd): the build only takes these.
+IDF_PATH_DIR  ?= $(HOME)/esp/esp-idf
+IDF_TOOLS     ?= $(HOME)/.espressif/tools
+IDF_PYENV     ?= $(firstword $(wildcard $(HOME)/.espressif/python_env/idf5.5_py*_env))
+IDF_BIN = $(firstword $(wildcard $(IDF_TOOLS)/riscv32-esp-elf/*/riscv32-esp-elf/bin)):$(firstword $(wildcard $(IDF_TOOLS)/cmake/*/bin)):$(firstword $(wildcard $(IDF_TOOLS)/ninja/*))
+IDF_ENV = IDF_PATH="$(IDF_PATH_DIR)" IDF_PYTHON_ENV_PATH="$(IDF_PYENV)" PATH="$(IDF_BIN):$(IDF_PYENV)/bin:$(IDF_PATH_DIR)/tools:$$PATH"
+BLE_RECEIVER_BIN := $(DIST)/SlimeNRF_ESP32C6_BleReceiver.bin
 
 all: tracker receiver
 
@@ -119,6 +130,13 @@ receiver:
 	cp "$(BUILD)/receiver/Receiver/zephyr/zephyr.hex" "$(RECEIVER_HEX)"
 	python3 "$(ROOT)/tools/dfu_zip.py" "$(RECEIVER_HEX)" "$(RECEIVER_HEX:.hex=.zip)"
 	@echo "-> $(RECEIVER_HEX), $(RECEIVER_HEX:.hex=.zip)"
+
+ble-receiver:
+	@mkdir -p $(DIST)
+	$(IDF_ENV) idf.py -C "$(ROOT)/BleReceiver" -B "$(BUILD)/ble-receiver" \
+		-DSDKCONFIG="$(BUILD)/ble-receiver/sdkconfig" -DIDF_TARGET=esp32c6 build
+	cd "$(BUILD)/ble-receiver" && $(IDF_ENV) python -m esptool --chip esp32c6 merge_bin -o "$(BLE_RECEIVER_BIN)" @flash_args
+	@echo "-> $(BLE_RECEIVER_BIN) (python -m esptool --chip esp32c6 -p COMx write-flash 0x0 <it>)"
 
 test:
 	cd "$(ROOT)/tools" && python3 -m unittest test_slime_link test_quest_bridge test_remote_config test_ble_bridge

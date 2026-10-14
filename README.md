@@ -8,6 +8,7 @@ receiver, ProMicro stacked trackers and a Seeed XIAO nRF52840 Sense.
 |------|------|
 | `Receiver` | SlimeVR-Tracker-nRF-Receiver (git subtree of upstream) |
 | `Tracker` | SlimeVR-Tracker-nRF (git subtree of upstream) |
+| `BleReceiver` | ESP32-C6 BLE receiver for trackers in BLE mode (ESP-IDF, [docs/BLE.md](docs/BLE.md#esp32-c6-receiver)) |
 | `tools` | PC tools |
 | `QuestForwarder` | Android app: forwards the receiver's USB HID to SlimeVR Server (Quest Bridge) |
 
@@ -28,8 +29,9 @@ receiver, ProMicro stacked trackers and a Seeed XIAO nRF52840 Sense.
   build. See [docs/OTA.md](docs/OTA.md#settings-over-the-radio).
 - **BLE mode** (tracker console `ble on` / `ble off`, reboots): the tracker talks BLE to a PC
   instead of ESB to the receiver; `tools/ble_bridge.py` forwards it to SlimeVR Server. No dongle;
-  settings over BLE (`remote_config.py --ble 0791 ...`), no OTA in it. nRF52840 trackers. See
-  [docs/BLE.md](docs/BLE.md).
+  settings over BLE (`remote_config.py --ble 0791 ...`), no OTA in it. nRF52840 trackers. An
+  ESP32-C6 on USB can be the BLE side instead of the PC's Bluetooth (`BleReceiver/`,
+  `ble_bridge.py --serial`). See [docs/BLE.md](docs/BLE.md).
 - **Always on**: no sleep when still (`USE_IMU_WAKE_UP=n`, `USE_ACTIVE_TIMEOUT=n`), as SlimeVR's
   "Sleep (WOM) off" builds. A tracker still powers off after 5 min without its receiver.
 - The tracker version comes from this repository's tags (`tools/bump_version.py`).
@@ -42,6 +44,7 @@ make tracker        # ProMicro stacked SPI
 make tracker-i2c    # ProMicro stacked I2C: an IMU whose CS/SDO are not wired to the ProMicro
 make tracker-xiao   # XIAO nRF52840 Sense
 make receiver       # nRF52840 Dongle
+make ble-receiver   # ESP32-C6 BLE receiver (ESP-IDF v5.5): flash with esptool, docs/BLE.md
 
 make tracker-ota       # ProMicro SPI with MCUboot: _OTA.uf2 (first USB install) + _OTA_app.bin (OTA)
 make tracker-ota-i2c   # the same, stacked I2C
@@ -70,6 +73,6 @@ Install with `python -m pip install pyserial hidapi PySide6`.
 | `ota.py` | Update a tracker over the radio through the receiver |
 | `remote_config.py` | Read and change a tracker's settings over the radio (`--tracker 3 set sensor_update_time_ms 10`) |
 | `quest_bridge.py` | PC side of the Quest Bridge |
-| `ble_bridge.py` | Trackers in BLE mode to SlimeVR Server (needs `bleak`) |
+| `ble_bridge.py` | Trackers in BLE mode to SlimeVR Server (needs `bleak`; `--serial` through the ESP32-C6 receiver) |
 | `dfu_zip.py` | Package the dongle image for Nordic DFU (`make receiver` calls it) |
 | `bump_version.py` | Tag the next patch version on HEAD |

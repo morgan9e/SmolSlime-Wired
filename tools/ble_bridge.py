@@ -4,6 +4,11 @@
     python ble_bridge.py                       # every SlimeNRF tracker it finds
     python ble_bridge.py --only 0791,B8C8      # only SlimeNRF-0791 and SlimeNRF-B8C8
     python ble_bridge.py --server 192.168.1.5  # SlimeVR server on another PC
+    python ble_bridge.py --serial              # through an ESP32-C6 BLE receiver (BleReceiver/)
+
+With --serial the trackers connect to an ESP32-C6 running BleReceiver/ instead of this PC's
+Bluetooth, and it passes them on over USB (pyserial, no bleak). Port found by USB id, or
+--serial COM23.
 
 Each tracker advertises as SlimeNRF-XXXX (the last 4 hex digits of its device address, as `info`
 on its console shows it) and notifies the same 16-byte packets it sends over ESB, plus a sequence
@@ -20,6 +25,7 @@ Needs bleak: python -m pip install bleak
 """
 import argparse
 import asyncio
+import importlib
 import logging
 import time
 
@@ -231,42 +237,178 @@ class ControlPort(asyncio.DatagramProtocol):
         self.bridge.config_request(data, addr)
 
 
+RECEIVER_USB = (0x303A, 0x1001)  # ESP32-C6 USB Serial/JTAG
+
+
+class SerialSlot:
+    """A tracker on the ESP32-C6 receiver, as the settings path (Bridge.config_write) uses it."""
+
+    def __init__(self, receiver, slot):
+        self.receiver, self.slot = receiver, slot
+
+    async def write_gatt_char(self, uuid, message, response=True):
+        self.receiver.write(f"W {self.slot} {bytes(message).hex().upper()}")
+
+
+class SerialReceiver:
+    """BleReceiver/ (ESP32-C6) on its USB serial port: its text lines (BleReceiver/main/main.c)
+    to the Bridge's Links, settings requests back to it."""
+
+    def __init__(self, bridge, write):
+        self.bridge, self.write = bridge, write
+        self.slots = {}  # receiver slot -> (name without SlimeNRF-, Link)
+
+    def line(self, text, now):
+        parts = text.split()
+        if not parts:
+            return
+        kind, args = parts[0], parts[1:]
+        try:
+            if kind == "D" and len(args) == 2:
+                if int(args[0]) in self.slots:
+                    self.slots[int(args[0])][1].receive(bytes.fromhex(args[1]), now)
+            elif kind == "C" and len(args) == 2:
+                slot, mac = int(args[0]), bytes.fromhex(args[1])
+                if len(mac) != 6:
+                    return
+                short = args[1][-4:].upper()
+                link = self.bridge.links.get(mac) or self.bridge.links.setdefault(mac, Link(mac, self.bridge.server))
+                self.slots[slot] = (short, link)
+                self.bridge.clients[short] = SerialSlot(self, slot)
+                self.bridge.linked.add(short)
+                LOG.info("Connected SlimeNRF-%s (receiver slot %d)", short, slot)
+            elif kind == "X" and args:
+                gone = self.slots.pop(int(args[0]), None)
+                if gone:
+                    short, link = gone
+                    link.disconnected()
+                    self.bridge.clients.pop(short, None)
+                    self.bridge.linked.discard(short)
+                    LOG.info("Disconnected SlimeNRF-%s (0x%s)", short, args[1] if len(args) > 1 else "?")
+            elif kind == "F" and len(args) == 2:
+                if int(args[0]) in self.slots:
+                    self.bridge.config_answer(self.slots[int(args[0])][0], bytes.fromhex(args[1]))
+            elif kind in ("E", "I", "A"):
+                LOG.info("Receiver: %s", text)
+            else:
+                LOG.debug("Receiver: %s", text)
+        except ValueError:
+            LOG.debug("Receiver line not understood: %s", text)
+
+
+def find_receiver_port():
+    from serial.tools import list_ports
+    ports = [p.device for p in list_ports.comports() if (p.vid, p.pid) == RECEIVER_USB]
+    if len(ports) != 1:
+        raise SystemExit(f"--serial: {'no' if not ports else 'more than one'} ESP32-C6 receiver found "
+                         f"{ports or ''}; name its port, e.g. --serial COM23")
+    return ports[0]
+
+
+def open_receiver(port):
+    """The ESP32-C6's USB Serial/JTAG resets the chip on some DTR/RTS changes (pyserial asserts
+    both on open, Windows drops DTR first on close): both stay off, so it keeps its connections."""
+    import serial
+    ser = serial.Serial(timeout=0.2)
+    ser.port, ser.dtr, ser.rts = port, False, False
+    ser.open()
+    return ser
+
+
+async def report_loop(bridge):
+    """Every 5 s per tracker: rotations/s sent to SlimeVR, packets/s received, packets lost."""
+    report_at = time.monotonic()
+    counts = {}
+    while True:
+        await asyncio.sleep(0.02)
+        now = time.monotonic()
+        bridge.tick(now)
+        if now - report_at >= 5:
+            parts = []
+            for mac, link in bridge.links.items():
+                before = counts.get(mac, (0, 0))
+                rate = (link.packets - before[0]) / (now - report_at)
+                rotations = link.device.rotations if link.device else 0
+                lost = link.lost - before[1]
+                parts.append(f"{mac.hex()[-4:].upper()}:{rotations / (now - report_at):.0f}Hz"
+                             f"/{rate:.0f}pk lost {lost}"
+                             + ("" if link.device and link.device.connected else " (no server)"))
+                counts[mac] = (link.packets, link.lost)
+                if link.device:
+                    link.device.rotations = 0
+            LOG.info("%d linked; %s", len(bridge.linked), " ".join(parts) or "no trackers yet")
+            report_at = now
+
+
+async def start_control(bridge, port):
+    # Local only: settings requests are not authenticated
+    control, _ = await asyncio.get_running_loop().create_datagram_endpoint(
+        lambda: ControlPort(bridge), local_addr=("127.0.0.1", port))
+    return control
+
+
 async def main_async(args):
     from bleak import BleakScanner
     bridge = Bridge((args.server, args.server_port), args.only.split(",") if args.only else ())
-    # Local only: settings requests are not authenticated
-    control, _ = await asyncio.get_running_loop().create_datagram_endpoint(
-        lambda: ControlPort(bridge), local_addr=("127.0.0.1", args.control_port))
+    control = await start_control(bridge, args.control_port)
     scanner = bridge.scanner = BleakScanner(bridge.found, service_uuids=[SERVICE_UUID])
     await bridge.set_scanning(True)
     LOG.info("Scanning for SlimeNRF trackers; SlimeVR %s:%d; settings on 127.0.0.1:%d",
              args.server, args.server_port, args.control_port)
-    report_at = time.monotonic()
-    counts = {}
     try:
-        while True:
-            await asyncio.sleep(0.02)
-            now = time.monotonic()
-            bridge.tick(now)
-            if now - report_at >= 5:
-                parts = []
-                for mac, link in bridge.links.items():
-                    before = counts.get(mac, (0, 0))
-                    rate = (link.packets - before[0]) / (now - report_at)
-                    rotations = link.device.rotations if link.device else 0
-                    lost = link.lost - before[1]
-                    parts.append(f"{mac.hex()[-4:].upper()}:{rotations / (now - report_at):.0f}Hz"
-                                 f"/{rate:.0f}pk lost {lost}"
-                                 + ("" if link.device and link.device.connected else " (no server)"))
-                    counts[mac] = (link.packets, link.lost)
-                    if link.device:
-                        link.device.rotations = 0
-                LOG.info("%d linked; %s", len(bridge.busy), " ".join(parts) or "no trackers yet")
-                report_at = now
+        await report_loop(bridge)
     finally:
         await bridge.set_scanning(False)
         control.close()
         bridge.close()
+
+
+async def main_serial(args):
+    import threading
+    import serial
+    port = find_receiver_port() if args.serial == "auto" else args.serial
+    ser = open_receiver(port)
+    loop = asyncio.get_running_loop()
+    bridge = Bridge((args.server, args.server_port))
+    write_lock = threading.Lock()
+
+    def write(text):
+        with write_lock:
+            ser.write((text + "\n").encode("ascii"))
+
+    receiver = SerialReceiver(bridge, write)
+    stop = threading.Event()
+    failed = loop.create_future()
+
+    def read():  # pyserial blocks: its own thread, whole lines to the event loop
+        buf = b""
+        while not stop.is_set():
+            try:
+                buf += ser.read(4096)
+            except serial.SerialException as e:
+                loop.call_soon_threadsafe(lambda: failed.done() or failed.set_exception(e))
+                return
+            *lines, buf = buf.split(b"\n")
+            now = time.monotonic()
+            for raw in lines:
+                loop.call_soon_threadsafe(receiver.line, raw.decode("ascii", "replace").strip(), now)
+
+    threading.Thread(target=read, daemon=True).start()
+    write("O " + (args.only or ""))  # which trackers it connects
+    write("?")  # and the ones it has already
+    control = await start_control(bridge, args.control_port)
+    LOG.info("ESP32-C6 receiver on %s; SlimeVR %s:%d; settings on 127.0.0.1:%d",
+             port, args.server, args.server_port, args.control_port)
+    report = asyncio.ensure_future(report_loop(bridge))
+    try:
+        await asyncio.wait([report, failed], return_when=asyncio.FIRST_COMPLETED)
+        failed.done() and failed.result()  # raises the serial error
+    finally:
+        report.cancel()
+        stop.set()
+        control.close()
+        bridge.close()
+        ser.close()
 
 
 def main():
@@ -276,15 +418,18 @@ def main():
     parser.add_argument("--only", help="Comma-separated tracker names without SlimeNRF-, e.g. 0791,B8C8")
     parser.add_argument("--control-port", type=int, default=CONTROL_PORT,
                         help="localhost UDP port for remote_config.py --ble")
+    parser.add_argument("--serial", nargs="?", const="auto", metavar="PORT",
+                        help="through an ESP32-C6 BLE receiver (BleReceiver/) on this port; found by its USB id if left out")
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO, format="%(asctime)s %(message)s")
     try:
-        import bleak  # noqa: F401
+        importlib.import_module("serial" if args.serial else "bleak")
     except ImportError:
-        raise SystemExit("Needs bleak: python -m pip install bleak")
+        raise SystemExit("Needs pyserial: python -m pip install pyserial" if args.serial else
+                         "Needs bleak: python -m pip install bleak")
     try:
-        asyncio.run(main_async(args))
+        asyncio.run(main_serial(args) if args.serial else main_async(args))
     except KeyboardInterrupt:
         pass
 
