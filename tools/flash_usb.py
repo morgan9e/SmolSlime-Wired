@@ -24,6 +24,7 @@ VID, PID = 0x1209, 0x7692  # trackers (the receiver is 7690)
 BOARDS = {  # file name part -> CONFIG_BOARD_TARGET of the image
     'ProMicro_StackedSPI': 'promicro_uf2/nrf52840/stackedspi',
     'ProMicro_StackedI2C': 'promicro_uf2/nrf52840/stackedi2c',
+    'ProMicro_Chrysalis': 'promicro_uf2/nrf52840/chrysalis',
     'XIAO_Sense': 'xiao_ble/nrf52840/sense',
 }
 
