@@ -5,6 +5,7 @@
 #   make tracker      ProMicro stacked SPI tracker (.uf2)
 #   make tracker-i2c  ProMicro stacked I2C tracker (.uf2), for an IMU that only answers on I2C
 #   make tracker-xiao Seeed XIAO nRF52840 Sense tracker (.uf2)
+#   make tracker-chrysalis ABRJ Chrysalis tracker (ProMicro, LSM6DSV + QMC6309) (.uf2)
 #   make tracker-ota  ProMicro stacked SPI tracker with MCUboot (docs/OTA.md): _OTA.uf2 (MCUboot +
 #                     app, USB flash and recovery) and _OTA_app.bin (the image an update installs)
 #   make tracker-ota-i2c   the same for the stacked I2C tracker
@@ -62,7 +63,7 @@ OTA_SLOT1_SIZE := 0x6e000
 UF2CONV       := $(NCS_TRACKER)/zephyr/scripts/build/uf2conv.py
 UF2_FAMILY_NRF52840 := 0xADA52840
 
-.PHONY: all tracker tracker-i2c tracker-xiao receiver test clean
+.PHONY: all tracker tracker-i2c tracker-xiao tracker-chrysalis receiver test clean
 .PHONY: tracker-ota tracker-ota-i2c tracker-ota-xiao tracker-ota-slot1 ble-receiver ble-receiver-s3
 
 # ESP-IDF v5.5 for the ESP32 BLE receivers. Its export.sh is not needed (and fails without
@@ -95,6 +96,10 @@ tracker-i2c:
 
 tracker-xiao:
 	$(call tracker_build,xiao_ble/nrf52840/sense,tracker-xiao,SlimeNRF_XIAO_Sense_Tracker.uf2)
+
+# ABRJ Chrysalis (ProMicro nRF52840, LSM6DSV + QMC6309 magnetometer)
+tracker-chrysalis:
+	$(call tracker_build,promicro_uf2/nrf52840/chrysalis,tracker-chrysalis,SlimeNRF_ProMicro_Chrysalis_Tracker.uf2)
 
 # MCUboot without signature (the image's SHA-256 is still checked), swap with rollback. Always
 # pristine: the image version in MCUboot's header is only taken when the build is configured.

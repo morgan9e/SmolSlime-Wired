@@ -43,6 +43,7 @@ receiver, ProMicro stacked trackers and a Seeed XIAO nRF52840 Sense.
 make tracker        # ProMicro stacked SPI
 make tracker-i2c    # ProMicro stacked I2C: an IMU whose CS/SDO are not wired to the ProMicro
 make tracker-xiao   # XIAO nRF52840 Sense
+make tracker-chrysalis  # ABRJ Chrysalis (ProMicro, LSM6DSV + QMC6309 magnetometer)
 make receiver       # nRF52840 Dongle
 make ble-receiver   # ESP32-C6 BLE receiver (ESP-IDF v5.5): flash with esptool, docs/BLE.md
 
