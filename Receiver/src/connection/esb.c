@@ -33,6 +33,7 @@
 #include <zephyr/sys/crc.h>
 
 #include "esb.h"
+#include "ble.h"
 
 static struct esb_payload rx_payload;
 //static struct esb_payload tx_payload = ESB_CREATE_PAYLOAD(0,
@@ -265,6 +266,8 @@ static bool esb_initialized = false;
 
 int esb_initialize(bool tx)
 {
+	if (ble_mode())
+		return -EPERM; // the radio belongs to BLE this boot (ble.c)
 	if (esb_initialized)
 		LOG_WRN("ESB already initialized");
 	int err;
@@ -560,7 +563,8 @@ static void esb_packet_filter_thread(void)
 
 static void esb_thread(void)
 {
-	clocks_start();
+	if (!ble_mode())
+		clocks_start();
 
 	sys_read(STORED_TRACKERS, &stored_trackers, sizeof(stored_trackers));
 	if (stored_trackers)
@@ -568,6 +572,12 @@ static void esb_thread(void)
 	for (int i = 0; i < stored_trackers; i++)
 		sys_read(STORED_ADDR_0 + i, &stored_tracker_addr[i], sizeof(stored_tracker_addr[0]));
 	LOG_INF("%d/%d devices stored", stored_trackers, MAX_TRACKERS);
+
+	if (ble_mode())
+	{
+		ble_start(); // ble.c runs the trackers; no ESB, no pairing
+		return;
+	}
 
 	if (esb_paired)
 	{

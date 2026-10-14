@@ -1,5 +1,11 @@
 # Tracker BLE mode
 
+**Recommended receiver: the nRF52840 Dongle in BLE mode** (receiver console `ble on`, below).
+SlimeVR Server reads it as always (USB HID), trackers keep their ids, settings work through it.
+Tested 2026-10-14 with six ProMicro trackers in BLE mode: all connected within 15 s of `ble on`,
+10 ms interval, 2M PHY; still ~22 packets/s each, 0 gaps; all six moving at once ~135 packets/s
+each, no gap over 50 ms, 0.1-0.3% of their packets dropped at the trackers (newest kept).
+
 Status (2026-10-14): built for every tracker image; PC bridge unit-tested. On hardware (ProMicro
 D235, standard MPSL clocks): ESB on the dongle 28.9 packets/s with no gaps; BLE from a Linux laptop
 (BlueZ) connects 3/3 in under 1.5 s and streams ~30 packets/s with 0 lost; settings over BLE work.
@@ -52,6 +58,34 @@ Settings over BLE, while the bridge runs: `remote_config.py --ble 0791 list|get|
 the same commands and setting names as through the receiver. A tracker takes one BLE connection,
 so they go through the bridge's control port (UDP 127.0.0.1:6971, local only, no
 authentication; `--control-port` / `--bridge-port` to change it).
+
+### nRF52840 Dongle receiver (BLE mode)
+
+The receiver firmware (`make receiver`, every nRF52840 receiver) has a BLE central beside ESB
+(`Receiver/src/connection/ble.c`, `CONFIG_RECEIVER_BLE`). On its USB console:
+
+    ble          # Connection: ESB|BLE; in BLE mode each tracker: id, address, RSSI, interval, PHY, packets
+    ble on       # store receiver_ble=1 and reboot into BLE mode
+    ble off      # back to ESB
+
+- One radio, one mode per boot, as on the tracker; the USB HID output is the same in both.
+- Trackers are found by the service UUID and connected automatically (no `pair`). A tracker's id
+  is its place in the paired list: the address characteristic holds the device address it sends
+  when pairing over ESB, so trackers paired over ESB keep their ids; new ones are appended (`list`,
+  `remove` and `clear` as before; they disconnect the trackers so the ids follow).
+- Settings: `cfg` on the console and `remote_config.py --tracker <id>` go to the tracker's settings
+  characteristic (no ACKs to ride on). Firmware updates (`ota`) need ESB.
+- Timing: up to 8 trackers; each gets 1.5 ms of the connection interval, two notification
+  exchanges (`BT_CTLR_SDC_MAX_CONN_EVENT_LEN_DEFAULT`): 10 ms for up to six (200 packets/s each),
+  12.5 ms for seven or eight (160/s); a moving tracker sends about 167/s. 1 s supervision timeout.
+  Measured on the way there (six moving): 7.5 ms with 0.9 ms each, and 10 ms with 1.2 ms each,
+  allowed one exchange per event (the controller budgets 27-byte packets both ways, ~0.6 ms on
+  2M) and the trackers dropped ~17-30%. Scanning stays at 30 ms a second while any tracker is
+  connected: 30 of 60 ms took 27-35% from some moving trackers.
+- LF clock: calibrated RC with BLE built in (upstream synthesizes it from the HF crystal; the
+  Dongle has no 32 kHz crystal). MPSL keeps its default clock control in both modes.
+- Flash: console `dfu`, then `nrfutil device program --firmware dist/SlimeNRF_Nordic_Dongle_Receiver.zip
+  --serial-number <bootloader>` (the paired list and the mode setting are kept).
 
 ### ESP32-C6 receiver
 

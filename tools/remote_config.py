@@ -191,7 +191,9 @@ def find_port(port):
     if port:
         return port
     from serial.tools import list_ports
-    ports = [p.device for p in list_ports.comports() if p.vid == RECEIVER_VID and p.pid == RECEIVER_PID]
+    # Not the ESP32-S3 BLE receiver (same USB id, serial 5333...): it has no cfg command
+    ports = [p.device for p in list_ports.comports() if p.vid == RECEIVER_VID and p.pid == RECEIVER_PID
+             and not (p.serial_number or '').startswith('5333')]
     if not ports:
         sys.exit('No receiver found on USB (1209:7690); give --port')
     if len(ports) > 1:

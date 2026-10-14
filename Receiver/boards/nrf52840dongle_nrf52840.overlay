@@ -7,3 +7,11 @@
 &blue_pwm_led {
 	pwms = <&pwm0 2 PWM_MSEC(1) PWM_POLARITY_INVERTED>;
 };
+
+/* BLE mode (CONFIG_RECEIVER_BLE): random numbers from the RNG peripheral. The SoC default is
+ * CryptoCell, whose driver needs nrf_security. */
+/ {
+	chosen {
+		zephyr,entropy = &rng;
+	};
+};

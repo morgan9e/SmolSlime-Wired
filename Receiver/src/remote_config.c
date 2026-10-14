@@ -21,6 +21,7 @@
 	THE SOFTWARE.
 */
 #include "remote_config.h"
+#include "connection/ble.h"
 #include "ota.h"
 #include "ota_proto.h"
 
@@ -82,8 +83,12 @@ void remote_config_esb_tracker_frame(void)
 
 void remote_config_esb_rx(const struct esb_payload *payload)
 {
-	const uint8_t *d = payload->data;
-	if (payload->length != CFG_MSG_LEN || d[0] != CFG_MSG_RESP || d[1] != request[1] || d[2] != request[2])
+	remote_config_ble_rx(payload->data, payload->length);
+}
+
+void remote_config_ble_rx(const uint8_t *d, uint16_t length)
+{
+	if (length != CFG_MSG_LEN || d[0] != CFG_MSG_RESP || d[1] != request[1] || d[2] != request[2])
 		return; // not an answer, or one to an earlier request
 	if (!atomic_cas(&waiting, 1, 0))
 		return; // answered already: the tracker repeats its answer
@@ -149,5 +154,17 @@ void remote_config_console(int argc, char **argv)
 	result[0] = '\0';
 	atomic_set(&waiting, 1);
 	k_work_reschedule(&timeout_work, K_MSEC(ANSWER_TIMEOUT_MS));
+	if (ble_mode()) // straight to the tracker's settings characteristic, no ACKs to ride on
+	{
+		int err = ble_write_config(tracker, request, CFG_MSG_LEN);
+		if (err)
+		{
+			atomic_set(&waiting, 0);
+			k_work_cancel_delayable(&timeout_work);
+			RESULT(WRN, "tracker %lu is not connected over BLE (%d)", tracker, err);
+			printk("cfg: error: %s\n", result);
+			return;
+		}
+	}
 	printk("cfg: sent to tracker %lu\n", tracker);
 }

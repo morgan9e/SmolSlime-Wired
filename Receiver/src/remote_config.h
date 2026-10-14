@@ -16,6 +16,8 @@ void remote_config_console(int argc, char **argv);
 // pipe 1 (keeps the request queued while waiting).
 void remote_config_esb_rx(const struct esb_payload *payload);
 void remote_config_esb_tracker_frame(void);
+// BLE mode (connection/ble.c): a notification from a tracker's settings characteristic
+void remote_config_ble_rx(const uint8_t *data, uint16_t length);
 
 // Waiting for an answer: no firmware update offer meanwhile, they share the ACKs on pipe 1
 bool remote_config_busy(void);

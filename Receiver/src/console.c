@@ -20,6 +20,7 @@
 	OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 	THE SOFTWARE.
 */
+#include "connection/ble.h"
 #include "globals.h"
 #include "system/system.h"
 #include "build_defines.h"
@@ -187,6 +188,9 @@ static void print_help(void)
 #endif
 	printk("ota [status|stop]            Tracker firmware updates over the radio (tools/ota.py)\n");
 	printk("cfg <id> get|set|reset ...   Tracker settings over the radio (tools/remote_config.py)\n");
+#if CONFIG_RECEIVER_BLE
+	printk("ble [on|off]                 BLE status, or switch to BLE / ESB (reboots)\n");
+#endif
 #if DFU_EXISTS
 	printk("\ndfu                          Enter DFU bootloader\n");
 #endif
@@ -263,6 +267,7 @@ static void console_thread(void)
 		else if (strcmp(line, command_remove) == 0)
 		{
 			esb_pop_pair();
+			ble_disconnect_all(); // ids anew as they reconnect
 		}
 		else if (strcmp(line, command_list) == 0)
 		{
@@ -275,7 +280,10 @@ static void console_thread(void)
 		}
 		else if (strcmp(line, command_pair) == 0)
 		{
-			esb_reset_pair();
+			if (ble_mode())
+				printk("BLE mode: trackers in BLE mode are added when they connect\n");
+			else
+				esb_reset_pair();
 		}
 		else if (strcmp(line, command_exit) == 0)
 		{
@@ -284,7 +292,19 @@ static void console_thread(void)
 		else if (strcmp(line, command_clear) == 0)
 		{
 			esb_clear();
+			ble_disconnect_all(); // ids anew as they reconnect
 		}
+#if CONFIG_RECEIVER_BLE
+		else if (strcmp(argv[0], "ble") == 0)
+		{
+			if (argc == 2 && (strcmp(argv[1], "on") == 0 || strcmp(argv[1], "off") == 0))
+				ble_set_mode(strcmp(argv[1], "on") == 0);
+			else if (argc == 1)
+				ble_print_status();
+			else
+				printk("Usage: ble [on|off]\n");
+		}
+#endif
 #if DFU_EXISTS
 		else if (strcmp(line, command_dfu) == 0)
 		{

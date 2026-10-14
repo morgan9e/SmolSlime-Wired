@@ -78,4 +78,60 @@ config PACKET_LOG_ORIENTATION
 config LOG_BUFFER_SIZE
     default 4096 if PACKET_LOG && !SOC_NRF52820
 
+config RECEIVER_BLE
+    bool "BLE receiver mode"
+    default y if SOC_NRF52840
+    select BT
+    select BT_CENTRAL
+    select BT_GATT_CLIENT
+    select BT_GATT_DM
+    select ESB_DYNAMIC_INTERRUPTS
+    select MPSL_DYNAMIC_INTERRUPTS
+    help
+        Builds a BLE central in beside ESB, for trackers in BLE mode (src/connection/ble.c). The
+        receiver_ble setting (console: ble on|off) picks one at boot: the radio runs either ESB
+        or BLE, never both; the USB HID output is the same. Changing it reboots the receiver.
+        As the tracker (TRACKER_BLE): MPSL keeps its default clock control in both modes and
+        stays idle in ESB mode, where ESB takes the radio interrupt over.
+
+if RECEIVER_BLE
+
+# Six trackers and spares
+config BT_MAX_CONN
+    default 8
+
+# Each connection 1500 us in the interval (ble.c: 10 ms for six, 12.5 ms for eight): two
+# notification exchanges (the controller budgets 27-byte packets both ways, ~0.6 ms each on 2M,
+# so 1200 us fitted one); connection event extension gives more while the others leave time
+config BT_CTLR_SDC_MAX_CONN_EVENT_LEN_DEFAULT_OVERRIDE
+    default y
+
+config BT_CTLR_SDC_MAX_CONN_EVENT_LEN_DEFAULT
+    default 1500
+
+choice BT_CTLR_TX_PWR
+    default BT_CTLR_TX_PWR_PLUS_8
+endchoice
+
+# Each link's PHY in the console's ble status
+config BT_USER_PHY_UPDATE
+    default y
+
+# HCI Read RSSI, for the RSSI in the HID packets (off by default in the SoftDevice Controller)
+config BT_CTLR_CONN_RSSI
+    default y
+
+# the BLE host runs parts on the system workqueue (upstream default 1 KB)
+config SYSTEM_WORKQUEUE_STACK_SIZE
+    default 2048
+
+endif
+
+# LF clock: synthesized from the HF crystal as upstream (no 32 kHz crystal on the Dongle), but
+# BLE needs a calibrated RC oscillator under MPSL (500 ppm)
+choice CLOCK_CONTROL_NRF_SOURCE
+    default CLOCK_CONTROL_NRF_K32SRC_RC if RECEIVER_BLE
+    default CLOCK_CONTROL_NRF_K32SRC_SYNTH
+endchoice
+
 source "Kconfig.zephyr"
