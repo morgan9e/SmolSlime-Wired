@@ -61,7 +61,7 @@ authentication; `--control-port` / `--bridge-port` to change it).
 
 ### nRF52840 Dongle receiver (BLE mode)
 
-The receiver firmware (`make receiver`, every nRF52840 receiver) has a BLE central beside ESB
+The receiver firmware (`make receiver`, the nRF52840 Dongle) has a BLE central beside ESB
 (`Receiver/src/connection/ble.c`, `CONFIG_RECEIVER_BLE`). On its USB console:
 
     ble          # Connection: ESB|BLE; in BLE mode each tracker: id, address, RSSI, interval, PHY, packets

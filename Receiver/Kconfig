@@ -80,7 +80,9 @@ config LOG_BUFFER_SIZE
 
 config RECEIVER_BLE
     bool "BLE receiver mode"
-    default y if SOC_NRF52840
+    # The Dongle's overlay picks the RNG for entropy (the SoC default, CryptoCell, needs
+    # nrf_security); other nRF52840 boards need the same before they can enable it
+    default y if BOARD_NRF52840DONGLE
     select BT
     select BT_CENTRAL
     select BT_GATT_CLIENT
