@@ -9,7 +9,12 @@ use the ESP32-C6 receiver below, or run the bridge on another machine with `--se
 With the ESP32-C6 receiver (ProMicro DEE8): connects within 3 s of the tracker's boot, 7.5 ms
 interval; still ~23 packets/s, moving ~139 packets/s, 0 lost over 30 s each (sequence numbers),
 and the tracker's own dropped count unchanged; settings over BLE work; after a forced disconnect it
-is back within 1 s. Not measured: six trackers, latency, range, current.
+is back within 1 s. Five trackers at once (DEE8, 04A6, 0791, 8DAA, FBB1, still): all connect
+within seconds of their reboot, all at 7.5 ms, ~22 packets/s each; four lose nothing (2 in 30 s),
+DEE8 at -92 dBm loses 15-20% (the tracker drops packets while retransmissions hold its two
+notifications in flight). The ESP32-C6 board heard them at -78 to -94 dBm where the dongle hears
+-43 to -72: keep it near the trackers. Not measured: six trackers, moving with several, latency,
+range, current.
 
 An earlier build used `MPSL_USE_EXTERNAL_CLOCK_CONTROL` (experimental on nRF52): BLE connections
 failed silently and USB stopped enumerating (Windows: "Device Descriptor Request Failed"). DEE8 ran
@@ -115,8 +120,12 @@ off, as it does without a receiver.
   flash writes in ESB mode with MPSL idle (timeslots) are not checked yet.
 - Windows PC central: connection starts fail (Realtek adapter with headphone audio on it). The
   ESP32-C6 receiver avoids it.
-- ESP32-C6 receiver: one tracker tested; six at 7.5 ms each may be more than its controller
-  schedules. It keeps scanning (30 of 60 ms) while it has room for more trackers.
+- ESP32-C6 receiver: five trackers tested while still; six moving at 7.5 ms each may be more than
+  its controller schedules. It keeps scanning (30 of 60 ms) while it has room for more trackers.
+  Once (2026-10-14, while five trackers were plugged in on the same hub) its USB output went
+  silent while it kept running; a reset brought it back. Not reproduced.
+- 7A93 (stacked I2C, no button) did not come back after `flash_usb.py` put the current I2C image
+  on it: no USB, no ESB. Untested whether the I2C image boots at all.
 - Firmware updates over BLE are not implemented (ESB or USB only). This repository's own OTA
   protocol over GATT would fit; mcumgr would not fit the XIAO's slot (about 27 KB free).
 - The bridge keeps scanning after its trackers are connected, which costs throughput on Windows.

@@ -68,6 +68,8 @@ static slot_t slots[MAX_TRACKERS];
 static SemaphoreHandle_t lock; // slots and the scan state, from the host task and the PC task
 static uint8_t own_addr_type;
 static bool connecting; // a connection attempt or a tracker setup runs; scanning waits for it
+static TickType_t connect_started;
+#define CONNECT_STUCK_MS 10000 // longer than a connection attempt (3 s) and a setup: give it up
 static char only[64]; // O command: comma separated name suffixes, empty: all
 
 // Addresses already reported in an A line
@@ -82,7 +84,7 @@ static void scan_resume(void);
 static SemaphoreHandle_t out_lock;
 static void out(const char *fmt, ...)
 {
-	char buf[160];
+	char buf[400]; // the status line with 8 trackers
 	va_list ap;
 	va_start(ap, fmt);
 	int n = vsnprintf(buf, sizeof(buf) - 1, fmt, ap);
@@ -332,6 +334,7 @@ static void connect_to(const ble_addr_t *a)
 		connecting = false;
 		return;
 	}
+	connect_started = xTaskGetTickCount();
 	out("# connecting %s", addr_str(a, buf));
 }
 
@@ -415,11 +418,12 @@ static int gap_event(struct ble_gap_event *event, void *arg)
 	case BLE_GAP_EVENT_DISCONNECT: {
 		xSemaphoreTake(lock, portMAX_DELAY);
 		i = slot_by_conn(event->disconnect.conn.conn_handle);
-		bool was_setup = i >= 0 && slots[i].state == SLOT_SETUP;
+		// No slot: the connection was never established (HCI 0x3E), which NimBLE reports here
+		// instead of as a failed CONNECT. Either way the attempt is over.
+		if (i < 0 || slots[i].state == SLOT_SETUP)
+			connecting = false;
 		if (i >= 0)
 			slots[i].state = SLOT_FREE;
-		if (was_setup)
-			connecting = false;
 		// Report it again when it advertises
 		for (int k = 0; k < seen_count; k++)
 			if (!ble_addr_cmp(&seen[k], &event->disconnect.conn.peer_id_addr))
@@ -585,10 +589,31 @@ static void status_task(void *param)
 	while (1)
 	{
 		vTaskDelay(pdMS_TO_TICKS(5000));
-		char line[160];
+		// An attempt whose end never came back would stop scanning for good: drop it
+		xSemaphoreTake(lock, portMAX_DELAY);
+		bool stuck = connecting && xTaskGetTickCount() - connect_started > pdMS_TO_TICKS(CONNECT_STUCK_MS);
+		int setup = -1;
+		for (int i = 0; i < MAX_TRACKERS; i++)
+			if (slots[i].state == SLOT_SETUP)
+				setup = i;
+		if (stuck && setup < 0)
+			connecting = false;
+		xSemaphoreGive(lock);
+		if (stuck)
+		{
+			out("E %d connect_stuck 0", setup);
+			if (setup >= 0)
+				ble_gap_terminate(slots[setup].conn, BLE_ERR_REM_USER_CONN_TERM); // its DISCONNECT clears it
+			else
+			{
+				ble_gap_conn_cancel();
+				scan_resume();
+			}
+		}
+		char line[360];
 		int n = snprintf(line, sizeof(line), "# %s, %lu adverts/s", ble_gap_disc_active() ? "scanning" : "not scanning", (unsigned long)(adv_reports - last_adv) / 5);
 		last_adv = adv_reports;
-		for (int i = 0; i < MAX_TRACKERS && n < (int)sizeof(line) - 40; i++)
+		for (int i = 0; i < MAX_TRACKERS && n < (int)sizeof(line) - 44; i++)
 		{
 			if (slots[i].state == SLOT_FREE)
 				continue;
