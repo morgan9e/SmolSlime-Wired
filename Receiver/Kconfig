@@ -98,9 +98,18 @@ config RECEIVER_BLE
 
 if RECEIVER_BLE
 
-# Six trackers and spares
-config BT_MAX_CONN
+config RECEIVER_BLE_MAX_TRACKERS
+    int "Trackers connected at once in BLE mode"
+    range 1 16
     default 8
+    help
+        Sets the BLE connections and the connection interval (src/connection/ble.c): each tracker
+        gets 1.5 ms of it (two notification exchanges), plus 0.5 ms spare, in 1.25 ms steps:
+        8 trackers 12.5 ms (up to 160 packets/s each, tested), 10 trackers 16.25 ms (~123/s),
+        12 trackers 18.75 ms (~107/s). The interval is fixed for any count connected.
+
+config BT_MAX_CONN
+    default RECEIVER_BLE_MAX_TRACKERS
 
 # Each connection 1500 us in the 12.5 ms interval (ble.c, eight trackers): two
 # notification exchanges (the controller budgets 27-byte packets both ways, ~0.6 ms each on 2M,

@@ -49,16 +49,18 @@ static const struct bt_uuid_128 config_uuid = BT_UUID_INIT_128(SLIME_UUID_VAL(4)
 #define PACKET_LEN 17 // the 16-byte packet and its sequence
 #define CFG_LEN 10
 
-// 12.5 ms, no latency, 1 s supervision timeout (after a receiver reset a tracker advertises again
-// 1 s later); the tracker asks 7.5-15 ms and 4 s, the receiver keeps its own (le_param_req).
-// The interval holds eight trackers of 1.5 ms each (Kconfig BT_CTLR_SDC_MAX_CONN_EVENT_LEN_DEFAULT),
-// two notification exchanges: up to 160 packets/s per tracker (a moving one sends ~167/s, ~130/s
-// get through; ESB gave 100). One interval for every count: the connections keep the places the
+// No latency, 1 s supervision timeout (after a receiver reset a tracker advertises again 1 s
+// later); the tracker asks 7.5-15 ms and 4 s, the receiver keeps its own (le_param_req).
+// The interval holds CONFIG_RECEIVER_BLE_MAX_TRACKERS trackers of 1.5 ms each (Kconfig
+// BT_CTLR_SDC_MAX_CONN_EVENT_LEN_DEFAULT, two notification exchanges) and 0.5 ms spare, in 1.25 ms
+// units: 12.5 ms for eight, up to 160 packets/s per tracker (a moving one sends ~167/s, ~130/s get
+// through; ESB gave 100). One interval for every count: the connections keep the places the
 // controller gave them when they connected. Measured with six moving: one exchange per event
 // (7.5 ms / 0.9 ms, 10 ms / 1.2 ms: the controller budgets 27-byte packets both ways) lost ~30% at
 // the trackers; switching six connections from 10 to 12.5 ms when a seventh came left one or two
 // of eight moving trackers at half rate (overlapping events take turns).
-#define CONN_INTERVAL 10
+#define CONN_SPARE_US 500
+#define CONN_INTERVAL MAX(6, DIV_ROUND_UP(CONFIG_RECEIVER_BLE_MAX_TRACKERS * CONFIG_BT_CTLR_SDC_MAX_CONN_EVENT_LEN_DEFAULT + CONN_SPARE_US, 1250))
 #define CONN_TIMEOUT 100
 static const struct bt_le_conn_param conn_param = BT_LE_CONN_PARAM_INIT(CONN_INTERVAL, CONN_INTERVAL, 0, CONN_TIMEOUT);
 
@@ -599,7 +601,8 @@ static void ble_thread(void)
 		LOG_ERR("Bluetooth init failed: %d", err);
 		return;
 	}
-	LOG_INF("BLE mode: %d trackers paired, scanning", stored_trackers);
+	LOG_INF("BLE mode: %d trackers paired, up to %d at once, interval %u.%02u ms, scanning", stored_trackers,
+		CONFIG_RECEIVER_BLE_MAX_TRACKERS, CONN_INTERVAL * 125 / 100, CONN_INTERVAL * 125 % 100);
 	scan_start();
 	while (1)
 	{

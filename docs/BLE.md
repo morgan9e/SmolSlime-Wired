@@ -85,7 +85,8 @@ The receiver firmware (`make receiver`, the nRF52840 Dongle) has a BLE central b
   characteristic (no ACKs to ride on). Firmware updates (`ota`) need ESB.
 - Timing: up to 8 trackers in a 12.5 ms interval, each 1.5 ms of it, two notification exchanges
   (`BT_CTLR_SDC_MAX_CONN_EVENT_LEN_DEFAULT`): up to 160 packets/s per tracker; a moving tracker
-  sends about 167/s, ~130/s get through. 1 s supervision timeout. One interval for any count:
+  sends about 167/s, ~130/s get through. 1 s supervision timeout. More trackers: build option
+  `CONFIG_RECEIVER_BLE_MAX_TRACKERS` (default 8; 10: 16.25 ms, ~123/s each; untested). One interval for any count:
   10 ms for up to six, switched to 12.5 ms when a seventh connected, left one or two of eight
   moving trackers at half rate (their events overlapped after the switch).
   Measured on the way there (six moving): 7.5 ms with 0.9 ms each, and 10 ms with 1.2 ms each,
