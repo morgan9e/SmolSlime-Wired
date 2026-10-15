@@ -62,6 +62,7 @@ static const struct bt_uuid_128 config_uuid = BT_UUID_INIT_128(SLIME_UUID_VAL(4)
 #define CONN_SPARE_US 500
 #define CONN_INTERVAL MAX(6, DIV_ROUND_UP(CONFIG_RECEIVER_BLE_MAX_TRACKERS * CONFIG_BT_CTLR_SDC_MAX_CONN_EVENT_LEN_DEFAULT + CONN_SPARE_US, 1250))
 #define CONN_TIMEOUT 100
+#define SILENT_MS 5000 // a connected tracker that sends nothing this long has stopped (ble_thread)
 static const struct bt_le_conn_param conn_param = BT_LE_CONN_PARAM_INIT(CONN_INTERVAL, CONN_INTERVAL, 0, CONN_TIMEOUT);
 
 enum link_state { LINK_FREE, LINK_SETUP, LINK_READY };
@@ -76,6 +77,7 @@ struct link {
 	struct bt_gatt_read_params read;
 	uint8_t rssi; // -dBm, as ESB gives it
 	uint32_t packets, reported;
+	int64_t last_rx; // uptime of the last data notification (or of the connection's setup)
 };
 
 static struct link links[CONFIG_BT_MAX_CONN];
@@ -203,6 +205,7 @@ static uint8_t on_data(struct bt_conn *conn, struct bt_gatt_subscribe_params *pa
 		return BT_GATT_ITER_CONTINUE;
 	packet[1] = l->id;
 	l->packets++;
+	l->last_rx = k_uptime_get();
 	hid_write_packet_n(packet, l->rssi);
 	return BT_GATT_ITER_CONTINUE;
 }
@@ -292,6 +295,7 @@ static uint8_t on_address(struct bt_conn *conn, uint8_t err, struct bt_gatt_read
 	l->addr = addr;
 	l->id = id;
 	l->state = LINK_READY;
+	l->last_rx = k_uptime_get();
 	LOG_INF("Tracker %d (%012llX) connected", id, addr);
 	set_led(SYS_LED_PATTERN_ONESHOT_PROGRESS, SYS_LED_PRIORITY_HIGHEST);
 	setup_end();
@@ -614,6 +618,18 @@ static void ble_thread(void)
 			if (links[i].state == LINK_READY && !read_rssi(links[i].conn, &rssi) && rssi < 0)
 				links[i].rssi = -rssi;
 		}
+		// A tracker sends at least ~20 packets/s, still too. One that sends nothing for SILENT_MS
+		// has stopped (seen: its firmware stuck while its controller kept the link): disconnect it,
+		// so its slot is free and it shows as gone; it connects again once it runs.
+		k_mutex_lock(&links_lock, K_FOREVER);
+		for (int i = 0; i < ARRAY_SIZE(links); i++)
+			if (links[i].state == LINK_READY && k_uptime_get() - links[i].last_rx > SILENT_MS)
+			{
+				LOG_WRN("Tracker %d sent nothing for %d s: disconnecting it", links[i].id, SILENT_MS / 1000);
+				links[i].last_rx = k_uptime_get(); // once
+				bt_conn_disconnect(links[i].conn, BT_HCI_ERR_REMOTE_USER_TERM_CONN);
+			}
+		k_mutex_unlock(&links_lock);
 		// A connection or setup that never ended would stop scanning for good: drop it
 		if (connecting && k_uptime_get() - connect_started > 10000)
 		{
