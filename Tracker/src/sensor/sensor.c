@@ -82,7 +82,11 @@ static float last_lin_a[3] = {0}; // vector to hold last linear accelerometer
 
 static float last_m[3] = {0};
 static int64_t last_mag_time = -1000;
+static int64_t last_mag_attempt_time = -1000;
 static int64_t mag_interval = 0;
+// A magnetometer behind the IMU's sensor hub costs one IMU sample period per register read
+// (several ms): polling one that has no new sample yet on every loop starved the IMU's FIFO
+#define MAG_RETRY_MS 10
 
 static float temp; // sensor temperature
 static int64_t last_temp_time = -1000;
@@ -879,10 +883,12 @@ void sensor_loop(void)
 
 			// Read magnetometer, if in manual mode
 			float raw_m[3];
+			memcpy(raw_m, last_m, sizeof(raw_m)); // a magnetometer with no new sample leaves it alone: unchanged, skipped below
 			bool mag_read = false;
-			if (mag_manual && (k_uptime_get() - last_mag_time > mag_interval)) // some magnetometer do not have int pin // TODO: implement for magnetometer that does, or read status byte
+			if (mag_manual && (k_uptime_get() - last_mag_time > mag_interval) && (k_uptime_get() - last_mag_attempt_time >= MAG_RETRY_MS)) // some magnetometer do not have int pin // TODO: implement for magnetometer that does, or read status byte
 			{
 				mag_read = true;
+				last_mag_attempt_time = k_uptime_get();
 				sensor_mag->mag_read(raw_m); // reading mag last, and it will be processed last
 			}
 #if DEBUG
