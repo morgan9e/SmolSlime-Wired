@@ -793,6 +793,7 @@ int sensor_init(void)
 static bool main_ok = false;
 
 static int packet_errors = 0;
+static bool imu_had_data = false; // since the IMU was (re)initialized
 
 #define ACQUISITION_START_MS 1000
 #define STATUS_INTERVAL_MS 5000
@@ -1079,11 +1080,23 @@ void sensor_loop(void)
 						sensor_retained_write(); // keep the fusion state
 						sys_request_system_reboot(false);
 					}
+					else if (imu_had_data)
+					{
+						// The IMU worked and its FIFO stays empty: it lost its configuration (seen on a
+						// Chrysalis: every register back to its reset value, the IMU answering a scan)
+						LOG_WRN("IMU stopped sending, initializing it again");
+						sensor_retained_write(); // keep the fusion state
+						imu_had_data = false; // once until it works again
+						packet_errors = 0;
+						if (sensor_init() == 0)
+							set_status(SYS_STATUS_SENSOR_ERROR, false);
+					}
 				}
 			}
 			else if (processed_packets == packets && packets > 0)
 			{
 				packet_errors = 0;
+				imu_had_data = true;
 			}
 
 			// Also check if expected number of timesteps when using FIFO threshold, if FIFO threshold is being used
