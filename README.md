@@ -29,9 +29,13 @@ receiver, ProMicro stacked trackers and a Seeed XIAO nRF52840 Sense.
   build. See [docs/OTA.md](docs/OTA.md#settings-over-the-radio).
 - **BLE mode** (tracker console `ble on` / `ble off`, reboots): the tracker talks BLE instead of
   ESB. Best with the **receiver in BLE mode** (receiver console `ble on`): SlimeVR Server reads it
-  as before (USB HID), trackers keep their ids, `remote_config.py --tracker` works; six moving
-  trackers at ~135 packets/s each. Also: the PC's Bluetooth with `tools/ble_bridge.py`, or an
-  ESP32-C6/S3 (`BleReceiver/`). No OTA over BLE. nRF52840 trackers. See [docs/BLE.md](docs/BLE.md).
+  as before (USB HID), trackers keep their ids, `remote_config.py --tracker` works; eight moving
+  trackers at 122-136 packets/s each, ten at ~120/s (build option), 1M PHY as an option. Also: the
+  PC's Bluetooth with `tools/ble_bridge.py`, or an ESP32-C6/S3 (`BleReceiver/`). No OTA over BLE.
+  nRF52840 trackers. See [docs/BLE.md](docs/BLE.md).
+- **Tracker robustness**: hardware watchdog, IMU re-initialized when it stops sending, a USB thread
+  bug that froze trackers fixed; ABRJ Chrysalis magnetometer through the IMU's sensor hub
+  (`make tracker-chrysalis`). See [docs/TRACKER.md](docs/TRACKER.md).
 - **Always on**: no sleep when still (`USE_IMU_WAKE_UP=n`, `USE_ACTIVE_TIMEOUT=n`), as SlimeVR's
   "Sleep (WOM) off" builds. A tracker still powers off after 5 min without its receiver.
 - The tracker version comes from this repository's tags (`tools/bump_version.py`).

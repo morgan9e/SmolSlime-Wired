@@ -8,6 +8,19 @@ once 122-136 packets/s each (ESB gave 100), no gap over 50 ms, 0.0-0.3% of their
 at the trackers (newest kept). AB6C reached only ~63/s: its IMU interrupt line does not work, it
 polls.
 
+Ten trackers (2026-10-15, the eight plus two ABRJ Chrysalis, `RECEIVER_BLE_MAX_TRACKERS=10`), all
+sending at full rate on a desk (`sensor_send_unchanged`, [TRACKER.md](TRACKER.md)), 30 s each:
+
+| | 2M, 16.25 ms | 1M (`RECEIVER_BLE_PHY_1M`), 20 ms |
+|---|---|---|
+| Per tracker | ~120/s (102-138) | ~97/s (83-99) |
+| All ten | 1070/s | 874/s |
+| Lost over the air | 0 (receiver count = tracker sent count) | 0 |
+| Dropped at the trackers (made ~139/s) | 12% | 28% |
+
+Worn in play (2026-10-14, eight trackers, 2M): nothing went offline, longest silence 188 ms (ESB
+with the same trackers: 1.4 s and 3.2 s); see [Measured](#measured).
+
 Status (2026-10-14): built for every tracker image; PC bridge unit-tested. On hardware (ProMicro
 D235, standard MPSL clocks): ESB on the dongle 28.9 packets/s with no gaps; BLE from a Linux laptop
 (BlueZ) connects 3/3 in under 1.5 s and streams ~30 packets/s with 0 lost; settings over BLE work.
@@ -86,13 +99,19 @@ The receiver firmware (`make receiver`, the nRF52840 Dongle) has a BLE central b
 - Timing: up to 8 trackers in a 12.5 ms interval, each 1.5 ms of it, two notification exchanges
   (`BT_CTLR_SDC_MAX_CONN_EVENT_LEN_DEFAULT`): up to 160 packets/s per tracker; a moving tracker
   sends about 167/s, ~130/s get through. 1 s supervision timeout. More trackers: build option
-  `CONFIG_RECEIVER_BLE_MAX_TRACKERS` (default 8; 10: 16.25 ms, ~123/s each; untested). One interval for any count:
+  `CONFIG_RECEIVER_BLE_MAX_TRACKERS` (default 8; 10: 16.25 ms, ~120/s each, tested). One interval for any count:
   10 ms for up to six, switched to 12.5 ms when a seventh connected, left one or two of eight
   moving trackers at half rate (their events overlapped after the switch).
   Measured on the way there (six moving): 7.5 ms with 0.9 ms each, and 10 ms with 1.2 ms each,
   allowed one exchange per event (the controller budgets 27-byte packets both ways, ~0.6 ms on
   2M) and the trackers dropped ~17-30%. Scanning stays at 30 ms a second while any tracker is
   connected: 30 of 60 ms took 27-35% from some moving trackers.
+- PHY: 2M by default. `CONFIG_RECEIVER_BLE_PHY_1M` takes the controller's 2M support out, so every
+  link stays on 1M: about 3 dB more sensitivity (≈ -95 against -92 dBm) for body-blocked trackers,
+  twice the air time; each tracker gets 1.9 ms and the interval follows (8: 16.25 ms, 10: 20 ms).
+- A connected tracker that sends nothing for 5 s is disconnected and reconnects (`SILENT_MS`): a
+  tracker whose firmware stopped sending kept its link alive with empty packets and froze in
+  SlimeVR.
 - LF clock: calibrated RC with BLE built in (upstream synthesizes it from the HF crystal; the
   Dongle has no 32 kHz crystal). MPSL keeps its default clock control in both modes.
 - Flash: console `dfu`, then `nrfutil device program --firmware dist/SlimeNRF_Nordic_Dongle_Receiver.zip
@@ -101,7 +120,7 @@ The receiver firmware (`make receiver`, the nRF52840 Dongle) has a BLE central b
 ### ESP32-C6 receiver
 
 Instead of the PC's Bluetooth, an ESP32-C6 board on USB can be the central (`BleReceiver/`, ESP-IDF
-v5.5, NimBLE). It finds trackers by their service UUID, connects up to 8 at once, subscribes, and
+v5.5, NimBLE). It finds trackers by their service UUID, connects up to 10 at once, subscribes, and
 passes the notifications to the PC as text lines on its USB Serial/JTAG port; the bridge forwards
 them to SlimeVR as usual, and settings work the same way:
 
@@ -113,6 +132,13 @@ them to SlimeVR as usual, and settings work the same way:
 - It sets 7.5 ms and a 1 s supervision timeout itself, after the tracker's own request (7.5-15 ms,
   4 s) comes in: at 15 ms, one notification per event carries 66 packets/s, short of the moving
   rate, and a 4 s timeout keeps a tracker sending into the void that long after the receiver resets.
+- Seeed XIAO ESP32-C6: its radio goes through an RF switch (GPIO3 low powers it, GPIO14 high picks
+  the U.FL connector). The build switches to U.FL at boot (`CONFIG_SLIME_XIAO_C6_ANTENNA`); console
+  `N 0` / `N 1` picks onboard / U.FL. Without it an antenna on the U.FL connector does nothing.
+- Measured (2026-10-15): U.FL with a 2.4 GHz antenna beat the onboard antenna by 0-11 dB per
+  tracker and was about equal to the nRF dongle (±7 dB). Trackers: seven moving at 7.5 ms lost
+  ≤0.5%; nine moving lost up to 45% on one (interval not tuned past seven). Ten connections
+  configured (`sdkconfig.defaults.esp32c6`); its controller took eight at 7.5 ms without refusing one.
 - **Opening and closing its port can reset it**: the USB Serial/JTAG resets the chip on some
   DTR/RTS changes (pyserial asserts both on open; Windows drops DTR first on close), and every
   tracker then waits out its supervision timeout. `ble_bridge.py` opens it with both off
@@ -145,6 +171,44 @@ settings (it finds the S3 by its serial number `5333…` and forwards no data).
 LED: short blink every second while advertising (as when pairing), four flashes on connect.
 With `user_shutdown` on, a tracker that stays unconnected for `connection_timeout_delay` powers
 off, as it does without a receiver.
+
+## Measured
+
+Receivers compared (2026-10-14/15):
+
+| | nRF52840 Dongle | XIAO ESP32-C6 | XIAO ESP32-S3 |
+|---|---|---|---|
+| Trackers at full rate | 10, 0 lost over the air | 7 (≤0.5% lost); 9: up to 45% on one | 4 at 15 ms; 8 only at 30 ms (~66/s) |
+| Signal | reference (PCB antenna, +8 dBm) | U.FL: about equal (±7 dB) | needs a 2.4 GHz antenna: -92…-98 dBm without |
+| To SlimeVR | USB HID | `ble_bridge.py --serial` | USB HID |
+
+Signal at the dongle (RSSI it reports, 2M):
+
+| | RSSI |
+|---|---|
+| On the desk, ten trackers | -35 to -62 dBm (Chrysalis -35/-38; once -76) |
+| Worn, active play, average | -57 to -74 dBm per tracker |
+| Worn, worst moment | -74 to -87 dBm (D235, 0791 lowest) |
+| 2M needs / 1M needs | about -92 / -95 dBm |
+
+Worn in play, per tracker (2026-10-14, "move a lot" minute):
+
+| Tracker | Avg while moving | Longest gap | RSSI avg / worst |
+|---|---|---|---|
+| FBB1 | 132/s | 51 ms | -59 / -82 |
+| 8DAA | 131/s | 51 ms | -59 / -78 |
+| 0791 | 128/s | 63 ms | -67 / -82 |
+| D235 | 117/s | 125 ms | -74 / -82 |
+| 04A6 | 116/s | 101 ms | -70 / -79 |
+| DEE8 | 111/s | 137 ms | -71 / -83 |
+| FAE4 (XIAO, 8% battery) | 89/s | 188 ms | -74 / -83 |
+| AB6C (polls, no IMU interrupt) | 64/s | 62 ms | -57 / -74 |
+
+The rate follows the signal: weaker links retransmit, and a retransmission takes one of the two
+exchanges a tracker gets per interval. In normal play trackers sit at their resting rate (~22-28/s)
+and burst to 80-138/s when they move; longest gap 176 ms. The weakest trackers keep only 5-10 dB of
+margin when the body blocks them: the dongle on a USB extension, up high and in the open, is the
+first thing to try, then the 1M PHY. Not measured: RSSI against distance.
 
 ## What it is
 
@@ -181,16 +245,16 @@ off, as it does without a receiver.
 
 ## Open
 
-- Hardware: six trackers on one adapter, latency, range, and current draw in both modes. OTA and
-  flash writes in ESB mode with MPSL idle (timeslots) are not checked yet.
+- Not measured: latency, RSSI against distance, current draw in both modes. OTA and flash writes
+  in ESB mode with MPSL idle (timeslots) are not checked yet.
+- 1M PHY measured on a desk only; whether its 3 dB helps body-blocked trackers in play is untested.
 - Windows PC central: connection starts fail (Realtek adapter with headphone audio on it). The
   ESP32-C6 receiver avoids it.
-- ESP32-C6 receiver: five trackers tested while still; six moving at 7.5 ms each may be more than
-  its controller schedules. It keeps scanning (30 of 60 ms) while it has room for more trackers.
-  Once (2026-10-14, while five trackers were plugged in on the same hub) its USB output went
-  silent while it kept running; a reset brought it back. Not reproduced.
-- 7A93 (stacked I2C, no button) did not come back after `flash_usb.py` put the current I2C image
-  on it: no USB, no ESB. Untested whether the I2C image boots at all.
+- ESP32-C6 receiver: interval not tuned past seven moving trackers. It keeps scanning (30 of 60 ms)
+  while it has room for more trackers. Once (2026-10-14) its USB output went silent while it kept
+  running; flashing the current build fixed it. Not reproduced.
+- Receiver: once (2026-10-15) the dongle did not come back after `ble off` then `ble on`; a replug
+  did, and the switch worked on the next try. Not reproduced.
 - Firmware updates over BLE are not implemented (ESB or USB only). This repository's own OTA
   protocol over GATT would fit; mcumgr would not fit the XIAO's slot (about 27 KB free).
 - The bridge keeps scanning after its trackers are connected, which costs throughput on Windows.
