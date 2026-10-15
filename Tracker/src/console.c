@@ -26,6 +26,8 @@
 #include <zephyr/sys/reboot.h>
 #include <zephyr/sys/base64.h>
 
+#include "system/watchdog.h"
+
 #include <ctype.h>
 
 LOG_MODULE_REGISTER(console, LOG_LEVEL_INF);
@@ -236,6 +238,7 @@ static void print_info(void)
 	print_connection();
 	printk("\n");
 	print_battery();
+	watchdog_print();
 }
 
 static void print_uptime(const uint64_t ticks, const char *name)
@@ -636,6 +639,9 @@ static void console_thread(void)
 		}
 		else if (strcmp(argv[0], command_scan) == 0)
 		{
+			// A full scan: forget the sensors found or ruled out before (a magnetometer once not found
+			// is not searched again, kept in retained RAM through resets and firmware updates)
+			sensor_scan_clear();
 			sensor_request_scan(true);
 		}
 		else if (strcmp(argv[0], command_calibrate) == 0)
