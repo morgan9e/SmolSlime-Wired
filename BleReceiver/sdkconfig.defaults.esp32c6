@@ -3,3 +3,8 @@ CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
 
 # Seeed XIAO ESP32-C6: radio on the U.FL antenna (main/Kconfig.projbuild; console N 0|1)
 CONFIG_SLIME_XIAO_C6_ANTENNA=y
+
+# Ten trackers (its controller took eight at 7.5 ms without refusing one; the common default is 8)
+CONFIG_BT_NIMBLE_MAX_CONNECTIONS=10
+CONFIG_BT_NIMBLE_MSYS_1_BLOCK_COUNT=64
+CONFIG_BT_NIMBLE_TRANSPORT_ACL_FROM_LL_COUNT=64
