@@ -110,6 +110,9 @@ static int seen_count;
 static uint32_t adv_reports; // every advertising report, for the status line
 
 static void scan_resume(void);
+#if CONFIG_SLIME_XIAO_C6_ANTENNA
+static void antenna_select(bool external);
+#endif
 
 // Output to the PC. Lines are dropped while nobody reads the port, so BLE never waits on USB.
 static void out(const char *fmt, ...)
@@ -657,6 +660,10 @@ static void command(char *line)
 				ble_gap_update_params(slots[k].conn, &params);
 		out("# interval %d.%02d ms", i * 125 / 100, i * 125 % 100);
 	}
+#if CONFIG_SLIME_XIAO_C6_ANTENNA
+	else if (line[0] == 'N' && sscanf(line + 1, "%d", &i) == 1)
+		antenna_select(i);
+#endif
 	else if (line[0] == 'L')
 	{
 		for (int k = 0; k < id_count; k++)
@@ -765,6 +772,27 @@ static void status_task(void *param)
 	}
 }
 
+#if CONFIG_SLIME_XIAO_C6_ANTENNA
+#include "driver/gpio.h"
+// XIAO ESP32-C6 RF switch (Kconfig SLIME_XIAO_C6_ANTENNA): GPIO3 low powers it, GPIO14 high routes
+// the radio to the U.FL connector, low to the onboard ceramic antenna
+static void antenna_select(bool external)
+{
+	gpio_set_level(GPIO_NUM_14, external);
+	out("# antenna: %s", external ? "U.FL (external)" : "onboard");
+}
+
+static void antenna_init(void)
+{
+	gpio_reset_pin(GPIO_NUM_3);
+	gpio_set_direction(GPIO_NUM_3, GPIO_MODE_OUTPUT);
+	gpio_set_level(GPIO_NUM_3, 0);
+	gpio_reset_pin(GPIO_NUM_14);
+	gpio_set_direction(GPIO_NUM_14, GPIO_MODE_OUTPUT);
+	antenna_select(true);
+}
+#endif
+
 void app_main(void)
 {
 	lock = xSemaphoreCreateMutex();
@@ -778,6 +806,9 @@ void app_main(void)
 	ESP_ERROR_CHECK(err);
 
 	link_init();
+#if CONFIG_SLIME_XIAO_C6_ANTENNA
+	antenna_init(); // before the radio starts
+#endif
 	data_lines = !link_hid;
 	ids_load();
 	hello();

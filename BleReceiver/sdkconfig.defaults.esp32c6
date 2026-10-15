@@ -1,2 +1,5 @@
 # The PC link: USB Serial/JTAG (the board's only USB port), also the console
 CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+
+# Seeed XIAO ESP32-C6: radio on the U.FL antenna (main/Kconfig.projbuild; console N 0|1)
+CONFIG_SLIME_XIAO_C6_ANTENNA=y

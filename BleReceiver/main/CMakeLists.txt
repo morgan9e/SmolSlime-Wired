@@ -8,4 +8,4 @@ else()
 endif()
 
 idf_component_register(SRCS "main.c" ${link_src}
-                       PRIV_REQUIRES bt nvs_flash esp_driver_usb_serial_jtag vfs)
+                       PRIV_REQUIRES bt nvs_flash esp_driver_usb_serial_jtag esp_driver_gpio vfs)

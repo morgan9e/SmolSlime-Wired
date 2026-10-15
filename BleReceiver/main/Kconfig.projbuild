@@ -1,0 +1,12 @@
+menu "SlimeVR BLE receiver"
+
+config SLIME_XIAO_C6_ANTENNA
+    bool "Seeed XIAO ESP32-C6: RF switch (onboard / U.FL antenna)"
+    depends on IDF_TARGET_ESP32C6
+    help
+        The XIAO ESP32-C6 routes its radio through an RF switch: GPIO3 low powers it, GPIO14 picks
+        the antenna (low: the onboard ceramic one, high: the U.FL connector). Without this the
+        radio stays on the onboard antenna whatever is plugged in. The receiver starts on the U.FL
+        antenna; console N 0 / N 1 switches (main.c).
+
+endmenu
