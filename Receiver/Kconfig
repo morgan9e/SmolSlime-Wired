@@ -104,9 +104,10 @@ config RECEIVER_BLE_MAX_TRACKERS
     default 8
     help
         Sets the BLE connections and the connection interval (src/connection/ble.c): each tracker
-        gets 1.5 ms of it (two notification exchanges), plus 0.5 ms spare, in 1.25 ms steps:
-        8 trackers 12.5 ms (up to 160 packets/s each, tested), 10 trackers 16.25 ms (~123/s),
-        12 trackers 18.75 ms (~107/s). The interval is fixed for any count connected.
+        gets 1.5 ms of it on 2M (two notification exchanges; 1.9 ms on 1M, RECEIVER_BLE_PHY_1M),
+        plus 0.5 ms spare, in 1.25 ms steps: 8 trackers 12.5 ms (up to 160 packets/s each,
+        tested), 10 trackers 16.25 ms (~123/s), 12 trackers 18.75 ms (~107/s). The interval is
+        fixed for any count connected.
 
 config BT_MAX_CONN
     default RECEIVER_BLE_MAX_TRACKERS
@@ -118,7 +119,25 @@ config BT_CTLR_SDC_MAX_CONN_EVENT_LEN_DEFAULT_OVERRIDE
     default y
 
 config BT_CTLR_SDC_MAX_CONN_EVENT_LEN_DEFAULT
+    default 1900 if RECEIVER_BLE_PHY_1M
     default 1500
+
+config RECEIVER_BLE_PHY_1M
+    bool "BLE on the 1M PHY (range) instead of 2M (rate)"
+    help
+        The 1M PHY hears about 3 dB weaker signals than 2M (about -95 against -92 dBm), for
+        trackers your body blocks; a packet takes twice the air time. The controller's 2M support
+        goes, so every link stays on 1M whatever the tracker asks; each tracker gets 1.9 ms of the
+        interval (two exchanges budgeted for 27-byte packets both ways, ~0.9 ms each on 1M) and
+        the interval follows (ble.c): 8 trackers 16.25 ms (~123 packets/s each), 10 trackers
+        20 ms (~100/s).
+
+config BT_CTLR_PHY_2M
+    default n if RECEIVER_BLE_PHY_1M
+
+choice BT_AUTO_PHY_CENTRAL
+    default BT_AUTO_PHY_CENTRAL_1M if RECEIVER_BLE_PHY_1M
+endchoice
 
 choice BT_CTLR_TX_PWR
     default BT_CTLR_TX_PWR_PLUS_8
