@@ -16,7 +16,7 @@ class SettingsTable(unittest.TestCase):
     def test_ids(self):
         self.assertEqual(rc.setting_id('user_extra_actions'), 0)
         self.assertEqual(rc.setting_id('sensor_update_time_ms'), 29)
-        self.assertEqual(rc.setting_id('connection_over_ble'), len(rc.SETTINGS) - 1)
+        self.assertEqual(rc.setting_id('sensor_send_unchanged'), len(rc.SETTINGS) - 1)
         self.assertEqual(rc.setting_id('7'), 7)
 
 

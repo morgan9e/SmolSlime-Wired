@@ -51,7 +51,7 @@ SETTINGS = [
     # 3: int32
     'connection_timeout_delay', 'sensor_lp_timeout', 'imu_timeout_ramp_min', 'imu_timeout_ramp_max',
     'active_timeout_threshold', 'active_timeout_delay', 'battery_low_runtime_threshold',
-    'sensor_update_time_ms', 'connection_over_ble',
+    'sensor_update_time_ms', 'connection_over_ble', 'sensor_send_unchanged',
 ]
 
 RESULT = re.compile(r'cfg: (?:idle, last: )?tracker (\d+) setting (\d+)(?: = (-?\d+)|: (.+))$')

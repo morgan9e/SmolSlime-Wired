@@ -1108,7 +1108,8 @@ void sensor_loop(void)
 			// Update orientation
 			bool send_quat_data = !q_epsilon(q, last_q, 0.001);
 			bool send_lin_accel_data = !v_epsilon(lin_a, last_lin_a, 0.05);
-			if (send_quat_data || send_lin_accel_data)
+			// sensor_send_unchanged: a still tracker keeps the full rate (radio load tests)
+			if (send_quat_data || send_lin_accel_data || CONFIG_3_SETTINGS_READ(CONFIG_3_SENSOR_SEND_UNCHANGED))
 			{
 				memcpy(last_q, q, sizeof(q));
 				memcpy(last_lin_a, lin_a, sizeof(lin_a));
