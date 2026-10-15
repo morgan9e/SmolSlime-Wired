@@ -102,9 +102,17 @@ static uint8_t meow_colors[] = {
 	177
 };
 
+// USB connected / disconnected (usb.c). A second "connected" without a "disconnected" between
+// them created the running thread over itself: that corrupts the scheduler's queue, and every
+// thread at its priority and below stopped for good (trackers on USB for hours, or plugged in
+// to charge, froze while their BLE link stayed up). Created and aborted once each now.
+static atomic_t console_thread_running;
+
 void console_thread_create(void)
 {
 #if USB_EXISTS
+	if (!atomic_cas(&console_thread_running, 0, 1))
+		return;
 	k_thread_create(&console_thread_id, console_thread_id_stack, K_THREAD_STACK_SIZEOF(console_thread_id_stack), (k_thread_entry_t)console_thread, NULL, NULL, NULL, CONSOLE_THREAD_PRIORITY, 0, K_NO_WAIT);
 #endif
 }
@@ -112,6 +120,8 @@ void console_thread_create(void)
 void console_thread_abort(void)
 {
 #if USB_EXISTS
+	if (!atomic_cas(&console_thread_running, 1, 0))
+		return;
 	k_thread_abort(&console_thread_id);
 #endif
 }

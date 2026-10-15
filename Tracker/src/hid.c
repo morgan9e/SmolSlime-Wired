@@ -68,13 +68,20 @@ static const uint8_t hid_report_desc[] = {
 	HID_END_COLLECTION,
 };
 
+// Created and aborted once each, as the console thread (console.c console_thread_create)
+static atomic_t hid_thread_running;
+
 void hid_thread_create(void)
 {
+	if (!atomic_cas(&hid_thread_running, 0, 1))
+		return;
 	k_thread_create(&hid_thread_id, hid_thread_id_stack, K_THREAD_STACK_SIZEOF(hid_thread_id_stack), (k_thread_entry_t)hid_thread, NULL, NULL, NULL, HID_THREAD_PRIORITY, 0, K_NO_WAIT);
 }
 
 void hid_thread_abort(void)
 {
+	if (!atomic_cas(&hid_thread_running, 1, 0))
+		return;
 	k_thread_abort(&hid_thread_id);
 }
 
