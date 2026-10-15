@@ -318,6 +318,12 @@ int lsm_ext_setup(sensor_ext_mode_t mode, const sensor_mag_t *mag, uint8_t mag_a
 		case SENSOR_EXT_MODE_I2CM_PROXY:
 			// enable internal pull-up for auxiliary I2C
 			err |= ssi_reg_write_byte(SENSOR_INTERFACE_DEV_IMU, LSM6DSV_IF_CFG, 0x58); // SHUB_PU_EN, INT H_LACTIVE active low, PP_OD open-drain
+			// The sensor hub runs its transactions on accelerometer samples: during the sensor scan the
+			// accelerometer may still be off, and every read through it came back zero (sensor init
+			// sets the accelerometer up properly later)
+			uint8_t ctrl1;
+			if (!ssi_reg_read_byte(SENSOR_INTERFACE_DEV_IMU, LSM6DSV_CTRL1, &ctrl1) && !(ctrl1 & 0x0F))
+				err |= ssi_reg_write_byte(SENSOR_INTERFACE_DEV_IMU, LSM6DSV_CTRL1, OP_MODE_XL_LP1 << 4 | ODR_240Hz);
 			sensor_interface_ext_configure(&sensor_ext_lsm6dsv);
 			break;
 		
@@ -351,7 +357,7 @@ int lsm_ext_write(const uint8_t addr, const uint8_t *buf, uint32_t num_bytes)
 	// Wait for transaction
 	uint8_t status = 0;
 	int64_t timeout = k_uptime_get() + 10;
-	while ((status & 0x80) && k_uptime_get() < timeout) // WR_ONCE_DONE
+	while (!(status & 0x80) && k_uptime_get() < timeout) // until WR_ONCE_DONE
 		err |= ssi_reg_read_byte(SENSOR_INTERFACE_DEV_IMU, LSM6DSV_STATUS_MASTER, &status);
 	err |= ssi_reg_write_byte(SENSOR_INTERFACE_DEV_IMU, LSM6DSV_MASTER_CONFIG, 0x00); // disable I2C master
 	k_usleep(300);
@@ -385,18 +391,22 @@ int lsm_ext_write_read(const uint8_t addr, const uint8_t *write_buf, size_t num_
 	err |= ssi_reg_read_byte(SENSOR_INTERFACE_DEV_IMU, LSM6DSV_OUTX_H_A, &tmp); // clear XLDA
 	uint8_t status = 0;
 	int64_t timeout = k_uptime_get() + 10;
-	while ((status & 0x01) && k_uptime_get() < timeout) // XLDA
+	while (!(status & 0x01) && k_uptime_get() < timeout) // until XLDA: the next accelerometer sample starts the transaction
 		err |= ssi_reg_read_byte(SENSOR_INTERFACE_DEV_IMU, LSM6DSV_STATUS_REG, &status);
 	status = 0;
 	timeout = k_uptime_get() + 10;
-	while ((status & 0x01) && k_uptime_get() < timeout) // SENS_HUB_ENDOP
+	while (!(status & 0x01) && k_uptime_get() < timeout) // until SENS_HUB_ENDOP
 		err |= ssi_reg_read_byte(SENSOR_INTERFACE_DEV_IMU, LSM6DSV_STATUS_MASTER_MAINPAGE, &status);
+	// Not finished, or nobody answered (SLAVE0_NACK): the data registers hold an older transfer's bytes
+	bool failed = !(status & 0x01) || (status & 0x08);
 	// Read data
 	err |= ssi_reg_write_byte(SENSOR_INTERFACE_DEV_IMU, LSM6DSV_FUNC_CFG_ACCESS, 0x40); // switch to sensor hub registers
 	err |= ssi_reg_write_byte(SENSOR_INTERFACE_DEV_IMU, LSM6DSV_MASTER_CONFIG, 0x00); // disable I2C master
 	k_usleep(300);
 	err |= ssi_burst_read(SENSOR_INTERFACE_DEV_IMU, LSM6DSV_SENSOR_HUB_1, read_buf, num_read);
 	err |= ssi_reg_write_byte(SENSOR_INTERFACE_DEV_IMU, LSM6DSV_FUNC_CFG_ACCESS, 0x00); // switch to normal registers
+	if (failed && !err)
+		err = -EIO;
 	return err;
 }
 
