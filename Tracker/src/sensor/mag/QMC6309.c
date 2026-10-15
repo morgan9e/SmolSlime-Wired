@@ -167,6 +167,21 @@ void qmc_mag_oneshot(void)
 void qmc_mag_read(float m[3])
 {
 	int err = 0;
+	uint8_t rawData[6];
+	// Behind the IMU's sensor hub DRDY was seen set on only 2-3 of the 10 samples per second, the
+	// rest polled for nothing at an IMU sample period each: read the data, the sensor loop skips a
+	// sample it already has
+	if (sensor_interface_is_ext(SENSOR_INTERFACE_DEV_MAG))
+	{
+		oneshot_trigger_time = 0;
+		if (ssi_burst_read(SENSOR_INTERFACE_DEV_MAG, QMC6309_OUTX_L_REG, rawData, 6))
+		{
+			LOG_ERR("Communication error");
+			return;
+		}
+		qmc_mag_process(rawData, m);
+		return;
+	}
 	uint8_t status = 0; // Always check DRDY
 	int64_t timeout = (oneshot_trigger_time ? oneshot_trigger_time : k_uptime_get()) + 2; // 2ms timeout
 	oneshot_trigger_time = 0;
@@ -194,7 +209,6 @@ void qmc_mag_read(float m[3])
 	{
 		lastOvfl = 0;
 	}
-	uint8_t rawData[6];
 	err |= ssi_burst_read(SENSOR_INTERFACE_DEV_MAG, QMC6309_OUTX_L_REG, rawData, 6);
 	if (err)
 		LOG_ERR("Communication error");
