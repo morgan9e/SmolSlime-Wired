@@ -51,7 +51,7 @@ Result on CF025C07AA21: 122 packets/s at full rate with the magnetometer, no FIF
 
 | Board | State |
 |---|---|
-| AB6C (7A93, stacked I2C) | IMU interrupt line does not work: polls, ~64 packets/s. Rework planned: CS→P1.00, SDO→P0.11, INT1→P0.02. |
+| AB6C (7A93) | Was stacked I2C with CS, SDO and INT1 unconnected (polled, ~64 packets/s). Soldered CS→P1.00, SDO→P0.11, INT1→P0.02 (2026-10-16): now the stacked SPI image, interrupt working, 149 packets/s at full rate. |
 | FAE4 (XIAO Sense) | Weakest signal in play; ran down to 5% battery during tests. |
 | CF025C07AA21 (Chrysalis) | Magnetometer works, but the board resets: the IMU alone at random (1-46 min, every register back to its reset value), and twice the whole board (USB gone 1-30 s, no watchdog). Same with the magnetometer off. Suspect power or a joint; try another cable and port, else return it. Runs with `sensor_use_mag 0`. |
 | 8A46270F33C2 (Chrysalis) | Magnetometer never found, also after power cycles: every sensor-hub transfer times out. Hardware. Otherwise fine: 1.5 h without a reset or stall. |
